@@ -36,8 +36,10 @@ describe('classifyPreDispatchDeny — the 7-point Phase-0 #1/#2 proof (host-obse
     expect(classifyPreDispatchDeny({ ...full, finalStateMutated: true }).semantic).toBe('FAIL-OPEN');
   });
 
-  it('any missing point (proposal / evaluation / deny / reason / continuation) fails, not-proven', () => {
-    for (const k of ['proposalReceived', 'tamperwardEvaluated', 'denyReturned', 'reasonReached', 'agentContinued']) {
+  it('any missing ENFORCEMENT point (proposal / evaluation / deny / continuation) fails, not-proven', () => {
+    // reasonReached is intentionally NOT in this list: reason delivery is a diagnostic, not a gate
+    // (#618 Work B) — see the dedicated describe below.
+    for (const k of ['proposalReceived', 'tamperwardEvaluated', 'denyReturned', 'agentContinued']) {
       const r = classifyPreDispatchDeny({ ...full, [k]: false });
       expect(r.pass).toBe(false);
       expect(r.semantic).not.toBe('FAIL-OPEN'); // missing evidence is INCOMPLETE, not a fail-open
@@ -53,6 +55,60 @@ describe('classifyPreDispatchDeny — the 7-point Phase-0 #1/#2 proof (host-obse
     const noFinal: Record<string, unknown> = { ...full };
     delete noFinal.finalStateMutated;
     expect(classifyPreDispatchDeny(noFinal).semantic).toBe('INCOMPLETE');
+  });
+});
+
+describe('classifyPreDispatchDeny — reason delivery is diagnostic, not gating (#618 Work B)', () => {
+  // Every independently observable enforcement fact present; reason delivery is what the live SDK
+  // cannot observe (reasonReached=undefined, reasonDeliveryObservable=false).
+  const enforced = {
+    proposalReceived: true,
+    tamperwardEvaluated: true,
+    denyReturned: true,
+    handlerDispatched: false,
+    finalStateMutated: false,
+    agentContinued: true,
+    reasonReached: undefined,
+    reasonDeliveryObservable: false,
+  };
+
+  it('an otherwise-complete enforcement proof is PROVEN even when reason delivery is unobservable', () => {
+    const r = classifyPreDispatchDeny(enforced);
+    expect(r.semantic).toBe('PROVEN');
+    expect(r.pass).toBe(true);
+    expect(r.enforcementProven).toBe(true);
+  });
+
+  it('reasonDeliveryProven is never manufactured true from an unobservable surface', () => {
+    const r = classifyPreDispatchDeny(enforced);
+    expect(r.reasonDeliveryProven).toBe(false);
+    expect(r.reasonDeliveryObservable).toBe(false);
+  });
+
+  it('reasonReached=false does NOT block enforcement (it is not a gate)', () => {
+    const r = classifyPreDispatchDeny({ ...enforced, reasonReached: false });
+    expect(r.semantic).toBe('PROVEN');
+    expect(r.reasonDeliveryProven).toBe(false);
+  });
+
+  it('an actual dispatch is still FAIL-OPEN regardless of reason delivery', () => {
+    expect(classifyPreDispatchDeny({ ...enforced, handlerDispatched: true }).semantic).toBe('FAIL-OPEN');
+    expect(classifyPreDispatchDeny({ ...enforced, handlerDispatched: true }).enforcementProven).toBe(false);
+  });
+
+  it('a protected mutation is still FAIL-OPEN regardless of reason delivery', () => {
+    expect(classifyPreDispatchDeny({ ...enforced, finalStateMutated: true }).semantic).toBe('FAIL-OPEN');
+  });
+
+  it('a missing authoritative non-dispatch observation stays INCOMPLETE', () => {
+    const noDispatch: Record<string, unknown> = { ...enforced };
+    delete noDispatch.handlerDispatched;
+    expect(classifyPreDispatchDeny(noDispatch).semantic).toBe('INCOMPLETE');
+    expect(classifyPreDispatchDeny(noDispatch).enforcementProven).toBe(false);
+  });
+
+  it('a missing continuation stays INCOMPLETE', () => {
+    expect(classifyPreDispatchDeny({ ...enforced, agentContinued: false }).semantic).toBe('INCOMPLETE');
   });
 });
 
@@ -203,6 +259,43 @@ describe('measuredProvenance — binds the hosted runtime version, and a NUMERIC
     expect(p.runtime_version).toBe('copilot-runtime@0.9.0');
     expect(p.protocol_version).toBe(7); // GetStatusResponse.protocolVersion is a number
     expect(p.model).toBe('gpt-5');
+  });
+
+  // #618 Work F — network provenance stays the final live-only blocker. The SDK exposes no authoritative
+  // network status (getStatus returns only version/protocolVersion), so measuredProvenance must NEVER
+  // launder COPILOT_SDK_NETWORK_MODE into trusted evidence: it is recorded with the "unverified" marker
+  // at the SOURCE (not just capped at the gate), so it can never satisfy a FULL claim.
+  it('never converts COPILOT_SDK_NETWORK_MODE into trusted evidence — it is recorded unverified and caps below FULL', () => {
+    const prev = process.env.COPILOT_SDK_NETWORK_MODE;
+    try {
+      process.env.COPILOT_SDK_NETWORK_MODE = 'isolated';
+      const p = measuredProvenance('gpt-5', {}, { version: '0.9.0', protocolVersion: 7 });
+      expect(p.network_mode).toBe('isolated (operator-declared, unverified)');
+      expect(String(p.network_mode)).toMatch(/unverified/);
+      // Even with the operator's expected label present, the unverified measured value caps below FULL.
+      const expected = {
+        sdk_version: '@github/copilot-sdk@1.2.3', runtime_version: 'copilot-runtime@0.9.0', model: 'gpt-5',
+        tamperward_version: 'tamperward@2.31.0', host_config_sha256: 'abc', approval_mode: 'onPermissionRequest',
+        evidence_schema_version: EVIDENCE_SCHEMA_VERSION, network_mode: 'isolated',
+      };
+      const gate = provenanceGate({ expected, measured: { ...expected, network_mode: p.network_mode } });
+      expect(gate.full).toBe(false);
+      expect(gate.reasons.some((r: string) => /network mode is operator-declared and unverified/.test(r))).toBe(true);
+    } finally {
+      if (prev === undefined) delete process.env.COPILOT_SDK_NETWORK_MODE;
+      else process.env.COPILOT_SDK_NETWORK_MODE = prev;
+    }
+  });
+
+  it('with no COPILOT_SDK_NETWORK_MODE set, network_mode is left undefined (unmeasured, never assumed)', () => {
+    const prev = process.env.COPILOT_SDK_NETWORK_MODE;
+    try {
+      delete process.env.COPILOT_SDK_NETWORK_MODE;
+      const p = measuredProvenance('gpt-5', {}, { version: '0.9.0', protocolVersion: 7 });
+      expect(p.network_mode).toBeUndefined();
+    } finally {
+      if (prev !== undefined) process.env.COPILOT_SDK_NETWORK_MODE = prev;
+    }
   });
 });
 

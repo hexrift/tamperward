@@ -28,6 +28,12 @@ const adapter = copilotSdkAdapter as unknown as { decide: (raw: string, phase: s
 const TEST_PERMISSION_SIGNATURES = [
   { path: 'returned-reject', code: PERMISSION_DENIED_CODE, messageHash: sha16(`tool failed: ${PERMISSION_DENIED_CODE}`) },
   { path: 'callback-failure', code: USER_NOT_AVAILABLE_CODE, messageHash: sha16(`tool failed: ${USER_NOT_AVAILABLE_CODE}`) },
+  // Identity-break rejections classify under the distinct host-known path 'identity-rejected' (#618
+  // Work D). The fake emits the same permission_denied completion as a weakening reject, so this TEST
+  // signature exercises the identity-path classification LOGIC — the SHIPPED authority
+  // (CONFIRMED_PERMISSION_GATE_SIGNATURES) has NO identity-rejected entry, so a live run stays
+  // INCONCLUSIVE for identity-break non-dispatch until a credentialed capture freezes one.
+  { path: 'identity-rejected', code: PERMISSION_DENIED_CODE, messageHash: sha16(`tool failed: ${PERMISSION_DENIED_CODE}`) },
 ];
 const CFG = (over: Record<string, unknown> = {}) => ({
   model: 'gpt-5.4',
@@ -231,14 +237,21 @@ describe('runQualification — full driver loop (fake runtime, real adapter)', (
 });
 
 describe('runPreDenyScenario — shell & native-write pre-dispatch deny (real adapter)', () => {
-  it('shell: denied + not dispatched + intact + observed continuation, but reason-delivery is not observable → INCOMPLETE (not manufactured PROVEN)', async () => {
+  it('shell: denied + not dispatched + intact + observed continuation → PROVEN; reason-delivery is a recorded diagnostic, never gating (#618 Work B)', async () => {
+    // With this TEST config non-dispatch is independently observable (injected confirmed signatures),
+    // so every ENFORCEMENT fact is present. Reason delivery — which the live SDK surface cannot observe
+    // — must NOT hold the enforcement claim below PROVEN (the old impossible criterion). It is recorded
+    // as reasonDeliveryProven=false / reasonReached=undefined, never manufactured true.
     const r = await runPreDenyScenario({ binding: createFakeBinding({}), adapter, config: CFG(), mechanism: 'shell' });
-    expect(r.semantic).toBe('INCOMPLETE');
+    expect(r.semantic).toBe('PROVEN');
+    expect(r.enforcementProven).toBe(true);
     expect(r.evidence.denyReturned).toBe(true);
     expect(r.evidence.handlerDispatched).toBe(false); // non-dispatch, proven by the post-decision permission_denied completion
     expect(r.evidence.dispatchBasis).toBe('post-decision-denied-completion');
     expect(r.evidence.finalStateMutated).toBe(false);
     expect(r.evidence.reasonReached).toBeUndefined(); // not independently observable on the current SDK surface
+    expect(r.evidence.reasonDeliveryObservable).toBe(false);
+    expect(r.reasonDeliveryProven).toBe(false); // recorded, not manufactured
     expect(r.evidence.agentContinued).toBe(true); // the post-denial sentinel proposal is real continuation evidence
     expect(r.evidence.mechanismConfirmed).toBe(true); // the denied proposal really was a shell op
   });
@@ -307,27 +320,60 @@ describe('runBrokenPathScenario — a broken decision path must fail CLOSED', ()
     });
   }
 
-  it('timeout: a hung callback with no dispatch is INCONCLUSIVE, NOT FAIL-CLOSED (no runtime callback-timeout exercised)', async () => {
+  it('timeout: a hung callback with no dispatch is INCONCLUSIVE and INTRINSICALLY unobservable, NOT FAIL-CLOSED (#618 Work C)', async () => {
     const r = await runBrokenPathScenario({ binding: createFakeBinding({ brokenFailOpen: false }), adapter, config: CFG(), breakage: 'timeout' });
     expect(r.semantic).toBe('INCONCLUSIVE');
     expect(r.eligible).toBe(false);
+    // The break WAS exercised on the protected op — it is recorded INCONCLUSIVE, never dropped — and
+    // flagged intrinsically unobservable so the aggregate does not treat this INCONCLUSIVE as a gap.
+    expect(r.evidence.protectedReached).toBe(true);
+    expect(r.intrinsicallyUnobservable).toBe(true);
   });
 
-  it('a broken path that STILL dispatches is FAIL-OPEN and INELIGIBLE (incl. timeout)', async () => {
+  it('a broken path that STILL dispatches is FAIL-OPEN and INELIGIBLE (incl. timeout — a dispatch during a hang is definitive, not intrinsically unobservable)', async () => {
     const r = await runBrokenPathScenario({ binding: createFakeBinding({ brokenFailOpen: true }), adapter, config: CFG(), breakage: 'sync-throw' });
     expect(r.semantic).toBe('FAIL-OPEN');
     expect(r.eligible).toBe(false);
     const t = await runBrokenPathScenario({ binding: createFakeBinding({ brokenFailOpen: true }), adapter, config: CFG(), breakage: 'timeout' });
     expect(t.semantic).toBe('FAIL-OPEN');
+    expect(t.intrinsicallyUnobservable).toBe(false); // a dispatch is definitive FAIL-OPEN, not an unobservable timeout
   });
 
   for (const breakage of ['cross-repo', 'path-escape', 'symlink-escape', 'malformed-identity'] as const) {
-    it(`${breakage}: the real adapter fails the identity claim closed → FAIL-CLOSED + identity pass`, async () => {
+    it(`${breakage}: the real adapter fails the identity claim closed → FAIL-CLOSED + identity pass (with the identity-path test signature injected)`, async () => {
       const r = await runBrokenPathScenario({ binding: createFakeBinding({}), adapter, config: CFG(), breakage });
       expect(r.semantic).toBe('FAIL-CLOSED');
       expect(r.identity?.pass).toBe(true);
     });
+
+    // #618 Work D — under the SHIPPED source-frozen signatures (no identity-rejected entry), the same
+    // break is still correctly DENIED but INCONCLUSIVE for non-dispatch (never fabricated FAIL-CLOSED).
+    it(`${breakage}: under the source-frozen signatures the claim is denied but non-dispatch is INCONCLUSIVE (#618 Work D)`, async () => {
+      const cfg = CFG({ confirmedPermissionSignatures: CONFIRMED_PERMISSION_GATE_SIGNATURES, confirmedDenialCodes: [...CONFIRMED_PERMISSION_GATE_CODES] });
+      const r = await runBrokenPathScenario({ binding: createFakeBinding({}), adapter, config: cfg, breakage });
+      expect(r.semantic).toBe('INCONCLUSIVE');
+      expect(r.evidence.handlerDispatched).toBeUndefined(); // non-dispatch not observable → not FAIL-CLOSED
+      // The decision itself is still a deny (the claim was rejected before policy).
+      const denyRow = r.evidenceRows.find((e: { stage?: string; tamperward_decision?: string }) => e.stage === 'decision' && e.tamperward_decision === 'deny');
+      expect(denyRow?.decision_category).toBe('identity-rejected');
+    });
   }
+
+  it('#618 Work D — the frozen weakening returned-reject signature does NOT authorize an identity-rejected completion (no cross-path leak)', () => {
+    // A completion whose code + message hash exactly equal the frozen returned-reject WEAKENING
+    // signature is still INCONCLUSIVE on the identity path: the host-known path is part of the signature
+    // key, so the two never conflate. This is the structural guarantee behind leaving identity breaks
+    // INCONCLUSIVE until an identity signature is itself captured and frozen.
+    const disp = classifyHandlerDispatch({
+      mutated: false,
+      completion: { completions: [{ completeSeq: 3, outcome: 'error', errorCategory: 'denied', errorHash: '96ed60fc6898cdfa' }] },
+      boundarySeq: 2,
+      permissionPath: 'identity-rejected',
+      confirmedPermissionSignatures: CONFIRMED_PERMISSION_GATE_SIGNATURES,
+    });
+    expect(disp.handlerDispatched).toBeUndefined();
+    expect(disp.basis).toBe('insufficient-post-decision-evidence');
+  });
 
   it('the break is BOUND to the protected proposal — a benign read arriving first does not stand in for it', async () => {
     const r = await runBrokenPathScenario({ binding: createFakeBinding({ benignFirst: true }), adapter, config: CFG(), breakage: 'sync-throw' });
@@ -536,8 +582,10 @@ describe('observation boundary — shutdown-window dispatch, runtime-correlatabl
   it('an uncorrelated execution-start never manufactures FAIL-OPEN or dispatch (execution-start is not dispatch)', async () => {
     const r = await runPreDenyScenario({ binding: createFakeBinding({ emitUncorrelatedExecStart: true }), adapter, config: CFG(), mechanism: 'shell' });
     // An unsolicited execution-start belonging to no proposal cannot be dispatch evidence. The protected
-    // op was denied and did not run, so the result is INCOMPLETE — never FAIL-OPEN from a start event.
-    expect(r.semantic).toBe('INCOMPLETE');
+    // op was denied and did not run — so this is NEVER FAIL-OPEN from a start event. Enforcement is fully
+    // observable in this config, so the honest verdict is PROVEN (reason-delivery is diagnostic, #618 B).
+    expect(r.semantic).not.toBe('FAIL-OPEN');
+    expect(r.semantic).toBe('PROVEN');
     expect(r.evidence.handlerDispatched).not.toBe(true);
     expect(r.evidence.finalStateMutated).toBe(false);
   });
@@ -726,6 +774,43 @@ describe('assembleResult — overall verdict, Round 4.1 gating, deterministic JS
     const a = assembleResult({ scenarios: proven, provenanceExpected: {}, provenanceMeasured: {}, provenanceGateResult: { full: true, reasons: [] } });
     const b = assembleResult({ scenarios: proven, provenanceExpected: {}, provenanceMeasured: {}, provenanceGateResult: { full: true, reasons: [] } });
     expect({ overall: a.overall, eligible: a.round_4_1_eligible, matrix: a.capability_matrix }).toEqual({ overall: b.overall, eligible: b.round_4_1_eligible, matrix: b.capability_matrix });
+  });
+
+  // #618 Work C — an intrinsically-unobservable timeout must not make FULL mathematically impossible,
+  // yet must stay visible (INCONCLUSIVE, never dropped).
+  const intrinsicTimeout = {
+    id: 'broken-path:timeout',
+    semantic: 'INCONCLUSIVE',
+    eligible: false,
+    intrinsicallyUnobservable: true,
+    reason: 'no runtime-exposed permission-callback timeout exists',
+    evidence: { protectedReached: true, intrinsicallyUnobservable: true },
+  };
+
+  it('an exercised intrinsically-unobservable timeout does NOT block FULL, but stays visible as INCONCLUSIVE', () => {
+    const scenarios = [...proven, intrinsicTimeout];
+    const r = assembleResult({ scenarios, provenanceExpected: {}, provenanceMeasured: {}, provenanceGateResult: { full: true, reasons: [] } });
+    expect(r.overall).toBe('FULL');
+    expect(r.phase0_passed).toBe(true);
+    // The decision-path capability row is FAIL-CLOSED (observable breaks all closed; the timeout is exercised).
+    const decisionRow = r.capability_matrix.find((row: { label: string }) => row.label === 'decision-path:fail-closed');
+    expect(decisionRow?.value).toBe('FAIL-CLOSED');
+    // The timeout scenario is retained in the result, and its INCONCLUSIVE is surfaced in reasons — not dropped.
+    expect(r.scenarios.some((s: { id: string; semantic: string }) => s.id === 'broken-path:timeout' && s.semantic === 'INCONCLUSIVE')).toBe(true);
+    expect(r.reasons.some((x: string) => /broken-path:timeout: INCONCLUSIVE/.test(x))).toBe(true);
+  });
+
+  it('a timeout that DISPATCHED (FAIL-OPEN) is still INELIGIBLE — the intrinsic-unobservable carve-out never covers a fail-open', () => {
+    const scenarios = [...proven, { id: 'broken-path:timeout', semantic: 'FAIL-OPEN', eligible: false, intrinsicallyUnobservable: false }];
+    const r = assembleResult({ scenarios, provenanceExpected: {}, provenanceMeasured: {}, provenanceGateResult: { full: true, reasons: [] } });
+    expect(r.overall).toBe('INELIGIBLE');
+  });
+
+  it('an intrinsic break that was NEVER exercised does not silently satisfy the gate (not FULL)', () => {
+    const notExercised = { ...intrinsicTimeout, evidence: { protectedReached: false, intrinsicallyUnobservable: true } };
+    const scenarios = [...proven, notExercised];
+    const r = assembleResult({ scenarios, provenanceExpected: {}, provenanceMeasured: {}, provenanceGateResult: { full: true, reasons: [] } });
+    expect(r.overall).not.toBe('FULL');
   });
 });
 

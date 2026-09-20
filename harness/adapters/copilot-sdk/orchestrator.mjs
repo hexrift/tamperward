@@ -603,6 +603,7 @@ export async function runPreDenyScenario({ binding, adapter, config, mechanism }
     tamperwardEvaluated: run.proposals.length > 0,
     denyReturned: !!protectedProposal?.deny,
     reasonReached: undefined, // not independently observable on the current @github/copilot-sdk surface
+    reasonDeliveryObservable: false, // the SDK exposes no event that proves the feedback reached the model
     agentContinued: run.postDenialProposals > 0,
     handlerDispatched,
     finalStateMutated: state.protectedMutated,
@@ -618,9 +619,11 @@ export async function runPreDenyScenario({ binding, adapter, config, mechanism }
   const mechanismConfirmed = observedKind === expectedKind;
   let semantic = base.semantic;
   const reasons = base.reasons.slice();
-  if (ev.reasonReached === undefined && semantic === 'INCOMPLETE') {
-    reasons.push('reason-delivery to the agent is not independently observable on this SDK surface (recorded INCOMPLETE, not manufactured)');
-  }
+  // Reason-delivery is a DIAGNOSTIC, not a gate (#618 Work B): it never contributes to `reasons`
+  // (which are enforcement blockers). It is recorded as a note and in evidence, never manufactured.
+  const diagnostics = [
+    `reason-delivery to the agent is not independently observable on this @github/copilot-sdk surface (reasonDeliveryProven=${base.reasonDeliveryProven}, recorded, not manufactured, and NOT gating the enforcement claim)`,
+  ];
   if (protectedProposal && !mechanismConfirmed) {
     semantic = 'UNSUPPORTED';
     reasons.unshift(`the protected proposal was kind="${observedKind}" (tool="${observedTool ?? '?'}"), not the expected ${expectedKind} mechanism — this run does not establish ${mechanism} pre-deny`);
@@ -640,11 +643,16 @@ export async function runPreDenyScenario({ binding, adapter, config, mechanism }
     semantic,
     pass: semantic === 'PROVEN',
     reasons,
+    diagnostics,
+    enforcementProven: base.enforcementProven,
+    reasonDeliveryProven: base.reasonDeliveryProven,
     error,
     quiescence,
     evidence: {
       ...ev,
       reasonDeliveryObservable: false,
+      reasonDeliveryProven: base.reasonDeliveryProven,
+      enforcementProven: base.enforcementProven,
       dispatchBasis: disp.basis,
       executionStartObserved,
       protectedCompletion: run.completionFor(protectedRuntimeId) ?? null,
@@ -766,7 +774,16 @@ export async function runBrokenPathScenario({ binding, adapter, config, breakage
     mutated: state.protectedMutated,
     completion: run.completionFor(protectedProposalId),
     boundarySeq: protectedBoundarySeq,
-    permissionPath: identityBreak ? 'returned-reject' : 'callback-failure',
+    // An identity-break rejection is a DISTINCT host-known permission path from an ordinary
+    // weakening reject (#618 Work D): both are "returned rejects", but the adapter rejects an
+    // identity CLAIM (a different reason, so a different sanitized message and message hash) before it
+    // ever reaches policy. Labelling it 'identity-rejected' — not 'returned-reject' — keeps the two
+    // signatures STRUCTURALLY separate so the frozen weakening-reject signature can never authorize an
+    // identity-break non-dispatch, and a future credentialed capture can freeze an identity signature
+    // without conflating it. No identity-break completion has been captured yet (the 2026-09-20 capture
+    // covered only shell-pre-deny and the callback-failure breaks), so under the source-frozen
+    // signatures the identity paths stay INCONCLUSIVE for non-dispatch — the honest state.
+    permissionPath: identityBreak ? 'identity-rejected' : 'callback-failure',
     confirmedPermissionSignatures: config.confirmedPermissionSignatures,
     confirmedDenialCodes: config.confirmedDenialCodes,
   });
@@ -780,6 +797,10 @@ export async function runBrokenPathScenario({ binding, adapter, config, breakage
   let semantic;
   let eligible;
   let reason;
+  // A timeout is INTRINSICALLY unobservable as fail-closed (see below); other breaks are merely
+  // unproven until the confirmed permission-gate signatures are frozen. The aggregate treats the two
+  // differently (#618 Work C), so flag the intrinsic case here rather than re-deriving it downstream.
+  let intrinsicallyUnobservable = false;
   if (!protectedReached) {
     semantic = 'INCONCLUSIVE';
     eligible = false;
@@ -790,15 +811,22 @@ export async function runBrokenPathScenario({ binding, adapter, config, breakage
     eligible = decision.eligible;
     reason = decision.reason;
   }
-  if (breakage === 'timeout' && semantic === 'FAIL-CLOSED') {
-    // A never-resolving callback plus the harness's own observation window is NOT runtime
-    // fail-closed: absent a real runtime-exposed permission-callback timeout, "no dispatch during
-    // our wait" cannot be distinguished from "the runtime is still waiting forever." Record
-    // INCONCLUSIVE rather than converting the harness's wait into a runtime result. (A dispatch during
-    // a timeout is still definitive FAIL-OPEN — handled by the classifier above.)
+  if (breakage === 'timeout' && protectedReached && semantic !== 'FAIL-OPEN') {
+    // A never-resolving callback plus the harness's own observation window is NOT runtime fail-closed:
+    // @github/copilot-sdk@1.0.14 exposes NO authoritative permission-callback timeout completion (a
+    // hung `onPermissionRequest` emits no `tool.execution_complete` at all — it just never resolves),
+    // so "no dispatch during our wait" cannot be distinguished from "the runtime is still waiting
+    // forever." This is INTRINSICALLY unobservable — unlike sync-throw / reject / identity breaks, no
+    // future frozen signature can make a hung callback observably fail-closed — so it must NEVER be
+    // flipped to FAIL-CLOSED from the harness wait alone, and it stays INCONCLUSIVE. It is flagged
+    // `intrinsicallyUnobservable` so the aggregate does not treat this one unavoidable INCONCLUSIVE as
+    // a FULL-blocking gap (which would make Phase-0 FULL mathematically impossible), while still
+    // recording and surfacing it. A dispatch DURING the timeout remains definitive FAIL-OPEN (handled
+    // by the classifier above, so this branch is guarded on `semantic !== 'FAIL-OPEN'`).
     semantic = 'INCONCLUSIVE';
     eligible = false;
-    reason = 'no runtime-exposed permission-callback timeout was exercised; a hung callback only shows no dispatch during the harness observation window, which is not fail-closed semantics';
+    intrinsicallyUnobservable = true;
+    reason = 'no runtime-exposed permission-callback timeout exists on @github/copilot-sdk@1.0.14; a hung callback only shows no dispatch during the harness observation window, which is intrinsically not fail-closed semantics (recorded INCONCLUSIVE and surfaced, not converted to fail-closed and not treated as a FULL-blocking gap)';
   }
   // Observation-boundary cap: a FAIL-CLOSED reading rests on "no dispatch / final state intact", which
   // is only trustworthy once the runtime has actually stopped. If it did not quiesce, the runtime could
@@ -827,10 +855,11 @@ export async function runBrokenPathScenario({ binding, adapter, config, breakage
     semantic,
     eligible,
     reason,
+    intrinsicallyUnobservable,
     identity,
     handlerError,
     quiescence,
-    evidence: { ...ev, protectedReached, dispatchBasis: disp.basis, executionStartObserved, protectedCompletion: run.completionFor(protectedProposalId) ?? null, protectedRuntimeIdPresent: protectedHasRuntimeId, quiesced: quiescence.quiesced, repoRoot: repo.root, finalState: state },
+    evidence: { ...ev, protectedReached, intrinsicallyUnobservable, dispatchBasis: disp.basis, executionStartObserved, protectedCompletion: run.completionFor(protectedProposalId) ?? null, protectedRuntimeIdPresent: protectedHasRuntimeId, quiesced: quiescence.quiesced, repoRoot: repo.root, finalState: state },
     evidenceRows: evidence.entries,
   };
 }
@@ -948,10 +977,22 @@ export function assembleResult({ scenarios, provenanceExpected, provenanceMeasur
     ? { semantic: write.semantic, pass: write.pass }
     : { semantic: 'CANDIDATE' };
   const brokenPaths = scenarios.filter((s) => typeof s.id === 'string' && s.id.startsWith('broken-path:'));
-  // The decision-path row is FAIL-OPEN if ANY required broken path failed open; else FAIL-CLOSED only
-  // if every exercised required break failed closed; else the weakest observed semantic.
+  // The decision-path row is FAIL-OPEN if ANY required broken path failed open (a dispatch on a broken
+  // path is definitive and includes a dispatch during a timeout). Otherwise it is FAIL-CLOSED only when
+  // every OBSERVABLE broken path failed closed. The `timeout` break is INTRINSICALLY unobservable as
+  // fail-closed on @github/copilot-sdk@1.0.14 (a hung callback emits no completion, so "no dispatch
+  // during our wait" is not a runtime signal) — requiring it to be FAIL-CLOSED would make Phase-0 FULL
+  // mathematically impossible (#618 Work C). So an intrinsically-unobservable break does NOT gate
+  // `allClosed`; it must still have been EXERCISED (it is surfaced as INCONCLUSIVE below and never
+  // dropped), and a dispatch during it is still FAIL-OPEN.
   const anyFailOpen = brokenPaths.some((s) => s.semantic === 'FAIL-OPEN');
-  const allClosed = brokenPaths.length > 0 && brokenPaths.every((s) => s.semantic === 'FAIL-CLOSED');
+  const observableBreaks = brokenPaths.filter((s) => !s.intrinsicallyUnobservable);
+  const intrinsicBreaks = brokenPaths.filter((s) => s.intrinsicallyUnobservable);
+  const allObservableClosed = observableBreaks.length > 0 && observableBreaks.every((s) => s.semantic === 'FAIL-CLOSED');
+  // An intrinsically-unobservable break still has to have been run against the protected op (exercised)
+  // — it is recorded INCONCLUSIVE, never silently skipped to reach FULL.
+  const intrinsicExercised = intrinsicBreaks.every((s) => s.evidence?.protectedReached === true);
+  const allClosed = allObservableClosed && intrinsicExercised;
   const decisionPath = anyFailOpen
     ? { semantic: 'FAIL-OPEN', eligible: false }
     : allClosed

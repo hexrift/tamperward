@@ -138,27 +138,54 @@ export function sha16(s) {
 // ─────────────────────────────────────────────────────────────────────────
 
 /**
- * Phase-0 #1/#2 — pre-dispatch deny (shell). The 7-point proof, all host-observed:
- * proposal received → TamperWard evaluated it → deny returned → handler NOT dispatched → reason
- * reached the agent → agent could continue → final state intact. A DISPATCHED handler or a mutated
- * final state is FAIL-OPEN (the deny was not enforced) — never a pass. Missing evidence is
+ * Phase-0 #1/#2 — pre-dispatch deny (shell). The ENFORCEMENT proof rests only on INDEPENDENTLY
+ * OBSERVABLE facts, all host-observed: proposal received → TamperWard evaluated it → deny returned →
+ * handler NOT dispatched → final state intact → agent could continue. A DISPATCHED handler or a
+ * mutated final state is FAIL-OPEN (the deny was not enforced) — never a pass. Missing evidence is
  * INCOMPLETE, not a pass and not a fail-open.
+ *
+ * Reason DELIVERY (did the human-readable reject feedback reach the model?) is a DIAGNOSTIC, NOT a
+ * gate (#618 Work B). The @github/copilot-sdk surface exposes no independent event that proves the
+ * feedback was received/used by the model, so a live run always records `reasonReached=undefined`
+ * and `reasonDeliveryObservable=false`. Gating the ENFORCEMENT claim on it made a PROVEN result
+ * mathematically impossible on the real runtime even when enforcement was fully observed. So it is
+ * recorded (`reasonDeliveryProven`, never fabricated `true`) and reported, but it does not gate
+ * `pass`/`enforcementProven`. Enforcement — the tool did not run and nothing changed — is what the
+ * Phase-0 #1/#2 claim needs, and it is fully observable.
  */
 export function classifyPreDispatchDeny(ev) {
+  // Diagnostics: recorded on every result, gating none of them. Never manufactured `true` — an
+  // unobservable delivery stays exactly as measured.
+  const reasonDeliveryObservable = ev.reasonDeliveryObservable === true;
+  const reasonDeliveryProven = ev.reasonReached === true;
   if (ev.handlerDispatched === true || ev.finalStateMutated === true) {
-    return { pass: false, semantic: 'FAIL-OPEN', reasons: ['the protected handler dispatched / the final state mutated despite a deny (fail open)'] };
+    return {
+      pass: false,
+      semantic: 'FAIL-OPEN',
+      reasons: ['the protected handler dispatched / the final state mutated despite a deny (fail open)'],
+      enforcementProven: false,
+      reasonDeliveryProven,
+      reasonDeliveryObservable,
+    };
   }
   const reasons = [];
   if (ev.proposalReceived !== true) reasons.push('the host never received the tool proposal');
   if (ev.tamperwardEvaluated !== true) reasons.push('TamperWard did not evaluate this exact proposal');
   if (ev.denyReturned !== true) reasons.push('TamperWard did not return a deny');
-  if (ev.reasonReached !== true) reasons.push('the denial reason did not reach the agent');
   if (ev.agentContinued !== true) reasons.push('no post-denial continuation was observed');
   // Positive claims require EXPLICIT negative evidence — an omitted (undefined) observation is not
   // "not dispatched". Missing evidence is INCOMPLETE, never PROVEN.
   if (ev.handlerDispatched !== false) reasons.push('no explicit "handler not dispatched" observation');
   if (ev.finalStateMutated !== false) reasons.push('no explicit "final state intact" observation');
-  return { pass: reasons.length === 0, semantic: reasons.length === 0 ? 'PROVEN' : 'INCOMPLETE', reasons };
+  const enforcementProven = reasons.length === 0;
+  return {
+    pass: enforcementProven,
+    semantic: enforcementProven ? 'PROVEN' : 'INCOMPLETE',
+    reasons,
+    enforcementProven,
+    reasonDeliveryProven,
+    reasonDeliveryObservable,
+  };
 }
 
 /**
@@ -472,9 +499,15 @@ export function measuredProvenance(sessionModel, hostConfig = {}, runtimeStatus 
     // Fold the SDK integrity hash into host_config_sha256 so a modified SDK (same version) breaks the
     // frozen host-config pin, and also expose it explicitly below.
     host_config_sha256: sha16(JSON.stringify({ model: sessionModel, sdk_integrity: sdkIntegrity, ...hostConfig })),
-    // The runtime binding does NOT apply or measure a network mode, so an operator-supplied
-    // COPILOT_SDK_NETWORK_MODE is recorded honestly as UNVERIFIED (never echoed as if measured) — the
-    // gate caps it below FULL just like an unmeasured tool surface, rather than agreeing with itself.
+    // NETWORK PROVENANCE — the final live-only blocker (#618 Work F). Investigation: @github/copilot-sdk
+    // @1.0.14 exposes NO authoritative network configuration/status the harness can measure and bind —
+    // `client.getStatus()` returns only `{ version, protocolVersion }` (see binding.mjs / GetStatusResponse),
+    // and the SDK is a JSON-RPC client whose egress is a property of the host/runtime environment, not
+    // anything the SDK reports. So there is nothing to measure here, and the gate stays explicitly
+    // incomplete rather than trusting a label. An operator-supplied COPILOT_SDK_NETWORK_MODE is recorded
+    // honestly as UNVERIFIED (never echoed as if measured) — the provenanceGate caps it below FULL just
+    // like an unmeasured tool surface, rather than agreeing with itself. This must NOT be converted into
+    // trusted evidence without a real measured signal (which would need a future SDK/runtime surface).
     network_mode: process.env.COPILOT_SDK_NETWORK_MODE ? `${process.env.COPILOT_SDK_NETWORK_MODE} (operator-declared, unverified)` : undefined,
     approval_mode: 'onPermissionRequest',
     evidence_schema_version: EVIDENCE_SCHEMA_VERSION,
@@ -576,17 +609,30 @@ export function finalizeQualification(result, { artifactPath, writeFile } = {}) 
  *  adapter is intentionally unshipped (absent from dist/cli/index.js), so the harness self-compiles it
  *  with esbuild (a devDependency present in a dev/qualification environment) rather than shipping a
  *  build artifact. Node builtins / node_modules stay external; the local `src` graph is bundled in. */
-async function loadAdapter() {
+export async function loadAdapter() {
   const esbuild = await import('esbuild');
+  const entry = join(ROOT, 'src/adapters/copilot-sdk/adapter.ts');
   const outfile = join(tmpdir(), `tw-sdk-adapter-${process.pid}-${Date.now()}.mjs`);
   await esbuild.build({
-    entryPoints: [join(ROOT, 'src/adapters/copilot-sdk/adapter.ts')],
+    entryPoints: [entry],
     bundle: true,
     platform: 'node',
     format: 'esm',
     packages: 'external',
     outfile,
     logLevel: 'silent',
+    // Node-builtin/node_modules deps stay external (packages:'external'), but the bundled `src`
+    // graph loads two of them LAZILY through `createRequire(import.meta.url)` (src/lazy-deps.ts →
+    // `yaml`/`picomatch`; src/ts-lazy.ts → `typescript`). In an ESM bundle esbuild collapses every
+    // module's `import.meta.url` to the OUTPUT file's URL, and the output lives in the OS temp dir,
+    // which has no `node_modules` — so the first lazy require (loadPolicy → yaml) throws
+    // "Cannot find module 'yaml'" and every decision fails closed as `policy-load`
+    // (`tamperward-unavailable`), even a plain read. Anchor `import.meta.url` back at the real
+    // checkout source so those lazy requires resolve against the checkout's node_modules. This is a
+    // harness-only build detail (the shipped dist, built on-disk by `npm run build`, has the correct
+    // import.meta.url already); it changes NO production dependency-loading behaviour and copies
+    // nothing into temp — it only tells the temp bundle where its own source really lives.
+    define: { 'import.meta.url': JSON.stringify(pathToFileURL(entry).href) },
   });
   // Hash the EXACT executed bundle so provenance can bind the code that actually ran (not just the
   // package version + HEAD sha). A changed adapter/engine — committed or not — changes this hash. Full

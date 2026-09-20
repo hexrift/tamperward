@@ -583,20 +583,43 @@ through an injected fake binding + the real adapter (`test/copilot-sdk-qualify.t
 pinned SDK, no credentials, or a missing/`auto` model the harness reports **INSUFFICIENT** and exits
 non-zero — "could not test" is never "passed".
 
+The neutral adapter is intentionally **unshipped** (absent from `dist/`), so the harness self-compiles
+it with esbuild to a temporary ESM module and imports it, hashing the exact bundle into provenance. The
+bundled `src` graph loads `yaml`/`picomatch` lazily via `createRequire(import.meta.url)`; because
+esbuild collapses every module's `import.meta.url` to the output file's URL — which sits in the OS temp
+dir with no `node_modules` — the build anchors `import.meta.url` back at the real checkout source so
+those lazy requires resolve, otherwise the first policy load throws `Cannot find module 'yaml'` and
+every decision fails closed as `tamperward-unavailable` / `policy-load` (the fresh live blocker fixed in
+#618 Work A; regression: `test/copilot-sdk-temp-bundle.test.ts`). This is a harness build detail only —
+the shipped `dist`, built on disk by `npm run build`, has the correct `import.meta.url` and unchanged
+dependency-loading behaviour.
+
 **On the current `@github/copilot-sdk` surface a live run tops out at `INSUFFICIENT`, not FULL or even
-PARTIAL** — and this is a deliberate honesty floor, not a bug. Provenance cannot be fully frozen while
-the runtime neither applies nor measures a network mode (recorded operator-declared/unverified and
-capped), so `provenanceGate.full` is `false` and `buildSpikeMatrix` maps incomplete provenance to
-`INSUFFICIENT` before it can reach `PARTIAL`. Independently, two evidence surfaces keep a required
-Phase-0 path from being *proven* even with full provenance: reason-delivery to the agent is not
-observable (recorded `INCOMPLETE`) and there is no runtime-exposed permission-callback timeout (the
-timeout path stays `INCONCLUSIVE`). `PARTIAL` therefore requires a future SDK surface that exposes a
-verifiable network mode (lifting provenance to full), and `FULL` additionally requires reason-delivery
-and a callback timeout to become observable AND a pinned run proving shell + content-aware file-edit +
-end-of-turn with the broken decision path failing **closed**. Absent that — as today — the honest
-overall is `INSUFFICIENT`, and a single observed fail-open is INELIGIBLE. Copilot stays
-`steering: 'neutral'`, the adapter is not registered as a detected runtime, and **no** Round 4.1
-eligibility is claimed until the exact pinned hosted configuration passes the full #482 parity suite.
+PARTIAL** — and this is a deliberate honesty floor, not a bug. The single live-only blocker is
+**network provenance** (#618 Work F): the SDK exposes no authoritative network configuration/status the
+harness can measure — `client.getStatus()` returns only `{ version, protocolVersion }` — so an
+operator-supplied `COPILOT_SDK_NETWORK_MODE` is recorded operator-declared/**unverified** and capped, it
+is never laundered into trusted evidence, `provenanceGate.full` stays `false`, and `buildSpikeMatrix`
+maps incomplete provenance to `INSUFFICIENT` before it can reach `PARTIAL`. Two intrinsically
+unobservable surfaces are recorded honestly but, by design, do **not** block a would-be `FULL` once
+provenance is complete: **reason-delivery** to the agent is a diagnostic, not a gate (#618 Work B) — the
+Phase-0 enforcement claim rests only on independently observable facts (proposal received → evaluated →
+deny → handler not dispatched → final state intact → agent continued), and `reasonDeliveryProven` is
+recorded, never manufactured `true`; and the **permission-callback timeout** has no runtime-exposed
+completion (a hung callback emits none), so it is *intrinsically* unobservable as fail-closed and stays
+`INCONCLUSIVE` and visible while being carved out of the decision-path fail-closed gate (#618 Work C) —
+a dispatch *during* a timeout is still definitive `FAIL-OPEN`. The **identity-break** paths (cross-repo,
+path-escape, symlink-escape, malformed-identity) are correctly denied but their non-dispatch is
+`INCONCLUSIVE` under the source-frozen signatures: they classify under the distinct host-known path
+`identity-rejected` (never `returned-reject`), and no identity completion has been captured yet, so a
+future credentialed run must capture and freeze one before they can be proven (#618 Work D). `PARTIAL`
+therefore requires a future SDK surface that exposes a **verifiable network mode** (lifting provenance to
+full); `FULL` additionally requires a pinned run proving shell + content-aware file-edit + end-of-turn
+with the *observable* broken decision paths failing **closed** (the intrinsic timeout carved out, its
+INCONCLUSIVE still surfaced). Absent that — as today — the honest overall is `INSUFFICIENT`, and a
+single observed fail-open is INELIGIBLE. Copilot stays `steering: 'neutral'`, the adapter is not
+registered as a detected runtime, and **no** Round 4.1 eligibility is claimed until the exact pinned
+hosted configuration passes the full #482 parity suite.
 
 ### Running Layer (c) locally (authenticated, pinned — not CI)
 
@@ -666,14 +689,21 @@ maintainer-reviewed pinned parity run is the only thing that may later set Round
 Passing the harness never registers a production runtime or flips Copilot to `in-loop`.
 
 Honest limits on the current SDK surface: **reason-delivery to the agent is not independently
-observable**, so the pre-deny scenarios record it `INCOMPLETE` (continuation is observed via a
-post-denial proposal/dispatch, but reason receipt is not manufactured `true`); the **timeout** broken
-path is `INCONCLUSIVE` unless a real runtime-exposed permission-callback timeout is exercised (a hung
-callback plus the harness's own wait is not fail-closed); and the **write** row counts only when the
-observed protected proposal is actually a `write`/`apply_patch` surface (a shell proposal satisfying a
-write prompt is `UNSUPPORTED` for that row). The **broken-decision-path** injection is bound to the
-actual protected *mutation* (identified by the canonical adapter/engine denying it, so a
-non-mutating inspection like `cat` of the same path cannot stand in).
+observable**, so it is a recorded diagnostic (`reasonDeliveryProven`, never manufactured `true`) and
+does **not** gate the enforcement claim (#618 Work B) — the pre-deny scenarios are `PROVEN` on the
+independently observable enforcement facts alone (deny returned, handler not dispatched, final state
+intact, continuation observed via a post-denial proposal/dispatch). The **timeout** broken path has no
+runtime-exposed permission-callback completion, so it is *intrinsically* unobservable as fail-closed: it
+stays `INCONCLUSIVE` and visible, is never flipped to fail-closed from the harness's own wait, and is
+carved out of the decision-path fail-closed gate so it does not make `FULL` impossible (#618 Work C) —
+but a dispatch *during* the hang is still definitive `FAIL-OPEN`. The **identity-break** paths are
+denied but `INCONCLUSIVE` for non-dispatch under the source-frozen signatures (they classify under the
+distinct host-known path `identity-rejected`, and no identity completion has been captured to freeze
+yet — #618 Work D). The **write** row counts only when the observed protected proposal is actually a
+`write`/`apply_patch` surface (a shell proposal satisfying a write prompt is `UNSUPPORTED` for that
+row). The **broken-decision-path** injection is bound to the actual protected *mutation* (identified by
+the canonical adapter/engine denying it, so a non-mutating inspection like `cat` of the same path cannot
+stand in).
 
 **`tool.execution_start` is a lifecycle-START / execution-ATTEMPT observation, never dispatch past the
 permission gate** (#614): the measured hosted runtime emits it *before* the permission callback
