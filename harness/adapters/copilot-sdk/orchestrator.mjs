@@ -30,6 +30,7 @@ import { makeScenarioRepo, finalState, protectedHash, cleanupRepo, makeOutsideDi
 import { CONFIRMED_PERMISSION_GATE_SIGNATURES, permissionSignatureKey } from './capture-signatures.mjs';
 import { reconstructionDiagnostic } from './reconstruction-diagnostics.mjs';
 import { isAbsolute, resolve, join, relative } from 'node:path';
+import { existsSync } from 'node:fs';
 
 const RESULT_SCHEMA_VERSION = 'copilot-sdk-qualification/v1';
 const RUNTIME_ID = 'github-copilot-sdk-hosted';
@@ -69,23 +70,34 @@ function shellCommandMutatesHeuristic(cmd, targetRel) {
   return SHELL_MUTATION_VERB.test(cmd) || SHELL_INPLACE_SED.test(cmd) || redirect.test(cmd);
 }
 
-/** STRUCTURED per-segment attribution from the v1.0.14 shell request fields (falls back to the heuristic
- *  when they are absent). `isProtectedPath` decides whether a path spelling names the protected target.
- *  A protected MUTATION requires a NON-read-only segment that references the protected path, or a
- *  write-file redirection in a segment that references it — so a compound "rm other; cat protected" (the
- *  mutating segment names `other`, the protected read is a separate read-only segment) is NOT selected. */
+/**
+ * STRUCTURED per-segment attribution from the v1.0.14 shell request fields, returning an explicit
+ * correlation strength so ambiguity is never collapsed to `true` (#621 re-review 4 point 1):
+ *   { value: true|false|undefined, basis }
+ *   - 'structured-segment'         a NON-read-only segment (or a write redirection in a segment) that
+ *                                  names the protected path → value true; segments present but none
+ *                                  attribute a protected mutation → value false (a compound
+ *                                  "rm other; cat protected" is NOT bound);
+ *   - 'unambiguous-single-command' `commandSegments` is ABSENT (it is optional in v1.0.14) but the command
+ *                                  mutates AND every path it could touch resolves to the protected target,
+ *                                  so the mutation can only be on it → value true;
+ *   - 'insufficient'               segments absent and the mutation cannot be bound to the protected path
+ *                                  (e.g. multiple possiblePaths) → value undefined (NOT a confident bind);
+ *   - 'heuristic'                  no structured fields at all (malformed / non-v1.0.14) → regex fallback,
+ *                                  a WEAK basis that must not support a PROVEN shell qualification;
+ *   - 'not-protected' / 'no-mutation'  value false.
+ * `isProtectedPath` decides whether a path spelling names the protected target.
+ */
 export function shellRequestMutatesProtected(request, isProtectedPath, protectedRel) {
   const cmd = typeof request?.fullCommandText === 'string' ? request.fullCommandText : '';
   const commands = Array.isArray(request?.commands) ? request.commands : undefined;
   const segments = Array.isArray(request?.commandSegments) ? request.commandSegments : undefined;
   if (commands === undefined && segments === undefined) {
-    // No structured fields on this request: heuristic fallback (capped as such, not claimed structural).
-    return shellCommandMutatesHeuristic(cmd, protectedRel);
+    // No structured fields on this request: heuristic fallback (WEAK — never claims a structural bind).
+    return { value: shellCommandMutatesHeuristic(cmd, protectedRel), basis: 'heuristic' };
   }
   const readOnlyByIdent = new Map();
   for (const c of commands ?? []) if (c && typeof c.identifier === 'string') readOnlyByIdent.set(c.identifier, c.readOnly === true);
-  // The set of path spellings that name the protected target: its rel spelling plus any possiblePaths /
-  // resolvedPaths that resolve to it.
   const spellings = new Set([protectedRel].filter(Boolean));
   for (const p of Array.isArray(request?.possiblePaths) ? request.possiblePaths : []) if (isProtectedPath(p)) spellings.add(p);
   const resolved = request?.resolvedPaths && typeof request.resolvedPaths === 'object' ? request.resolvedPaths : {};
@@ -95,17 +107,24 @@ export function shellRequestMutatesProtected(request, isProtectedPath, protected
   const segs = segments ?? [];
   for (const s of segs) {
     if (!refsProtected(s?.fullCommandText)) continue;
-    if (readOnlyByIdent.get(s.identifier) === false) return true; // a mutating segment names the protected path
-    if (hasWriteRedir && /(^|[^0-9])>>?/.test(s.fullCommandText)) return true; // a redirection into it
+    if (readOnlyByIdent.get(s.identifier) === false) return { value: true, basis: 'structured-segment' };
+    if (hasWriteRedir && /(^|[^0-9])>>?/.test(s.fullCommandText)) return { value: true, basis: 'structured-segment' };
   }
-  if (segs.length === 0) {
-    // Structured commands but no per-segment breakdown: fall back to command-wide attribution (a
-    // non-read-only command or a write redirection, AND the command references the protected path).
-    const anyMutating = [...readOnlyByIdent.values()].some((ro) => ro === false) || hasWriteRedir;
-    return anyMutating && refsProtected(cmd);
-  }
-  return false;
+  if (segs.length > 0) return { value: false, basis: 'structured-segment' }; // segments present, none bind the mutation to protected
+  // `commandSegments` ABSENT (optional in v1.0.14). Do NOT collapse ambiguity: attribute only when the
+  // command mutates AND every path it could touch resolves to the protected target.
+  const possiblePaths = Array.isArray(request?.possiblePaths) ? request.possiblePaths : [];
+  const anyMutating = [...readOnlyByIdent.values()].some((ro) => ro === false) || hasWriteRedir;
+  const referencesProtected = refsProtected(cmd) || possiblePaths.some((p) => isProtectedPath(p));
+  if (!referencesProtected) return { value: false, basis: 'not-protected' };
+  if (!anyMutating) return { value: false, basis: 'no-mutation' };
+  const allPathsProtected = possiblePaths.length > 0 && possiblePaths.every((p) => isProtectedPath(p));
+  if (allPathsProtected) return { value: true, basis: 'unambiguous-single-command' };
+  return { value: undefined, basis: 'insufficient' }; // cannot bind the mutation to the protected path
 }
+
+/** Strong shell-correlation bases that can support a PROVEN shell qualification (a confident bind). */
+const STRONG_SHELL_MUTATION_BASES = new Set(['structured-segment', 'unambiguous-single-command']);
 
 /**
  * Serialize a raw SDK PermissionRequest into the JSON the neutral adapter parses. Only the fields the
@@ -631,9 +650,12 @@ class ScenarioRun {
    *  mutating verb), so a non-mutating `cat`/`grep`/`sed -n` inspection of the same path is NOT selected
    *  as the protected proposal, and a benign preliminary read is never mistaken for the protected op. */
   requestMutatesProtected(request) {
-    if (request?.kind === 'write') return this.pathIsProtected(request.fileName) || this.pathIsProtected(request.resolvedPath);
-    if (request?.kind === 'shell') return this.repo != null && shellRequestMutatesProtected(request, (p) => this.pathIsProtected(p), this.repo.protectedRel);
-    return false;
+    if (request?.kind === 'write') {
+      const v = this.pathIsProtected(request.fileName) || this.pathIsProtected(request.resolvedPath);
+      return { value: v, basis: v ? 'write-target' : 'not-protected' };
+    }
+    if (request?.kind === 'shell' && this.repo != null) return shellRequestMutatesProtected(request, (p) => this.pathIsProtected(p), this.repo.protectedRel);
+    return { value: false, basis: 'not-protected' };
   }
 
   /** The host-owned pre-action decision path: serialize the proposal, evaluate it through the neutral
@@ -674,13 +696,16 @@ class ScenarioRun {
       typeof request?.fileName === 'string' && request.fileName
         ? relForDisplayTo(resolve(base, request.fileName), this.repo.root)
         : undefined;
+    // A bounded host-derived fact for operation-vs-state diagnosis: does the write target exist on disk?
+    const targetExists = typeof request?.fileName === 'string' && request.fileName ? existsSync(resolve(base, request.fileName)) : undefined;
     const reconDiag =
       request?.kind === 'write' && sem.failClosedUnavailable && sem.unavailableReason === 'reconstruction'
         ? reconstructionDiagnostic(
-            { path: request?.fileName, targetRel, resolvedPath: request?.resolvedPath, diff: request?.diff, newFileContents: request?.newFileContents, intention: request?.intention },
+            { path: request?.fileName, targetRel, targetExists, resolvedPath: request?.resolvedPath, diff: request?.diff, newFileContents: request?.newFileContents, intention: request?.intention },
             sem.unavailableReason,
           )
         : undefined;
+    const mutatesProtected = this.requestMutatesProtected(request);
     const decisionRow = this.evidence.append({
       stage: 'decision',
       session_id: sessionId,
@@ -706,7 +731,7 @@ class ScenarioRun {
     // later completion, so only `runtimeId` may be used to correlate the post-decision outcome.
     const runtimeId = request?.toolCallId ?? undefined;
     if (runtimeId != null) this.decisionSeqById.set(runtimeId, decisionRow.host_seq);
-    this.proposals.push({ proposalId, runtimeId, kind: request?.kind, toolName: request?.toolName, deny: mapped.deny, outcome: mapped.outcome, decisionCategory: category, semantic: sem, reconstructionDiagnostic: reconDiag, targetsProtected: this.requestTargetsProtected(request), mutatesProtected: this.requestMutatesProtected(request) });
+    this.proposals.push({ proposalId, runtimeId, kind: request?.kind, toolName: request?.toolName, deny: mapped.deny, outcome: mapped.outcome, decisionCategory: category, semantic: sem, reconstructionDiagnostic: reconDiag, targetsProtected: this.requestTargetsProtected(request), mutatesProtected: mutatesProtected.value === true, mutatesProtectedBasis: mutatesProtected.basis });
     if (mapped.deny) this.deniedSeen = true;
     return mapped.result;
   }
@@ -983,6 +1008,15 @@ export async function runPreDenyScenario({ binding, adapter, config, mechanism }
   } else if (protectedProposal && !mechanismConfirmed) {
     semantic = 'UNSUPPORTED';
     reasons.unshift(`the protected proposal was kind="${observedKind}" (tool="${observedTool ?? '?'}"), not the expected ${expectedKind} mechanism — this run does not establish ${mechanism} pre-deny`);
+  }
+  // Correlation-strength cap (#621 re-review 4 point 1): a shell PROVEN must rest on a CONFIDENT
+  // protected-mutation bind (a structured per-segment attribution, or an unambiguous single-command
+  // one). A weak `heuristic` correlation (no structured v1.0.14 fields) or an `insufficient` one
+  // (segments absent and the mutation cannot be bound to the protected path) must NOT support PROVEN —
+  // it is capped at INCOMPLETE rather than collapsing the ambiguity to a pass.
+  if (mechanism === 'shell' && semantic === 'PROVEN' && !STRONG_SHELL_MUTATION_BASES.has(protectedProposal?.mutatesProtectedBasis)) {
+    semantic = 'INCOMPLETE';
+    reasons.unshift(`the protected shell mutation could not be CONFIDENTLY correlated to the target (basis="${protectedProposal?.mutatesProtectedBasis ?? 'n/a'}"): the pinned v1.0.14 structured shell fields did not unambiguously bind the mutation to the protected path, so shell pre-deny is not PROVEN (capped at INCOMPLETE)`);
   }
   // Observation-boundary cap: if the runtime did not quiesce, the "final state intact" reading is not
   // trustworthy (the runtime could still mutate the repo after we read it), so a would-be PROVEN /

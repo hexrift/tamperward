@@ -108,7 +108,7 @@ function endpointToken(line) {
  * repo-relative target (as the parser's `requestRel`), used ONLY to test header/target path AGREEMENT (a
  * boolean) — it is not surfaced.
  */
-function analyzeDiffShape(diff, targetRel) {
+function analyzeDiffShape(diff, targetRel, targetExists) {
   if (typeof diff !== 'string' || diff.length === 0) {
     return { category: 'absent', present: false };
   }
@@ -143,6 +143,7 @@ function analyzeDiffShape(diff, targetRel) {
   let deleteModeCount = 0; // `deleted file mode` — SUPPORTED once, with a delete endpoint pair
   let unsupportedMetadata = false; // rename/copy/mode-change/binary/similarity — the parser rejects these
   let unrecognizedHeader = false; // any other non-blank pre-hunk line — the parser's TOTAL grammar throws
+  let sawIndex = false;
   const paths = new Set();
 
   for (const row of header) {
@@ -165,7 +166,7 @@ function analyzeDiffShape(diff, targetRel) {
     } else if (/^deleted file mode\b/.test(row)) {
       deleteModeCount++;
     } else if (/^index /.test(row)) {
-      // recognized, accompanies any op — not shape-defining
+      sawIndex = true; // recognized operation-bearing metadata (canonicalPatch: sawSemanticHeader)
     } else if (/^(rename (from|to)|copy (from|to)|old mode|new mode|mode |GIT binary patch|Binary files|similarity index|dissimilarity index)/.test(row)) {
       unsupportedMetadata = true;
     } else {
@@ -179,6 +180,11 @@ function analyzeDiffShape(diff, targetRel) {
   const duplicateEndpoint = oldHeaders > 1 || newHeaders > 1;
   const duplicateModeMetadata = createModeCount > 1 || deleteModeCount > 1;
   const bothEndpoints = oldHeaders >= 1 && newHeaders >= 1;
+  const noEndpoints = oldHeaders === 0 && newHeaders === 0;
+  // Operation-bearing metadata (canonicalPatch's `sawSemanticHeader`): its presence promises a full
+  // endpoint pair, so metadata WITHOUT `--- `/`+++ ` is a parser reject before git apply.
+  const sawSemanticHeader = gitDiffLines > 0 || createModeCount > 0 || deleteModeCount > 0 || sawIndex;
+  const metadataWithoutEndpoints = sawSemanticHeader && noEndpoints;
   const targetNorm = typeof targetRel === 'string' ? stripPrefix(targetRel) : undefined;
   const headerMatchesTarget = targetNorm != null && paths.size > 0 ? [...paths].every((p) => p === targetNorm) : undefined;
   const impliedOperation = oldDevNull && !newDevNull ? 'create' : newDevNull && !oldDevNull ? 'delete' : oldDevNull && newDevNull ? 'ambiguous' : 'modify';
@@ -189,6 +195,14 @@ function analyzeDiffShape(diff, targetRel) {
   const metadataOperationMismatch =
     bothEndpoints &&
     ((createModeCount > 0 && impliedOperation !== 'create') || (deleteModeCount > 0 && impliedOperation !== 'delete'));
+  // Mirror canonicalPatch's operation-vs-disk-state gate: a create against an EXISTING target, or a
+  // modify/delete against an ABSENT target, is rejected before git apply. Only decidable when a
+  // host-derived `targetExists` fact is supplied AND the endpoints fix the operation (a bare hunk's op is
+  // inferred from disk state, so it never mismatches) (#621 re-review 4 point 2).
+  const operationStateMismatch =
+    bothEndpoints &&
+    typeof targetExists === 'boolean' &&
+    ((impliedOperation === 'create' && targetExists === true) || ((impliedOperation === 'delete' || impliedOperation === 'modify') && targetExists === false));
 
   // One enum naming the dominant shape the parser faced. Order = most-specific-rejection first; the
   // parser fails closed on the first grammar violation, so metadata / unrecognized / duplicate shapes
@@ -203,11 +217,12 @@ function analyzeDiffShape(diff, targetRel) {
   else if (duplicateModeMetadata) category = 'duplicate-metadata';
   else if (gitDiffLines > 1 || paths.size > 1) category = 'multiple-file-diff';
   else if (duplicateEndpoint) category = 'duplicate-endpoint';
-  else if (metadataOperationMismatch) category = 'metadata-operation-mismatch';
-  else if (oldHeaders === 0 && newHeaders === 0 && hasHunk) category = 'headerless-hunk-only';
-  else if (oldHeaders === 0 && newHeaders === 0 && !hasHunk) category = 'no-diff-structure';
-  else if (!hasHunk) category = 'no-hunk';
+  else if (!hasHunk) category = noEndpoints && !sawSemanticHeader ? 'no-diff-structure' : 'no-hunk';
+  else if (metadataWithoutEndpoints) category = 'metadata-without-endpoints';
+  else if (noEndpoints) category = 'headerless-hunk-only';
   else if (oldHeaders !== newHeaders) category = 'missing-endpoint-pair';
+  else if (metadataOperationMismatch) category = 'metadata-operation-mismatch';
+  else if (operationStateMismatch) category = 'operation-state-mismatch';
   else if (headerMatchesTarget === false) category = 'path-header-mismatch';
   else category = 'full-unified-diff'; // structurally complete → the rejection is at git apply --check/apply
 
@@ -215,7 +230,11 @@ function analyzeDiffShape(diff, targetRel) {
     present: true,
     usable: true,
     scanTruncated,
+    sawSemanticHeader,
+    metadataWithoutEndpoints,
     metadataOperationMismatch,
+    operationStateMismatch,
+    targetExists: typeof targetExists === 'boolean' ? targetExists : undefined,
     byteCount: byteScan.bytes,
     byteCountTruncated: byteScan.truncated,
     lineCount: lineScan.lines,
@@ -282,7 +301,10 @@ export function reconstructionDiagnostic(args = {}, stage) {
   const diffUsableKnown = !(typeof diff === 'string' && diff.length > SCAN_MAX_CHARS && !diffUsable);
   const diffMayBeUsable = typeof diff === 'string' && diff.length > 0 && (diffUsable || !diffUsableKnown);
   const newFileContentsBytes = boundedBytes(typeof args.newFileContents === 'string' ? args.newFileContents : undefined);
-  const shape = analyzeDiffShape(diff, targetRel);
+  // `targetExists` is a bounded host-derived fact (does the write target exist on disk?), used ONLY to
+  // categorize an operation-vs-state mismatch the parser rejects before git apply. Undefined when the
+  // host did not supply it (then that mismatch is simply not claimed).
+  const shape = analyzeDiffShape(diff, targetRel, typeof args.targetExists === 'boolean' ? args.targetExists : undefined);
   // The safe, enum-first failure category: what did the runtime surface that could not be reconstructed?
   // A diff whose usability is unknown-due-to-truncation flows to `diff:${shape.category}` (where the
   // shape is `unknown-truncated`), never to a definite `no-usable-content`.

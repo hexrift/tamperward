@@ -1430,13 +1430,47 @@ describe('#614 — execution_start is lifecycle-start, not dispatch; completion 
     );
     expect(createModeCreate.diffShape.metadataOperationMismatch).toBe(false);
     expect(createModeCreate.diffShape.category).not.toBe('metadata-operation-mismatch');
+
+    // METADATA WITHOUT ENDPOINTS (#621 re-review 4 pt 2): operation-bearing metadata + a hunk but no
+    // ---/+++ pair is a parser reject BEFORE git apply, not headerless-hunk-only.
+    const indexNoEndpoints = reconstructionDiagnostic({ path: target, diff: `index 1111111..2222222 100644\n@@ -1 +1 @@\n-a\n+b` }, 'reconstruction');
+    expect(indexNoEndpoints.diffShape.metadataWithoutEndpoints).toBe(true);
+    expect(indexNoEndpoints.diffShape.category).toBe('metadata-without-endpoints');
+    const gitDiffNoEndpoints = reconstructionDiagnostic({ path: target, diff: `diff --git a/${target} b/${target}\n@@ -1 +1 @@\n-a\n+b` }, 'reconstruction');
+    expect(gitDiffNoEndpoints.diffShape.category).toBe('metadata-without-endpoints');
+    // A genuinely headerless hunk (no semantic metadata) stays headerless-hunk-only.
+    expect(reconstructionDiagnostic({ path: target, diff: `@@ -1 +1 @@\n-a\n+b` }, 'reconstruction').diffShape.category).toBe('headerless-hunk-only');
+
+    // OPERATION vs DISK STATE (#621 re-review 4 pt 2): a create against an EXISTING target, or a
+    // modify/delete against an ABSENT target, is rejected before git apply — categorized only when the
+    // host supplies the bounded targetExists fact.
+    const createExisting = reconstructionDiagnostic(
+      { path: target, targetExists: true, diff: `--- /dev/null\n+++ b/${target}\n@@ -0,0 +1 @@\n+x` },
+      'reconstruction',
+    );
+    expect(createExisting.diffShape.operationStateMismatch).toBe(true);
+    expect(createExisting.diffShape.category).toBe('operation-state-mismatch');
+    const modifyAbsent = reconstructionDiagnostic(
+      { path: target, targetExists: false, diff: `--- a/${target}\n+++ b/${target}\n@@ -1 +1 @@\n-a\n+b` },
+      'reconstruction',
+    );
+    expect(modifyAbsent.diffShape.category).toBe('operation-state-mismatch');
+    // A consistent modify against an existing target is not a state mismatch.
+    const modifyExisting = reconstructionDiagnostic(
+      { path: target, targetExists: true, diff: `--- a/${target}\n+++ b/${target}\n@@ -1 +1 @@\n-a\n+b` },
+      'reconstruction',
+    );
+    expect(modifyExisting.diffShape.operationStateMismatch).toBe(false);
+    // Without a targetExists fact, no operation-state claim is made.
+    const modifyUnknownState = reconstructionDiagnostic({ path: target, diff: `--- a/${target}\n+++ b/${target}\n@@ -1 +1 @@\n-a\n+b` }, 'reconstruction');
+    expect(modifyUnknownState.diffShape.operationStateMismatch).toBe(false);
   });
 
-  it('#621 re-review pt 3 — shellRequestMutatesProtected attributes mutation PER SEGMENT from v1.0.14 fields', () => {
+  it('#621 re-review — shellRequestMutatesProtected returns an explicit strength/basis, never collapsing ambiguity', () => {
     const protectedRel = 'src/keep.spec.ts';
     const isProtected = (p: unknown) => p === protectedRel;
     const seg = (fullCommandText: string) => ({ identifier: fullCommandText.split(/\s+/)[0], fullCommandText });
-    const req = (fullCommandText: string, cmds: { identifier: string; readOnly: boolean }[], extra: Record<string, unknown> = {}) => ({
+    const withSegs = (fullCommandText: string, cmds: { identifier: string; readOnly: boolean }[], extra: Record<string, unknown> = {}) => ({
       kind: 'shell',
       fullCommandText,
       commands: cmds,
@@ -1444,28 +1478,37 @@ describe('#614 — execution_start is lifecycle-start, not dispatch; completion 
       possiblePaths: [...fullCommandText.matchAll(/([\w./-]+\.\w+)/g)].map((m) => m[1]),
       ...extra,
     });
-    // rm of the protected path → mutation.
-    expect(shellRequestMutatesProtected(req(`rm ${protectedRel}`, [{ identifier: 'rm', readOnly: false }]), isProtected, protectedRel)).toBe(true);
-    // cat of the protected path → NOT a mutation.
-    expect(shellRequestMutatesProtected(req(`cat ${protectedRel}`, [{ identifier: 'cat', readOnly: true }]), isProtected, protectedRel)).toBe(false);
-    // COMPOUND: mutate another file, then READ the protected path → NOT a protected mutation.
+    // STRUCTURED per-segment: rm of the protected path → confident mutation.
+    let r = shellRequestMutatesProtected(withSegs(`rm ${protectedRel}`, [{ identifier: 'rm', readOnly: false }]), isProtected, protectedRel);
+    expect(r.value).toBe(true);
+    expect(r.basis).toBe('structured-segment');
+    // cat of the protected path → not a mutation.
+    expect(shellRequestMutatesProtected(withSegs(`cat ${protectedRel}`, [{ identifier: 'cat', readOnly: true }]), isProtected, protectedRel).value).toBe(false);
+    // COMPOUND with segments: mutate another file, read protected → not a protected mutation.
     expect(
-      shellRequestMutatesProtected(
-        req(`rm other.txt ; cat ${protectedRel}`, [{ identifier: 'rm', readOnly: false }, { identifier: 'cat', readOnly: true }]),
-        isProtected,
-        protectedRel,
-      ),
+      shellRequestMutatesProtected(withSegs(`rm other.txt ; cat ${protectedRel}`, [{ identifier: 'rm', readOnly: false }, { identifier: 'cat', readOnly: true }]), isProtected, protectedRel).value,
     ).toBe(false);
-    // A write-file redirection into the protected path → mutation.
+    // A write-file redirection into the protected path (per-segment) → mutation.
     expect(
-      shellRequestMutatesProtected(
-        req(`echo x > ${protectedRel}`, [{ identifier: 'echo', readOnly: true }], { hasWriteFileRedirection: true }),
-        isProtected,
-        protectedRel,
-      ),
+      shellRequestMutatesProtected(withSegs(`echo x > ${protectedRel}`, [{ identifier: 'echo', readOnly: true }], { hasWriteFileRedirection: true }), isProtected, protectedRel).value,
     ).toBe(true);
-    // No structured fields → heuristic fallback still catches an obvious rm.
-    expect(shellRequestMutatesProtected({ kind: 'shell', fullCommandText: `rm ${protectedRel}` }, isProtected, protectedRel)).toBe(true);
+
+    // commandSegments ABSENT (optional in v1.0.14):
+    // - COMPOUND (mutate other, read protected), no segments → INSUFFICIENT (undefined), NOT collapsed to true.
+    const compoundNoSegs = { kind: 'shell', fullCommandText: `rm other.txt ; cat ${protectedRel}`, commands: [{ identifier: 'rm', readOnly: false }, { identifier: 'cat', readOnly: true }], possiblePaths: ['other.txt', protectedRel], hasWriteFileRedirection: false };
+    r = shellRequestMutatesProtected(compoundNoSegs, isProtected, protectedRel);
+    expect(r.value).toBeUndefined();
+    expect(r.basis).toBe('insufficient');
+    // - single `rm protected`, no segments, protected is the ONLY possible path → provable, unambiguous.
+    const singleNoSegs = { kind: 'shell', fullCommandText: `rm ${protectedRel}`, commands: [{ identifier: 'rm', readOnly: false }], possiblePaths: [protectedRel], hasWriteFileRedirection: false };
+    r = shellRequestMutatesProtected(singleNoSegs, isProtected, protectedRel);
+    expect(r.value).toBe(true);
+    expect(r.basis).toBe('unambiguous-single-command');
+
+    // NO structured fields at all → heuristic fallback (WEAK basis, must not support a PROVEN shell).
+    r = shellRequestMutatesProtected({ kind: 'shell', fullCommandText: `rm ${protectedRel}` }, isProtected, protectedRel);
+    expect(r.value).toBe(true);
+    expect(r.basis).toBe('heuristic');
   });
 
   it('the fake models the PREVIOUSLY OBSERVED hosted ordering (execution-start before its decision) — a regression guard, not an SDK-contract claim', async () => {
