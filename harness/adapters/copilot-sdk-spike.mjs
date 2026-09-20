@@ -542,11 +542,30 @@ export function parseArgv(argv) {
 }
 
 /** Human-readable summary that makes exactly the same claims as the JSON result. */
+/** Render a measured/pinned provenance VALUE for human display. Scalars print as-is; an array of
+ *  scalars joins with ', '; an array of objects (e.g. confirmed_permission_signatures, each
+ *  { path, code, messageHash }) renders each as compact `key=value` pairs — never the useless
+ *  `[object Object]` an implicit string coercion would produce. */
+export function formatProvenanceValue(v, emptyLabel = '(unmeasured)') {
+  if (v === undefined || v === null || v === '') return emptyLabel;
+  if (Array.isArray(v)) {
+    if (v.length === 0) return '(none)';
+    // An array of objects (e.g. signatures) renders each as `key=value` pairs, separated by '; ';
+    // an array of scalars joins with ', ' (as the models list already did).
+    const hasObjects = v.some((e) => e && typeof e === 'object');
+    return v
+      .map((e) => (e && typeof e === 'object' ? Object.entries(e).map(([k, val]) => `${k}=${val}`).join(',') : String(e)))
+      .join(hasObjects ? '; ' : ', ');
+  }
+  if (typeof v === 'object') return Object.entries(v).map(([k, val]) => `${k}=${val}`).join(',');
+  return String(v);
+}
+
 export function renderResult(result) {
   const L = ['', '─'.repeat(72), `Hosted Copilot SDK Phase-0 qualification — runtime ${result.runtime_id}`, '─'.repeat(72)];
   if (result.mode === 'preflight') {
     L.push('PREFLIGHT (measurement only — no qualification claim):');
-    for (const [k, v] of Object.entries(result.measured || {})) L.push(`  ${String(k).padEnd(24)} ${v ?? '(unmeasured)'}`);
+    for (const [k, v] of Object.entries(result.measured || {})) L.push(`  ${String(k).padEnd(24)} ${formatProvenanceValue(v)}`);
     if (result.auth) L.push(`  auth                     ${result.auth.isAuthenticated ? `yes (${result.auth.authType || 'unknown'}${result.auth.login ? `, ${result.auth.login}` : ''})` : 'NO'}`);
     if (result.models?.length) L.push(`  models                   ${result.models.slice(0, 12).join(', ')}${result.models.length > 12 ? ' …' : ''}`);
     L.push('', 'Freeze the MEASURED values above as expected pins, then run the qualification (without --preflight).');
@@ -556,7 +575,7 @@ export function renderResult(result) {
   if (result.provenance) {
     L.push('Provenance (measured vs expected pin):');
     for (const k of Object.keys(result.provenance.expected || {})) {
-      L.push(`  ${String(k).padEnd(24)} measured=${result.provenance.measured?.[k] ?? '(unmeasured)'}  expected=${result.provenance.expected?.[k] ?? '(unpinned)'}`);
+      L.push(`  ${String(k).padEnd(24)} measured=${formatProvenanceValue(result.provenance.measured?.[k])}  expected=${formatProvenanceValue(result.provenance.expected?.[k], '(unpinned)')}`);
     }
   }
   if (result.capability_matrix) {
