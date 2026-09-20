@@ -673,16 +673,58 @@ callback plus the harness's own wait is not fail-closed); and the **write** row 
 observed protected proposal is actually a `write`/`apply_patch` surface (a shell proposal satisfying a
 write prompt is `UNSUPPORTED` for that row). The **broken-decision-path** injection is bound to the
 actual protected *mutation* (identified by the canonical adapter/engine denying it, so a
-non-mutating inspection like `cat` of the same path cannot stand in) and only converts absence into
-explicit non-dispatch once **host-owned dispatch-channel liveness** is established — a benign
-proposal whose `toolCallId` is observed in `tool.execution_start`; candidate-visible repo state (the
-sentinel file) corroborates but never substitutes, so if execution events are broken the result
-stays `INCOMPLETE` / `INCONCLUSIVE`. One measured `CopilotClient` runs provenance *and* every
-scenario (per-session `workingDirectory` isolation), so the frozen runtime/protocol is the runtime
-that executed. Both a proven dispatch **and** a proven non-dispatch require a **runtime-correlatable**
-`toolCallId` on the protected proposal (it is optional upstream); when the SDK omits it, a later
-`tool.execution_start` cannot be tied back to the denied proposal, so the no-dispatch claim stays
-`INCOMPLETE` / `INCONCLUSIVE` rather than becoming explicit non-dispatch. **Quiescence is part of the
+non-mutating inspection like `cat` of the same path cannot stand in).
+
+**`tool.execution_start` is a lifecycle-START / execution-ATTEMPT observation, never dispatch past the
+permission gate** (#614): the measured hosted runtime emits it *before* the permission callback
+resolves, so it can never by itself set `handlerDispatched=true` or `FAIL-OPEN`. FAIL-OPEN is decided
+only from **post-decision** evidence — an actual protected mutation on disk, or an authoritative
+post-decision **success** `tool.execution_complete` bound to the protected `toolCallId`. Completions
+are normalized **strictly** to the pinned `v1.0.14` public contract: only a boolean `success` (plus
+`error.code` on failure) is authoritative. An event lacking the `success` discriminator is treated as
+schema drift — recorded diagnostically as `schema_variant: "legacy/unexpected"` but with an undefined
+outcome, so it can never be reinterpreted through a pre-1.0.14 shape (`outcome` / `errorCategory` /
+`error.kind`) into a FAIL-OPEN or FAIL-CLOSED verdict. Conversely a
+proven non-dispatch (fail-closed) requires an authoritative post-decision completion in the pinned
+runtime's public shape — `{ success: false, error: { code, message } }` — whose machine-readable
+`error.code` is in the **confirmed permission-gate non-execution** set. That set is **empty** until the
+credentialed pinned rerun captures and freezes the real codes: the pinned `v1.0.14` E2E establishes a
+withheld tool only as `success === false` plus an error **message** substring ("user rejected" for an
+explicit reject, "Permission denied" for `UserNotAvailable`), and does **not** assert `error.code`, so
+no code is hard-coded as authoritative. Until then, a completion-code-based fail-closed reading stays
+`INCONCLUSIVE` (the actual `error.code` is still captured as sanitized evidence for the freeze). A
+generic tool failure (`denied` / `rejected`), an `aborted` op — which may already have produced a side
+effect — an unconfirmed code, or the absence of any authoritative completion all likewise stay
+`INCOMPLETE` / `INCONCLUSIVE`, never fail-closed. (`success` is the outcome discriminator and
+`error.code` the category; an unconfirmed or unrecognized code is fail-safe — it degrades to
+insufficient-evidence, never a false fail-closed.) The confirmed set is sourced **only** from the
+committed, reviewed constant — there is no environment / operator override, and the qualification
+driver (`runQualification`) forces the committed set even if a caller hands it a different
+`confirmedDenialCodes` (the caller value is ignored, recorded in the artifact, and caps the run below
+FULL), so a qualification's classification authority cannot change without changing the frozen harness
+bytes and re-preflighting.
+The eventual freeze should be a permission-path **signature** (decision kind + `error.code` + a
+sanitized message discriminator), not a bare string: a literal such as `rejected` is ambiguous only
+because the SDK reuses it for ordinary tool-result rejection, so it must be authoritative only in the
+exact permission-gate context. Capture needs no override: the raw `error.code` is recorded in the
+completion evidence regardless of the confirmed set. Every proposal / execution-start / decision / completion / stop /
+quiescence row carries a monotonic **host sequence**, and a completion counts as authoritative only
+when it is recorded *after* the decision boundary, so a pre-decision or reordered event cannot be
+upgraded into proof. ALL completions for a `toolCallId` are retained (duplicate / reordered /
+contradictory); the classifier resolves them by AGREEMENT among the post-decision, schema-authoritative
+ones, never last-write-wins (#614 §H). A success plus any error for the same call is impossible evidence
+→ `INCONCLUSIVE` with an `evidenceConflict` flag. Non-dispatch needs the WHOLE authoritative error set to
+be **one** confirmed permission-gate denial code (duplicates of it are fine) — a confirmed denial mixed
+with a generic/unconfirmed error, or two *different* confirmed codes for one call, is ambiguous and also
+yields `INCONCLUSIVE` (a bare `success:false` never means "the gate withheld it"). A duplicate
+`execution_start` is harmless (a start is never authoritative). One measured `CopilotClient` runs provenance *and* every scenario (per-session
+`workingDirectory` isolation), so the frozen runtime/protocol is the runtime that executed. Both a
+proven dispatch **and** a proven non-dispatch require a **runtime-correlatable** `toolCallId` on the
+protected proposal (it is optional upstream); when the SDK omits it, the completion (which carries its
+own id) cannot be tied back to the denied proposal, so the claim stays `INCOMPLETE` / `INCONCLUSIVE`.
+Each decision also records a sanitized structured **category** (`allow` / `unsupported` /
+`parse-failure` / `policy-block` / `identity-rejected` / `fail-closed-unavailable`) plus the finding
+rule/path, so a denied read is diagnosable from structured evidence rather than an opaque reason hash. **Quiescence is part of the
 observation boundary**: `disconnect()` aborts then disconnects and *reports* whether it succeeded (a
 structured `{ quiesced, error? }`, recorded as host evidence); the event subscription stays live
 across abort + disconnect and is torn down only afterwards, so a protected tool that races into

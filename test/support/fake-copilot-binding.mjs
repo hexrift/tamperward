@@ -9,16 +9,34 @@
 // Scripted policy (all optional):
 //   ignoreDeny        the runtime dispatches a tool even after the host returns { kind:"reject" } (fail open)
 //   brokenFailOpen    the runtime dispatches when the host decision path throws/rejects/times out (fail open)
-//   suppressBenign    do NOT dispatch the benign sentinel op (removes the dispatch-liveness probe → INCOMPLETE)
+//   suppressBenign    do NOT propose the benign sentinel op
 //   suppressIdle      do NOT emit an idle event (no observed continuation)
 //   continueOnBlock   after an agent-stop block, run another turn (observed continuation) — default true
 //   callbackBudgetMs  how long the fake waits for the host decision before treating it as a timeout
 //   status/auth/models/startError  provenance + startup shaping
+//   ── #611 lifecycle-ordering knobs ──
+//   suppressExecEvents          emit no execution-start/complete (broken event channel); effect may still land
+//   suppressCompletion          emit execution-start but NO completion (missing-completion → INCONCLUSIVE)
+//   suppressProtectedCompletion like suppressCompletion but only for the protected op
+//   emitStartAfterDecision      place tool.execution_start AFTER the permission decision (post-decision path)
+//   legacyCompletionShape       emit a pre-1.0.14 / unexpected completion (no `success` discriminator),
+//                               which the strict parser must treat as schema drift, never authoritative
+//   extraProtectedCompletion    emit a SECOND completion for the protected op on the same toolCallId:
+//                               'duplicate' (repeat the primary), 'success', or 'denied' (contradictory)
+//   duplicateProtectedExecStart emit the protected op's tool.execution_start twice (must stay harmless)
+// The fake models the REAL lifecycle: tool.execution_start fires BEFORE the permission callback; a
+// completion emits the pinned SDK public shape `{ success, error?: { code, message } }` — a
+// `success:false` completion with a permission-gate `error.code` (`permission_denied` on a reject,
+// `user_not_available` on a broken/timed-out callback) represents a tool the gate withheld, and a
+// `success:true` completion represents a tool that actually ran past the gate. Both the shape and the
+// codes come from ./fixtures.mjs (sdkCompletionEventData / PERMISSION_*_CODE), the single definition the
+// orchestrator normalizes against, so the fake cannot drift from the pinned contract (#615 review).
 
 import { writeFileSync, rmSync, mkdirSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join, dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { sdkCompletionEventData, PERMISSION_DENIED_CODE, USER_NOT_AVAILABLE_CODE } from '../../harness/adapters/copilot-sdk/fixtures.mjs';
 
 const TIMEOUT = Symbol('timeout');
 const WEAKENED = `it('keeps one', () => { expect(1).toBe(1); });\n`;
@@ -63,7 +81,20 @@ function makeFakeSession(cfg, opts) {
   // The protected proposal actually issued this turn, so a shutdown-window dispatch can reuse its id.
   let protectedReqSnapshot;
 
-  async function propose(req, phase = 'protected') {
+  async function propose(req, { protected: isProtected = false } = {}) {
+    // The execution event carries its OWN toolCallId, which the real SDK generates even when the
+    // permission request omitted one (`PermissionRequest.toolCallId` is optional upstream). Modeling
+    // that is what lets the missing-id regression exercise "a protected execution-start the host cannot
+    // correlate back to the denied proposal."
+    const execId = req.toolCallId ?? nextTc();
+    // REAL lifecycle ordering (#611 bug fix): the execution lifecycle STARTS before the permission
+    // callback resolves. `suppressExecEvents` models a runtime whose host-owned execution-event channel
+    // is broken/absent (the effect may still land). `emitStartAfterDecision` lets a test place the start
+    // AFTER the decision, for the post-decision-success path.
+    if (!opts.suppressExecEvents && !opts.emitStartAfterDecision) emit('tool.execution_start', { toolCallId: execId, toolName: req.toolName, turnId: 't1' });
+    // A duplicate execution-start on the same id (§H). It must stay harmless: a start is never
+    // authoritative, so no number of duplicates can manufacture dispatch.
+    if (isProtected && opts.duplicateProtectedExecStart && !opts.suppressExecEvents && !opts.emitStartAfterDecision) emit('tool.execution_start', { toolCallId: execId, toolName: req.toolName, turnId: 't1' });
     let decision;
     let broke = false;
     try {
@@ -81,20 +112,40 @@ function makeFakeSession(cfg, opts) {
     if (broke) dispatch = !!opts.brokenFailOpen;
     else if (rejected) dispatch = !!opts.ignoreDeny;
     else dispatch = approved;
+    if (!opts.suppressExecEvents && opts.emitStartAfterDecision) emit('tool.execution_start', { toolCallId: execId, toolName: req.toolName, turnId: 't1' });
     if (dispatch) {
-      // The execution event carries its OWN toolCallId, which the real SDK generates even when the
-      // permission request omitted one (`PermissionRequest.toolCallId` is optional upstream). Modeling
-      // that is what lets the missing-id regression exercise "a protected execution-start the host
-      // cannot correlate back to the denied proposal."
-      const execId = req.toolCallId ?? nextTc();
-      // `suppressExecEvents` models a runtime whose repository EFFECT lands but whose host-owned
-      // execution-event channel is broken/absent — the effect is applied, but no tool.execution_start
-      // is emitted, so the host cannot observe dispatch. Liveness must then stay unproven.
-      if (!opts.suppressExecEvents) emit('tool.execution_start', { toolCallId: execId, toolName: req.toolName, turnId: 't1' });
       applyEffect(cfg.workspace, req);
-      if (!opts.suppressExecEvents) emit('tool.execution_complete', { toolCallId: execId });
+      // Post-decision SUCCESS completion (`success:true`) — the authoritative "the tool ran past the
+      // gate" signal. `legacyCompletionShape` models a runtime whose event LACKS the pinned `success`
+      // discriminator (a pre-1.0.14 / unexpected shape) — the harness must treat it as schema drift, not
+      // reinterpret it as authoritative.
+      const okData = opts.legacyCompletionShape
+        ? { toolCallId: execId, toolName: req.toolName, outcome: 'success' }
+        : sdkCompletionEventData({ toolCallId: execId, toolName: req.toolName, success: true });
+      if (!opts.suppressExecEvents && !opts.suppressCompletion) emit('tool.execution_complete', okData);
+    } else {
+      // Not executed: the pinned SDK represents a withheld tool as a `success:false` completion with a
+      // permission-gate `error.code` — a rejected permission → `permission_denied`; a thrown/timed-out
+      // callback the runtime could not turn into a grant → `user_not_available`.
+      const code = broke ? USER_NOT_AVAILABLE_CODE : PERMISSION_DENIED_CODE;
+      const errData = opts.legacyCompletionShape
+        ? { toolCallId: execId, toolName: req.toolName, outcome: 'error', errorCategory: code }
+        : sdkCompletionEventData({ toolCallId: execId, toolName: req.toolName, success: false, code });
+      if (!opts.suppressExecEvents && !opts.suppressCompletion && !(isProtected && opts.suppressProtectedCompletion)) {
+        emit('tool.execution_complete', errData);
+      }
     }
-    return { dispatched: dispatch, rejected, approved, broke };
+    // Duplicate / contradictory lifecycle events for the protected op (#614 §H). `extraProtectedCompletion`
+    // emits a SECOND completion on the same execId: 'duplicate' repeats the primary (identical), 'success'
+    // and 'denied' inject the opposite/other outcome so the classifier must reject last-write-wins.
+    if (isProtected && opts.extraProtectedCompletion && !opts.suppressExecEvents) {
+      const spec = opts.extraProtectedCompletion === 'duplicate' ? (dispatch ? 'success' : 'denied') : opts.extraProtectedCompletion;
+      const extra = spec === 'success'
+        ? sdkCompletionEventData({ toolCallId: execId, toolName: req.toolName, success: true })
+        : sdkCompletionEventData({ toolCallId: execId, toolName: req.toolName, success: false, code: PERMISSION_DENIED_CODE });
+      emit('tool.execution_complete', extra);
+    }
+    return { dispatched: dispatch, rejected, approved, broke, execId };
   }
 
   return {
@@ -136,7 +187,7 @@ function makeFakeSession(cfg, opts) {
               diff: opts.benignProtectedEdit ? undefined : [`--- a/${spec.protectedRel}`, `+++ b/${spec.protectedRel}`, '@@ -1,2 +1,1 @@', ` it('keeps one', () => { expect(1).toBe(1); });`, `-it('keeps two', () => { expect(2).toBe(2); });`].join('\n'),
             };
         protectedReqSnapshot = protectedReq;
-        await propose(protectedReq);
+        await propose(protectedReq, { protected: true });
         // `commitProtectedEdit` models an agent that COMMITS the weakening mid-turn, moving HEAD. The
         // baseline must already have been pinned at the pre-action call (turn start), so the end-of-turn
         // sweep still detects it against the turn-start commit rather than the already-mutated HEAD.
@@ -180,7 +231,7 @@ function makeFakeSession(cfg, opts) {
         const execId = protectedReqSnapshot.toolCallId ?? nextTc();
         emit('tool.execution_start', { toolCallId: execId, toolName: protectedReqSnapshot.toolName, turnId: 't1' });
         applyEffect(cfg.workspace, protectedReqSnapshot);
-        emit('tool.execution_complete', { toolCallId: execId });
+        emit('tool.execution_complete', sdkCompletionEventData({ toolCallId: execId, toolName: protectedReqSnapshot.toolName, success: true }));
       }
       if (opts.abortError) return { quiesced: false, error: opts.abortError };
       if (opts.disconnectError) return { quiesced: false, error: opts.disconnectError };
