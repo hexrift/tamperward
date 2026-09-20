@@ -11,7 +11,7 @@
 
 import { describe, it, expect } from 'vitest';
 // @ts-expect-error - the spike is a plain .mjs harness module, no d.ts
-import { classifyPreDispatchDeny, classifyDecisionPathFailure, classifyEndOfTurn, classifyIdentityBinding, buildSpikeMatrix, provenanceGate, measuredProvenance, evidenceEntry, HostEvidence, EVIDENCE_SCHEMA_VERSION } from '../harness/adapters/copilot-sdk-spike.mjs';
+import { classifyPreDispatchDeny, classifyDecisionPathFailure, classifyEndOfTurn, classifyIdentityBinding, buildSpikeMatrix, provenanceGate, measuredProvenance, evidenceEntry, HostEvidence, EVIDENCE_SCHEMA_VERSION, formatProvenanceValue, renderResult } from '../harness/adapters/copilot-sdk-spike.mjs';
 
 describe('classifyPreDispatchDeny — the 7-point Phase-0 #1/#2 proof (host-observed)', () => {
   const full = {
@@ -328,5 +328,42 @@ describe('evidenceEntry — the host-owned evidence schema (#611)', () => {
     for (const k of ['session_id', 'turn_id', 'proposal_id', 'operation_kind', 'tamperward_decision', 'handler_dispatched', 'recorded_at']) {
       expect(k in e).toBe(true);
     }
+  });
+});
+
+describe('renderResult / formatProvenanceValue — provenance values render readably, never [object Object]', () => {
+  const signatures = [
+    { path: 'returned-reject', code: 'denied', messageHash: '96ed60fc6898cdfa' },
+    { path: 'callback-failure', code: 'denied', messageHash: 'ebf2100b9c49ae12' },
+  ];
+
+  it('an array of signature objects renders each field as key=value, not [object Object]', () => {
+    const out = formatProvenanceValue(signatures);
+    expect(out).not.toMatch(/\[object Object\]/);
+    expect(out).toContain('path=returned-reject');
+    expect(out).toContain('messageHash=96ed60fc6898cdfa');
+    expect(out).toContain('; '); // the two signatures are separated
+  });
+
+  it('scalars, empty arrays and empty values keep their existing rendering', () => {
+    expect(formatProvenanceValue('@github/copilot-sdk@1.0.14')).toBe('@github/copilot-sdk@1.0.14');
+    expect(formatProvenanceValue(['a', 'b'])).toBe('a, b');
+    expect(formatProvenanceValue([])).toBe('(none)');
+    expect(formatProvenanceValue(undefined)).toBe('(unmeasured)');
+    expect(formatProvenanceValue(undefined, '(unpinned)')).toBe('(unpinned)');
+  });
+
+  it('the PREFLIGHT render never emits [object Object] for confirmed_permission_signatures', () => {
+    const text = renderResult({
+      mode: 'preflight',
+      runtime_id: 'github-copilot-sdk-hosted',
+      measured: {
+        sdk_version: '@github/copilot-sdk@1.0.14',
+        confirmed_denial_codes: [],
+        confirmed_permission_signatures: signatures,
+      },
+    });
+    expect(text).not.toMatch(/\[object Object\]/);
+    expect(text).toMatch(/confirmed_permission_signatures.*path=returned-reject/);
   });
 });
