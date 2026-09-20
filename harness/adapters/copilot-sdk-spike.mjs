@@ -242,13 +242,18 @@ export function classifyIdentityBinding(ev) {
  * decision path fails CLOSED; anything less (or no pinned provenance, or a config lacking write
  * content) is INSUFFICIENT / PARTIAL. Nothing here manufactures parity the evidence does not show.
  */
-export function buildSpikeMatrix({ shell, fileEditContent, fileEdit, endOfTurn, decisionPath, provenanceFull = false } = {}) {
+export function buildSpikeMatrix({ shell, fileEditContent, fileEdit, endOfTurn, decisionPath, decisionPathTimeout, provenanceFull = false } = {}) {
   const rows = [
     { label: 'pre-deny:shell', value: shell?.semantic ?? 'CANDIDATE' },
     { label: 'pre-deny:file-edit-content', value: fileEditContent?.semantic ?? 'CANDIDATE' },
     { label: 'pre-deny:file-edit-path', value: fileEdit?.interceptionObserved ? 'AVAILABLE-LIMITED' : 'INCONCLUSIVE' },
     { label: 'end-of-turn:file-edit-content', value: endOfTurn?.pass ? 'PROVEN' : 'CANDIDATE' },
-    { label: 'decision-path:fail-closed', value: decisionPath?.semantic ?? 'CANDIDATE' },
+    // The fail-closed row is qualified to the OBSERVABLE decision paths (#618 review): the intrinsically
+    // unobservable permission-callback timeout is NOT one of them (the pinned SDK exposes no such
+    // timeout), so it is reported as its OWN non-gating diagnostic row rather than being folded into an
+    // unqualified `decision-path:fail-closed` label while it is INCONCLUSIVE.
+    { label: 'decision-path:fail-closed (observable paths)', value: decisionPath?.semantic ?? 'CANDIDATE' },
+    { label: 'decision-path:timeout (non-gating diagnostic)', value: decisionPathTimeout ?? 'N/A' },
   ];
 
   const anyFailOpen = shell?.semantic === 'FAIL-OPEN' || fileEditContent?.semantic === 'FAIL-OPEN' || decisionPath?.semantic === 'FAIL-OPEN';

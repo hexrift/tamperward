@@ -129,24 +129,34 @@ function makeFakeSession(cfg, opts) {
     if (broke) dispatch = !!opts.brokenFailOpen;
     else if (rejected) dispatch = !!opts.ignoreDeny;
     else dispatch = approved;
-    // The DOCUMENTED resolution the runtime records via `permission.completed.result.kind`
-    // (streaming-events.md §permission.completed). A host `approve-once` → `approved`; a host `reject`
-    // → a rule denial; a THROWN/rejected handler → the SDK's `user-not-available` fallback
-    // (session.ts _executePermissionAndRespond), which resolves as the "could not request from user"
-    // denial. A never-resolving handler (timeout) resolves NOTHING — the SDK just awaits it — so NO
-    // `permission.completed` is emitted (the resolution hangs), matching FACT 6.
-    // The resolution is unobservable when: the handler hung (timeout, FACT 6 — no resolution), the whole
-    // event channel is broken (suppressExecEvents), or this scenario models a missing resolution for the
-    // (protected) op (suppressCompletion / suppressProtectedCompletion). Otherwise emit the documented
-    // permission.completed.
+
+    // HARD FACT (nodejs/src/session.ts _executePermissionAndRespond): the SDK sends the host handler's
+    // result to the runtime; if the handler THROWS/rejects it catches the error and sends
+    // `{kind:"user-not-available"}` instead; a hung handler is awaited and NOTHING is sent.
+    // `onPermissionResult` mirrors that RPC result exactly — the pinned-source behaviour we CAN assert,
+    // distinct from the runtime's subsequent `permission.completed` broadcast below.
+    if (!timedOut && cfg.onPermissionResult) {
+      const sdkResult = threw ? { kind: 'user-not-available' } : (decision ?? { kind: 'no-result' });
+      cfg.onPermissionResult({ requestId, result: sdkResult });
+    }
+
+    // The runtime's `permission.completed.result.kind` broadcast. The mapping from the SDK RPC result to
+    // this broadcast kind is NOT established by the cited v1.0.14 sources, so the fake does NOT assert it:
+    // the kind is a SCRIPTED input (`opts.permissionCompletedKind`), defaulting to a driving-only
+    // SCAFFOLDING value (a value from the pinned allowlist, used solely to exercise the classifier — never
+    // a claim about what the real runtime emits; the credentialed rerun records that). The resolution is
+    // unobservable when the handler hung (timeout, FACT 6 — no resolution), the event channel is broken
+    // (suppressExecEvents), or this scenario models a missing resolution (suppressCompletion /
+    // suppressProtectedCompletion).
     const resolutionSuppressed =
       timedOut || opts.suppressExecEvents || opts.suppressCompletion || (isProtected && opts.suppressProtectedCompletion);
     if (!resolutionSuppressed) {
-      const resolvedKind = approved
+      const scaffold = approved
         ? PERMISSION_COMPLETED_KIND.APPROVED
         : threw
           ? PERMISSION_COMPLETED_KIND.DENIED_NO_APPROVAL_USER_UNAVAILABLE
           : PERMISSION_COMPLETED_KIND.DENIED_BY_RULES;
+      const resolvedKind = typeof opts.permissionCompletedKind === 'string' ? opts.permissionCompletedKind : scaffold;
       emit('permission.completed', permissionCompletedEventData({ requestId, kind: resolvedKind }));
     }
     if (!opts.suppressExecEvents && opts.emitStartAfterDecision) emit('tool.execution_start', { toolCallId: execId, toolName: req.toolName, turnId: 't1' });

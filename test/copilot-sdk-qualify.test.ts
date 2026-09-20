@@ -12,7 +12,7 @@ import { copilotSdkAdapter } from '../src/adapters/copilot-sdk/adapter';
 // @ts-expect-error - the orchestrator is a plain .mjs harness module, no d.ts
 import { buildConfig, runQualification, runPreDenyScenario, runBrokenPathScenario, runEndOfTurnScenario, assembleResult, serializeRequest, promptHash, classifyHandlerDispatch, decisionCategory, normalizeCompletionEvent } from '../harness/adapters/copilot-sdk/orchestrator.mjs';
 // @ts-expect-error - the fixtures are a plain .mjs harness module, no d.ts
-import { makeScenarioRepo, cleanupRepo, sdkCompletionEventData, PERMISSION_DENIED_CODE, USER_NOT_AVAILABLE_CODE, CANDIDATE_PERMISSION_GATE_CODES, CONFIRMED_PERMISSION_GATE_CODES } from '../harness/adapters/copilot-sdk/fixtures.mjs';
+import { makeScenarioRepo, cleanupRepo, sdkCompletionEventData, PERMISSION_DENIED_CODE, USER_NOT_AVAILABLE_CODE, CANDIDATE_PERMISSION_GATE_CODES, CONFIRMED_PERMISSION_GATE_CODES, isDeniedPermissionKind } from '../harness/adapters/copilot-sdk/fixtures.mjs';
 // @ts-expect-error - capture signatures are a plain .mjs harness module, no d.ts
 import { CONFIRMED_PERMISSION_GATE_SIGNATURES } from '../harness/adapters/copilot-sdk/capture-signatures.mjs';
 // @ts-expect-error - the spike is a plain .mjs harness module, no d.ts
@@ -245,7 +245,7 @@ describe('runPreDenyScenario — shell & native-write pre-dispatch deny (real ad
     expect(r.evidence.rejectReturned).toBe(true);
     expect(r.evidence.handlerDispatched).toBe(false); // non-dispatch, proven by the DOCUMENTED permission.completed (denied-*)
     expect(r.evidence.dispatchBasis).toBe('permission-denied-resolution');
-    expect(r.evidence.permissionResolutionKind).toBe('denied-by-rules'); // documented result.kind, not a message hash
+    expect(isDeniedPermissionKind(r.evidence.permissionResolutionKind)).toBe(true); // a pinned denied-* kind (scripted scaffolding), not a message hash
     expect(r.evidence.finalStateMutated).toBe(false);
     // Reason/feedback delivery is a diagnostic, never a gate (#618 Work C): the SDK exposes no event
     // proving the model read the feedback, so it is recorded false, never manufactured true.
@@ -787,9 +787,13 @@ describe('assembleResult — overall verdict, Round 4.1 gating, deterministic JS
     const r = assembleResult({ scenarios, provenanceExpected: {}, provenanceMeasured: {}, provenanceGateResult: { full: true, reasons: [] } });
     expect(r.overall).toBe('FULL');
     expect(r.phase0_passed).toBe(true);
-    // The decision-path capability row is FAIL-CLOSED (observable breaks all closed; the timeout is exercised).
-    const decisionRow = r.capability_matrix.find((row: { label: string }) => row.label === 'decision-path:fail-closed');
-    expect(decisionRow?.value).toBe('FAIL-CLOSED');
+    // The fail-closed row is qualified to OBSERVABLE paths and is FAIL-CLOSED (observable breaks all
+    // closed; the timeout is exercised) — it does NOT carry the timeout's INCONCLUSIVE (#618 review).
+    const observableRow = r.capability_matrix.find((row: { label: string }) => row.label === 'decision-path:fail-closed (observable paths)');
+    expect(observableRow?.value).toBe('FAIL-CLOSED');
+    // The intrinsically-unobservable timeout is its OWN separate, non-gating diagnostic row, INCONCLUSIVE.
+    const timeoutRow = r.capability_matrix.find((row: { label: string }) => row.label === 'decision-path:timeout (non-gating diagnostic)');
+    expect(String(timeoutRow?.value)).toMatch(/INCONCLUSIVE/);
     // The timeout scenario is retained in the result, and its INCONCLUSIVE is surfaced in reasons — not dropped.
     expect(r.scenarios.some((s: { id: string; semantic: string }) => s.id === 'broken-path:timeout' && s.semantic === 'INCONCLUSIVE')).toBe(true);
     expect(r.reasons.some((x: string) => /broken-path:timeout: INCONCLUSIVE/.test(x))).toBe(true);
@@ -1103,14 +1107,14 @@ describe('#614 — execution_start is lifecycle-start, not dispatch; completion 
 
   it('#618 — the verdict rests on the DOCUMENTED permission lifecycle, NOT on confirmed codes/signatures: a broken path is FAIL-CLOSED even with no codes', async () => {
     // Under the superseded model non-dispatch required a confirmed completion CODE/signature. It no
-    // longer does: with NO codes and NO signatures, the pinned SDK's user-not-available fallback still
-    // resolves the permission as a documented denied-*, so the protected tool did NOT dispatch →
-    // FAIL-CLOSED. A landed mutation would still be authoritative FAIL-OPEN.
+    // longer does: with NO codes and NO signatures, the handler throw is caught by the pinned SDK (which
+    // sends user-not-available), the runtime broadcasts a pinned denied-* resolution (scripted here), and
+    // the protected tool did NOT dispatch → FAIL-CLOSED. A landed mutation would still be FAIL-OPEN.
     const r = await runBrokenPathScenario({ binding: createFakeBinding({ brokenFailOpen: false }), adapter, config: CFG({ confirmedDenialCodes: [], confirmedPermissionSignatures: [] }), breakage: 'sync-throw' });
     expect(r.evidence.finalStateMutated).toBe(false);
     expect(r.evidence.handlerDispatched).toBe(false);
     expect(r.evidence.dispatchBasis).toBe('permission-denied-resolution');
-    expect(r.evidence.permissionResolutionKind).toBe('denied-no-approval-rule-and-could-not-request-from-user'); // the documented user-not-available outcome
+    expect(isDeniedPermissionKind(r.evidence.permissionResolutionKind)).toBe(true); // a pinned denied-* kind, not a code/hash
     expect(r.semantic).toBe('FAIL-CLOSED');
   });
 

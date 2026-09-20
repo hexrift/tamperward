@@ -1,47 +1,79 @@
 // SDK CONTRACT / CONFORMANCE layer (#618). These tests are grounded ONLY in facts directly supported
-// by the pinned @github/copilot-sdk v1.0.14 documentation and source — NOT in TamperWard policy, and
-// NOT in experimental error-message hashes learned from one live run. They are the boundary that keeps
-// TamperWard's integration aligned with the documented/pinned contract.
+// by the pinned @github/copilot-sdk v1.0.14 documentation and GENERATED source — NOT in TamperWard
+// policy, and NOT in experimental error-message hashes or invented host-result→event mappings learned
+// from one live run. They are the boundary that keeps TamperWard's integration aligned with the
+// documented/pinned contract.
 //
 // SDK basis (tag v1.0.14):
-//   - docs/features/streaming-events.md — permission.requested {requestId, permissionRequest{kind, toolCallId?}};
-//       permission.completed {requestId, result.kind ∈ approved | denied-by-rules | denied-interactively-by-user
-//       | denied-no-approval-rule-and-could-not-request-from-user | denied-by-content-exclusion-policy};
-//       tool.execution_complete {toolCallId, success, result?, error?}.
-//   - nodejs/src/session.ts — _executePermissionAndRespond awaits the handler with NO timeout; on a
-//       thrown/rejected handler it responds {kind:"user-not-available"}.
-//   - nodejs/src/types.ts — PermissionRequestResult kinds incl. approve-once / reject{feedback?} /
-//       user-not-available / no-result; the default handler returns {kind:"approve-once"}.
+//   - nodejs/src/generated/session-events.ts `PermissionResult` (matching go/rpc/zsession_events.go
+//       `PermissionResultKind`): the FULL permission.completed result.kind union — three approved
+//       variants, `cancelled`, and five `denied-*`. docs/features/streaming-events.md lists only five of
+//       these; the generated schema is the authority for what the runtime can emit (discrepancy pinned
+//       in the first describe below).
+//   - nodejs/src/session.ts _executePermissionAndRespond: awaits the handler with NO timeout; on a
+//       thrown/rejected handler it sends `{kind:"user-not-available"}` to the runtime.
+//   - nodejs/src/types.ts: PermissionRequestResult kinds incl. approve-once / reject{feedback?} /
+//       user-not-available / no-result; the default handler returns `{kind:"approve-once"}`.
 
 import { describe, it, expect } from 'vitest';
 // @ts-expect-error - plain .mjs harness module, no d.ts
 import { classifyProtectedDispatch, toPermissionResult } from '../harness/adapters/copilot-sdk/orchestrator.mjs';
 // @ts-expect-error - plain .mjs harness module, no d.ts
-import { PERMISSION_COMPLETED_KIND, PERMISSION_COMPLETED_KINDS, isDeniedPermissionKind, isApprovedPermissionKind } from '../harness/adapters/copilot-sdk/fixtures.mjs';
+import { PERMISSION_COMPLETED_KINDS, PERMISSION_COMPLETED_KINDS_DOCUMENTED, PERMISSION_APPROVED_KINDS, PERMISSION_DENIED_KINDS, PERMISSION_OTHER_KINDS, isDeniedPermissionKind, isApprovedPermissionKind, isKnownPermissionKind } from '../harness/adapters/copilot-sdk/fixtures.mjs';
 // @ts-expect-error - plain .mjs test-support module, no d.ts
 import { createFakeBinding } from './support/fake-copilot-binding.mjs';
 
-describe('permission.completed.result.kind — the documented resolution enum (streaming-events.md)', () => {
-  it('carries exactly the five documented v1.0.14 values', () => {
-    expect(PERMISSION_COMPLETED_KINDS).toEqual([
-      'approved',
-      'denied-by-rules',
-      'denied-interactively-by-user',
-      'denied-no-approval-rule-and-could-not-request-from-user',
-      'denied-by-content-exclusion-policy',
-    ]);
+describe('permission.completed.result.kind — the EXACT pinned v1.0.14 generated enum (session-events.ts)', () => {
+  it('the allowlist is the nine generated values (3 approved + cancelled + 5 denied)', () => {
+    expect([...PERMISSION_COMPLETED_KINDS].sort()).toEqual(
+      [
+        'approved',
+        'approved-for-location',
+        'approved-for-session',
+        'cancelled',
+        'denied-by-content-exclusion-policy',
+        'denied-by-permission-request-hook',
+        'denied-by-rules',
+        'denied-interactively-by-user',
+        'denied-no-approval-rule-and-could-not-request-from-user',
+      ].sort(),
+    );
   });
 
-  it('the only non-denied documented kind is `approved`; every `denied-*` is a deny', () => {
-    expect(isApprovedPermissionKind(PERMISSION_COMPLETED_KIND.APPROVED)).toBe(true);
-    for (const k of PERMISSION_COMPLETED_KINDS) {
-      if (k === 'approved') expect(isDeniedPermissionKind(k)).toBe(false);
-      else expect(isDeniedPermissionKind(k)).toBe(true);
+  it('pins the docs-vs-generated discrepancy: the docs list only five, the generated schema adds four', () => {
+    // The docs enumerate a strict subset; the generated schema is authoritative.
+    for (const k of PERMISSION_COMPLETED_KINDS_DOCUMENTED) expect(PERMISSION_COMPLETED_KINDS).toContain(k);
+    const generatedOnly = PERMISSION_COMPLETED_KINDS.filter((k: string) => !PERMISSION_COMPLETED_KINDS_DOCUMENTED.includes(k));
+    expect([...generatedOnly].sort()).toEqual(
+      ['approved-for-location', 'approved-for-session', 'cancelled', 'denied-by-permission-request-hook'].sort(),
+    );
+    // In particular the generated-only denial the docs omit is a real value the parser must know.
+    expect(PERMISSION_DENIED_KINDS).toContain('denied-by-permission-request-hook');
+  });
+
+  it('classifies EXACTLY by allowlist membership — deny, approve, and non-enforcing are disjoint', () => {
+    for (const k of PERMISSION_DENIED_KINDS) {
+      expect(isDeniedPermissionKind(k)).toBe(true);
+      expect(isApprovedPermissionKind(k)).toBe(false);
     }
-    // A bare, undocumented, or absent kind is neither approved nor a proven deny.
-    expect(isDeniedPermissionKind('denied')).toBe(true); // prefix, documented family
-    expect(isDeniedPermissionKind(undefined)).toBe(false);
-    expect(isApprovedPermissionKind('nope')).toBe(false);
+    for (const k of PERMISSION_APPROVED_KINDS) {
+      expect(isApprovedPermissionKind(k)).toBe(true);
+      expect(isDeniedPermissionKind(k)).toBe(false);
+    }
+    // `cancelled` is a KNOWN kind but neither a deny nor an approve (the request was dismissed).
+    for (const k of PERMISSION_OTHER_KINDS) {
+      expect(isKnownPermissionKind(k)).toBe(true);
+      expect(isDeniedPermissionKind(k)).toBe(false);
+      expect(isApprovedPermissionKind(k)).toBe(false);
+    }
+  });
+
+  it('an unknown / schema-drift / bare value is UNRECOGNIZED — never promoted to a proven deny or approve', () => {
+    for (const k of ['denied', 'denied-whatever', 'approved-tomorrow', 'nope', '', undefined, null]) {
+      expect(isDeniedPermissionKind(k)).toBe(false); // the reviewer's blocker: `startsWith('denied')` is gone
+      expect(isApprovedPermissionKind(k)).toBe(false);
+      expect(isKnownPermissionKind(k)).toBe(false);
+    }
   });
 });
 
@@ -66,7 +98,7 @@ describe('toPermissionResult — TamperWard decision → documented PermissionRe
   });
 });
 
-describe('classifyProtectedDispatch — dispatch decided from DOCUMENTED signals only (no error-message hashes)', () => {
+describe('classifyProtectedDispatch — dispatch decided from DOCUMENTED signals only, over the exact enum', () => {
   const boundarySeq = 5;
   const success = (seq: number) => ({ completeSeq: seq, outcome: 'success' });
   const error = (seq: number) => ({ completeSeq: seq, outcome: 'error' });
@@ -80,11 +112,25 @@ describe('classifyProtectedDispatch — dispatch decided from DOCUMENTED signals
       .toMatchObject({ handlerDispatched: true, basis: 'post-decision-success-completion' });
   });
 
-  it('a documented denied-* resolution with intact state is NON-DISPATCH (the gate withheld the tool)', () => {
-    expect(classifyProtectedDispatch({ resolvedKind: 'denied-by-rules', mutated: false }))
-      .toMatchObject({ handlerDispatched: false, basis: 'permission-denied-resolution' });
-    expect(classifyProtectedDispatch({ resolvedKind: 'denied-no-approval-rule-and-could-not-request-from-user', mutated: false }))
-      .toMatchObject({ handlerDispatched: false, basis: 'permission-denied-resolution' });
+  it('EVERY pinned denied-* kind with intact state is NON-DISPATCH', () => {
+    for (const k of PERMISSION_DENIED_KINDS) {
+      expect(classifyProtectedDispatch({ resolvedKind: k, mutated: false })).toMatchObject({ handlerDispatched: false, basis: 'permission-denied-resolution' });
+    }
+  });
+
+  it('EVERY pinned approved kind with no mutation is undefined for the protected-mutation question', () => {
+    for (const k of PERMISSION_APPROVED_KINDS) {
+      expect(classifyProtectedDispatch({ resolvedKind: k, mutated: false })).toMatchObject({ handlerDispatched: undefined, basis: 'permission-approved-no-mutation' });
+    }
+  });
+
+  it('`cancelled` (known but non-enforcing) is INCONCLUSIVE, never non-dispatch', () => {
+    expect(classifyProtectedDispatch({ resolvedKind: 'cancelled', mutated: false })).toMatchObject({ handlerDispatched: undefined, basis: 'permission-non-enforcing-resolution' });
+  });
+
+  it('an UNKNOWN / schema-drift kind is INCONCLUSIVE (unrecognized), never non-dispatch', () => {
+    expect(classifyProtectedDispatch({ resolvedKind: 'denied-whatever', mutated: false })).toMatchObject({ handlerDispatched: undefined, basis: 'unrecognized-permission-resolution' });
+    expect(classifyProtectedDispatch({ resolvedKind: 'denied', mutated: false })).toMatchObject({ handlerDispatched: undefined, basis: 'unrecognized-permission-resolution' });
   });
 
   it('contradictory post-decision completions (success AND error) are INCONCLUSIVE, never last-write', () => {
@@ -92,62 +138,70 @@ describe('classifyProtectedDispatch — dispatch decided from DOCUMENTED signals
       .toMatchObject({ handlerDispatched: undefined, basis: 'contradictory-post-decision-completions', evidenceConflict: true });
   });
 
-  it('no documented resolution (e.g. a hung/timeout handler emits none) is undefined — never inferred from absence', () => {
+  it('no resolution at all (e.g. a hung/timeout handler emits none) is undefined — never inferred from absence', () => {
     expect(classifyProtectedDispatch({ resolvedKind: undefined, mutated: false })).toMatchObject({ handlerDispatched: undefined, basis: 'no-permission-resolution' });
-  });
-
-  it('an approved resolution with no protected mutation is undefined for the protected-mutation question (used for benign allows)', () => {
-    expect(classifyProtectedDispatch({ resolvedKind: 'approved', mutated: false })).toMatchObject({ handlerDispatched: undefined, basis: 'permission-approved-no-mutation' });
   });
 });
 
-describe('fake binding conformance — the documented lifecycle events, driven by the real host handler', () => {
-  async function driveOnce({ handler, prompt, opts = {} }: { handler: (req: unknown) => unknown; prompt: string; opts?: Record<string, unknown> }) {
+describe('fake binding conformance — only HARD FACTS, not invented host-result→broadcast mappings', () => {
+  async function drive({ handler, prompt, opts = {} }: { handler: (req: unknown) => unknown; prompt: string; opts?: Record<string, unknown> }) {
     const events: Array<{ type: string; data: Record<string, unknown> }> = [];
+    const results: Array<{ requestId: string; result: { kind: string } }> = [];
     const binding = createFakeBinding(opts);
     const session = await binding.createSession({
       workspace: '/tmp',
       onPermissionRequest: handler,
+      onPermissionResult: (r: { requestId: string; result: { kind: string } }) => results.push(r),
       onAgentStop: async () => undefined,
       onEvent: (e: { type: string; data: Record<string, unknown> }) => events.push(e),
     });
     await session.sendAndWait(prompt);
-    return events;
+    return { events, results };
   }
   const shellPrompt = 'delete the file src/keep.spec.ts using a shell command';
-  const completed = (events: Array<{ type: string; data: Record<string, unknown> }>) =>
+  const completedKinds = (events: Array<{ type: string; data: Record<string, unknown> }>) =>
     events.filter((e) => e.type === 'permission.completed').map((e) => (e.data.result as { kind?: string }).kind);
 
-  it('emits permission.requested then permission.completed, correlated by requestId', async () => {
-    const events = await driveOnce({ handler: async () => ({ kind: 'approve-once' }), prompt: shellPrompt });
+  it('emits permission.requested then permission.completed, correlated by requestId (documented lifecycle)', async () => {
+    const { events } = await drive({ handler: async () => ({ kind: 'approve-once' }), prompt: shellPrompt });
     const req = events.find((e) => e.type === 'permission.requested');
     const comp = events.find((e) => e.type === 'permission.completed');
     expect(req?.data.requestId).toBeTruthy();
     expect(comp?.data.requestId).toBe(req?.data.requestId);
-    // permissionRequest carries the tool-call linkage.
     expect((req?.data.permissionRequest as { toolCallId?: string }).toolCallId).toBeTruthy();
   });
 
-  it('an ALLOW (approve-once) resolves as documented `approved`', async () => {
-    const events = await driveOnce({ handler: async () => ({ kind: 'approve-once' }), prompt: shellPrompt });
-    expect(completed(events)).toContain('approved');
+  it('every emitted permission.completed kind is within the pinned allowlist (schema conformance, not a mapping claim)', async () => {
+    for (const handler of [async () => ({ kind: 'approve-once' }), async () => ({ kind: 'reject', feedback: 'no' })]) {
+      const { events } = await drive({ handler, prompt: shellPrompt });
+      for (const k of completedKinds(events)) expect(isKnownPermissionKind(k)).toBe(true);
+    }
   });
 
-  it('a host REJECT resolves as a documented `denied-*`', async () => {
-    const events = await driveOnce({ handler: async () => ({ kind: 'reject', feedback: 'no' }), prompt: shellPrompt });
-    expect(completed(events).some(isDeniedPermissionKind)).toBe(true);
+  it('HARD FACT: a THROWN host handler is caught and the SDK sends {kind:"user-not-available"} (session.ts), not a claimed broadcast kind', async () => {
+    const { results } = await drive({ handler: () => { throw new Error('boom'); }, prompt: shellPrompt });
+    // The RPC-level result the SDK sends is the pinned-source fact we assert — NOT a permission.completed kind.
+    expect(results.some((r) => r.result.kind === 'user-not-available')).toBe(true);
   });
 
-  it('a THROWN host handler resolves via the SDK user-not-available fallback (session.ts) → a documented `denied-*`', async () => {
-    const events = await driveOnce({ handler: () => { throw new Error('boom'); }, prompt: shellPrompt });
-    // Pinned v1.0.14 implementation behaviour: the SDK catches the exception and responds
-    // {kind:"user-not-available"}, which resolves as the "could not request from user" denial.
-    expect(completed(events)).toContain('denied-no-approval-rule-and-could-not-request-from-user');
+  it('HARD FACT: an approve/reject host result is sent to the runtime verbatim (session.ts)', async () => {
+    const { results: approved } = await drive({ handler: async () => ({ kind: 'approve-once' }), prompt: shellPrompt });
+    expect(approved.some((r) => r.result.kind === 'approve-once')).toBe(true);
+    const { results: rejected } = await drive({ handler: async () => ({ kind: 'reject', feedback: 'no' }), prompt: shellPrompt });
+    expect(rejected.some((r) => r.result.kind === 'reject')).toBe(true);
   });
 
-  it('a never-resolving (timeout) host handler emits NO permission.completed (FACT 6 — no permission-handler timeout)', async () => {
-    const events = await driveOnce({ handler: () => new Promise(() => {}), prompt: shellPrompt, opts: { callbackBudgetMs: 20 } });
+  it('the broadcast permission.completed kind is a SCRIPTED input, not a fixed host-result mapping', async () => {
+    // The runtime→broadcast mapping is unestablished, so it is scriptable; the classifier is what we
+    // actually test against the enum (above). Here we prove the fake honours the scripted kind.
+    const { events } = await drive({ handler: async () => ({ kind: 'reject', feedback: 'no' }), prompt: shellPrompt, opts: { permissionCompletedKind: 'denied-by-permission-request-hook' } });
+    expect(completedKinds(events)).toContain('denied-by-permission-request-hook');
+  });
+
+  it('HARD FACT: a never-resolving (timeout) handler emits NO permission.completed and sends no result (session.ts: no handler timeout)', async () => {
+    const { events, results } = await drive({ handler: () => new Promise(() => {}), prompt: shellPrompt, opts: { callbackBudgetMs: 20 } });
     expect(events.some((e) => e.type === 'permission.requested')).toBe(true);
     expect(events.some((e) => e.type === 'permission.completed')).toBe(false);
+    expect(results.length).toBe(0);
   });
 });

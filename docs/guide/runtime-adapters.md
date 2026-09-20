@@ -609,7 +609,10 @@ continued), and `feedbackDeliveryIndependentlyObservable` is recorded `false`, n
 deny; and the **permission-callback timeout** has no runtime-exposed completion (a hung callback emits no
 `permission.completed`, per pinned `session.ts`), so it is *intrinsically* unobservable as fail-closed
 and stays `INCONCLUSIVE` and visible while being carved out of the decision-path fail-closed gate (#618
-Work C) — a dispatch *during* a timeout is still definitive `FAIL-OPEN`. The **identity-break** paths
+Work C). It is reported as its **own** non-gating matrix row (`decision-path:timeout`), so the
+fail-closed row is qualified to `decision-path:fail-closed (observable paths)` and never carries the
+timeout's INCONCLUSIVE under an unqualified label — a dispatch *during* a timeout is still definitive
+`FAIL-OPEN`. The **identity-break** paths
 (cross-repo, path-escape, symlink-escape, malformed-identity) are `FAIL-CLOSED` from the documented
 lifecycle: TamperWard returns `{kind:"reject"}` for the adversarial claim, the runtime resolves it as a
 documented `denied-*`, and the protected state stays intact — the SDK permission mechanism received and
@@ -689,15 +692,28 @@ runner does not execute. `phase0_passed` is the signal a FULL Phase-0 earns; a s
 maintainer-reviewed pinned parity run is the only thing that may later set Round 4.1 eligibility.
 Passing the harness never registers a production runtime or flips Copilot to `in-loop`.
 
-**Enforcement is decided from the DOCUMENTED permission lifecycle (#618).** The primary signal for
-"did the denied tool run?" is the documented `permission.completed.result.kind` (streaming-events.md:
-`approved` vs the `denied-*` family) correlated to the tool call by `requestId`, together with the
-host-owned protected filesystem state — NOT a `tool.execution_complete` error-code/message hash (those
-are diagnostic only). A documented `denied-*` resolution with the protected target intact is
-non-dispatch; a landed mutation, or a documented `success:true` completion, is `FAIL-OPEN`. Because the
-resolution is a bounded, documented enum, non-dispatch is provable without any captured error signature
-— so the frozen `capture-2026-09-20.json` message-hash signatures are retained as **diagnostic lineage
-only**, never the enforcement authority.
+**Enforcement is decided from the pinned permission lifecycle (#618).** The primary signal for "did the
+denied tool run?" is `permission.completed.result.kind` correlated to the tool call by `requestId`,
+together with the host-owned protected filesystem state — NOT a `tool.execution_complete`
+error-code/message hash (those are diagnostic only). `result.kind` is matched against an **exact
+allowlist** derived from the pinned **generated** schema (`nodejs/src/generated/session-events.ts`
+`PermissionResult`, matching `go/rpc/zsession_events.go`): three approved variants (`approved`,
+`approved-for-session`, `approved-for-location`), `cancelled`, and five `denied-*`
+(`denied-by-rules`, `denied-no-approval-rule-and-could-not-request-from-user`,
+`denied-interactively-by-user`, `denied-by-content-exclusion-policy`, `denied-by-permission-request-hook`).
+Note the **docs-vs-generated discrepancy**: `docs/features/streaming-events.md` lists only five of these
+(omitting the two extra approved variants, `cancelled`, and `denied-by-permission-request-hook`); the
+generated schema is authoritative for what the runtime can emit. A `denied-*` resolution with the target
+intact is non-dispatch; a landed mutation or a `success:true` completion is `FAIL-OPEN`; and an
+**unrecognized** kind — a schema-drift value, a bare `denied`, or the known-but-non-enforcing
+`cancelled` — is never promoted to non-dispatch: it is `INCONCLUSIVE`, failing closed in the evidence
+sense. The mapping from a host handler result to the runtime's broadcast kind is **not established** by
+the cited sources, so CI does not assert it: the fake's broadcast kind is a scripted input, and the
+conformance tests exercise the classifier over the exact pinned enum. The one host→runtime fact the
+pinned source **does** establish — a thrown/rejected handler is caught and the SDK sends
+`{kind:"user-not-available"}` (`nodejs/src/session.ts`) — is asserted at the RPC-result layer, not as a
+`permission.completed` kind. The frozen `capture-2026-09-20.json` message-hash signatures are retained
+as **diagnostic lineage only**, never the enforcement authority.
 
 Honest limits on the current SDK surface: **reason/feedback delivery to the agent is not independently
 observable** — TamperWard returning `{kind:"reject"}` with the documented optional `feedback` is the

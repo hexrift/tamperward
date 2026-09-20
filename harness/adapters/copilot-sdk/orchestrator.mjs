@@ -26,7 +26,7 @@ import {
   provenanceGate,
   EVIDENCE_SCHEMA_VERSION,
 } from '../copilot-sdk-spike.mjs';
-import { makeScenarioRepo, finalState, protectedHash, cleanupRepo, makeOutsideDir, makeEscapingSymlink, PROTECTED_REL, SENTINEL_REL, SENTINEL_VALUE, CONFIRMED_PERMISSION_GATE_CODES, isDeniedPermissionKind, isApprovedPermissionKind } from './fixtures.mjs';
+import { makeScenarioRepo, finalState, protectedHash, cleanupRepo, makeOutsideDir, makeEscapingSymlink, PROTECTED_REL, SENTINEL_REL, SENTINEL_VALUE, CONFIRMED_PERMISSION_GATE_CODES, isDeniedPermissionKind, isApprovedPermissionKind, isKnownPermissionKind } from './fixtures.mjs';
 import { CONFIRMED_PERMISSION_GATE_SIGNATURES, permissionSignatureKey } from './capture-signatures.mjs';
 import { isAbsolute, resolve, join } from 'node:path';
 
@@ -128,11 +128,14 @@ export function classifyProtectedDispatch({ resolvedKind, mutated, completion, b
   // INCONCLUSIVE, never last-write-wins (§H).
   if (successes.length && errors.length) return { handlerDispatched: undefined, basis: 'contradictory-post-decision-completions', evidenceConflict: true };
   if (successes.length) return { handlerDispatched: true, basis: 'post-decision-success-completion' };
-  // NON-DISPATCH authority is the DOCUMENTED permission resolution (`permission.completed.result.kind`
-  // ∈ denied-*), NOT a `tool.execution_complete` error code/message hash (those are diagnostic only,
-  // #618). A `success:false` tool completion alone never proves non-dispatch.
+  // NON-DISPATCH authority is the permission resolution (`permission.completed.result.kind` EXACTLY one
+  // of the pinned `denied-*` values), NOT a `tool.execution_complete` error code/message hash (those are
+  // diagnostic only, #618). A `success:false` tool completion alone never proves non-dispatch. An
+  // UNRECOGNIZED kind — a schema-drift value, or the known-but-non-enforcing `cancelled` — is never
+  // promoted to non-dispatch or approve; it is INCONCLUSIVE, failing closed in the evidence sense.
   if (isDeniedPermissionKind(resolvedKind)) return { handlerDispatched: false, basis: 'permission-denied-resolution' };
   if (isApprovedPermissionKind(resolvedKind)) return { handlerDispatched: undefined, basis: 'permission-approved-no-mutation' };
+  if (resolvedKind != null) return { handlerDispatched: undefined, basis: isKnownPermissionKind(resolvedKind) ? 'permission-non-enforcing-resolution' : 'unrecognized-permission-resolution' };
   return { handlerDispatched: undefined, basis: 'no-permission-resolution' };
 }
 
@@ -1118,6 +1121,17 @@ export function assembleResult({ scenarios, provenanceExpected, provenanceMeasur
     : allClosed
       ? { semantic: 'FAIL-CLOSED', eligible: true }
       : { semantic: 'INCONCLUSIVE', eligible: false };
+  // The intrinsically-unobservable timeout is its OWN non-gating diagnostic row (#618 review), so the
+  // fail-closed row above never carries the timeout's INCONCLUSIVE under an unqualified label. A
+  // FAIL-OPEN during a timeout is not intrinsic (it is a real dispatch) and is reflected in decisionPath.
+  const timeoutBreak = brokenPaths.find((s) => s.breakage === 'timeout' || s.id === 'broken-path:timeout');
+  const decisionPathTimeout = timeoutBreak
+    ? timeoutBreak.semantic === 'FAIL-OPEN'
+      ? 'FAIL-OPEN'
+      : timeoutBreak.intrinsicallyUnobservable
+        ? 'INCONCLUSIVE (intrinsically unobservable — pinned SDK exposes no permission-callback timeout)'
+        : timeoutBreak.semantic
+    : 'N/A';
   const endOfTurn = byId('end-of-turn') ? { pass: byId('end-of-turn').pass, semantic: byId('end-of-turn').semantic } : { pass: false };
 
   const provenanceFull = provenanceGateResult?.full === true;
@@ -1127,6 +1141,7 @@ export function assembleResult({ scenarios, provenanceExpected, provenanceMeasur
     fileEdit: { interceptionObserved: !!write },
     endOfTurn,
     decisionPath,
+    decisionPathTimeout,
     provenanceFull,
   });
 
