@@ -62,21 +62,16 @@ describe('#616 — live permission signatures and canonical SDK provenance', () 
   it('every frozen signature is justified by post-boundary, same-target sanitized observations (#616 lineage)', () => {
     const fixturePath = join(__dirname, '..', 'harness', 'adapters', 'copilot-sdk', 'evidence', 'capture-2026-09-20.json');
     const capture = JSON.parse(readFileSync(fixturePath, 'utf8')) as {
-      source_artifact_sha256: string | null;
-      source_artifact_sha256_pending?: string;
+      source_artifact_sha256: string;
       signatures: Array<{
         path: string;
         completion: { success: boolean; error_code: string; message_hash: string };
         observations: Array<{ scenario: string; proposal_id_hash: string; boundary_host_seq: number; completion_host_seq: number; protected_state_mutated: boolean }>;
       }>;
     };
-    // The original-artifact hash is either a real 64-hex SHA-256 or an explicit pending marker — never a
-    // fabricated value. When pending, the reason must be recorded (the original artifact is uncommitted).
-    if (capture.source_artifact_sha256 === null) {
-      expect(typeof capture.source_artifact_sha256_pending).toBe('string');
-    } else {
-      expect(capture.source_artifact_sha256).toMatch(/^[0-9a-f]{64}$/);
-    }
+    // The lineage is anchored to the ORIGINAL credentialed artifact's SHA-256 (its immutable identity);
+    // it must be a real 64-hex digest, never null/pending or a fabricated value.
+    expect(capture.source_artifact_sha256).toMatch(/^[0-9a-f]{64}$/);
     // Each frozen signature is backed by ≥1 sanitized observation whose completion matches the signature,
     // recorded strictly AFTER the decision/callback boundary, on an opaque (sha16) proposal id, with the
     // protected state intact. This is the evidence-rows → signatures link of the lineage.

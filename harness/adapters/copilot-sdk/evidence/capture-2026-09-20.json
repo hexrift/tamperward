@@ -1,8 +1,8 @@
 {
   "schema_version": "copilot-sdk-permission-capture/v2",
   "captured_at": "2026-09-20",
-  "source_artifact_sha256": null,
-  "source_artifact_sha256_pending": "SHA-256 of the ORIGINAL credentialed copilot-sdk-phase0-capture.json (run `shasum -a 256` on that local file). This is NOT the chat-attachment hash. The original artifact is not committed (it carries raw command/model/error content); the maintainer supplies this value from the local file to complete the artifact->evidence lineage.",
+  "source_artifact_sha256": "c46fba989dc0e772012c5fdb1291cf099326d24da2b551788be2e1e85113e49a",
+  "source_artifact_sha256_note": "SHA-256 of the ORIGINAL credentialed copilot-sdk-phase0-capture.json (maintainer's `shasum -a 256` of the local file, 2026-09-20). The original artifact is not committed (it carries raw command/model/error content); this hash is its immutable identity, anchoring artifact -> sanitized observations -> frozen signatures -> classifier.",
   "provenance": {
     "tamperward_version": "tamperward@2.31.0+3671a5e6",
     "sdk_version": "@github/copilot-sdk@1.0.14",
