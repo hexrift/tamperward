@@ -730,6 +730,23 @@ describe('#614 — execution_start is lifecycle-start, not dispatch; completion 
     expect(run([success(6), success(7)])).toMatchObject({ handlerDispatched: true, basis: 'post-decision-success-completion' });
   });
 
+  it('classifyHandlerDispatch: non-dispatch needs the WHOLE error set to be one confirmed denial, not just some (#615)', () => {
+    const confirmedDenialCodes = [...CANDIDATE_PERMISSION_GATE_CODES]; // permission_denied + user_not_available
+    const err = (seq: number, code: string) => ({ completeSeq: seq, outcome: 'error', errorCategory: code });
+    const run = (completions: unknown[]) => classifyHandlerDispatch({ mutated: false, completion: { completions }, boundarySeq: 5, confirmedDenialCodes });
+
+    // confirmed denial + generic tool-error → NOT laundered to fail-closed; ambiguous → conflict.
+    expect(run([err(6, PERMISSION_DENIED_CODE), err(7, 'tool-error')])).toMatchObject({ handlerDispatched: undefined, basis: 'contradictory-post-decision-completions', evidenceConflict: true });
+    // order-independent.
+    expect(run([err(6, 'tool-error'), err(7, PERMISSION_DENIED_CODE)])).toMatchObject({ handlerDispatched: undefined, evidenceConflict: true });
+    // two DIFFERENT confirmed denial codes for one call → not proven equivalent → conflict.
+    expect(run([err(6, PERMISSION_DENIED_CODE), err(7, USER_NOT_AVAILABLE_CODE)])).toMatchObject({ handlerDispatched: undefined, evidenceConflict: true });
+    // duplicate IDENTICAL confirmed denial → consistent → usable non-dispatch.
+    expect(run([err(6, PERMISSION_DENIED_CODE), err(7, PERMISSION_DENIED_CODE)])).toMatchObject({ handlerDispatched: false, basis: 'post-decision-denied-completion' });
+    // generic errors only (none confirmed) → insufficient, not a conflict.
+    expect(run([err(6, 'tool-error'), err(7, 'aborted')])).toMatchObject({ handlerDispatched: undefined, basis: 'insufficient-post-decision-evidence' });
+  });
+
   it('deny → denied-completion → contradictory success completion is INCONCLUSIVE end-to-end (#614 §H)', async () => {
     const r = await runPreDenyScenario({ binding: createFakeBinding({ extraProtectedCompletion: 'success' }), adapter, config: CFG(), mechanism: 'shell' });
     expect(r.evidence.finalStateMutated).toBe(false); // the injected success completion is NOT a real mutation

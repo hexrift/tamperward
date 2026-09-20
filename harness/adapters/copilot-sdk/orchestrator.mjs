@@ -129,16 +129,23 @@ export function classifyHandlerDispatch({ mutated, completion, boundarySeq, conf
     (c) => c && c.completeSeq != null && boundarySeq != null && c.completeSeq > boundarySeq && (c.outcome === 'success' || c.outcome === 'error'),
   );
   if (authoritative.length === 0) return { handlerDispatched: undefined, basis: 'insufficient-post-decision-evidence' };
-  const hasSuccess = authoritative.some((c) => c.outcome === 'success');
-  const hasError = authoritative.some((c) => c.outcome === 'error');
+  const conflict = { handlerDispatched: undefined, basis: 'contradictory-post-decision-completions', evidenceConflict: true };
+  const errors = authoritative.filter((c) => c.outcome === 'error');
+  const successes = authoritative.filter((c) => c.outcome === 'success');
   // A tool call cannot both run past the gate AND be a completion failure — one success plus any error
   // completion for the same call is impossible evidence, never last-write-wins.
-  if (hasSuccess && hasError) return { handlerDispatched: undefined, basis: 'contradictory-post-decision-completions', evidenceConflict: true };
-  if (hasSuccess) return { handlerDispatched: true, basis: 'post-decision-success-completion' };
-  // All authoritative completions are errors and agree on direction (no dispatch). Proven non-dispatch
-  // needs at least one CONFIRMED permission-gate denial code (empty set today → stays inconclusive).
-  if (authoritative.some((c) => denialCodes.has(c.errorCategory))) return { handlerDispatched: false, basis: 'post-decision-denied-completion' };
-  return { handlerDispatched: undefined, basis: 'insufficient-post-decision-evidence' };
+  if (successes.length && errors.length) return conflict;
+  if (successes.length) return { handlerDispatched: true, basis: 'post-decision-success-completion' };
+  // All authoritative completions are errors. A `success:false` alone does NOT mean the permission GATE
+  // withheld the tool — only a CONFIRMED permission-gate denial code does. Non-dispatch therefore
+  // requires the WHOLE authoritative error set to be that one confirmed semantics — not merely
+  // `some(confirmed)` (#615 review): a confirmed denial mixed with a generic/unconfirmed error, or two
+  // DIFFERENT confirmed denial codes for one call, are ambiguous/contradictory → INCONCLUSIVE.
+  const confirmedCodes = new Set(errors.filter((c) => denialCodes.has(c.errorCategory)).map((c) => c.errorCategory));
+  const hasUnconfirmedError = errors.some((c) => !denialCodes.has(c.errorCategory));
+  if (confirmedCodes.size === 0) return { handlerDispatched: undefined, basis: 'insufficient-post-decision-evidence' };
+  if (hasUnconfirmedError || confirmedCodes.size > 1) return conflict;
+  return { handlerDispatched: false, basis: 'post-decision-denied-completion' };
 }
 
 /** Structured, sanitized decision category from the neutral adapter result — never derived from

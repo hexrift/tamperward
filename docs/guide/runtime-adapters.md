@@ -712,8 +712,11 @@ quiescence row carries a monotonic **host sequence**, and a completion counts as
 when it is recorded *after* the decision boundary, so a pre-decision or reordered event cannot be
 upgraded into proof. ALL completions for a `toolCallId` are retained (duplicate / reordered /
 contradictory); the classifier resolves them by AGREEMENT among the post-decision, schema-authoritative
-ones — a success and an error completion for the same call is impossible evidence and yields
-`INCONCLUSIVE` with an `evidenceConflict` flag, never last-write-wins (#614 §H). A duplicate
+ones, never last-write-wins (#614 §H). A success plus any error for the same call is impossible evidence
+→ `INCONCLUSIVE` with an `evidenceConflict` flag. Non-dispatch needs the WHOLE authoritative error set to
+be **one** confirmed permission-gate denial code (duplicates of it are fine) — a confirmed denial mixed
+with a generic/unconfirmed error, or two *different* confirmed codes for one call, is ambiguous and also
+yields `INCONCLUSIVE` (a bare `success:false` never means "the gate withheld it"). A duplicate
 `execution_start` is harmless (a start is never authoritative). One measured `CopilotClient` runs provenance *and* every scenario (per-session
 `workingDirectory` isolation), so the frozen runtime/protocol is the runtime that executed. Both a
 proven dispatch **and** a proven non-dispatch require a **runtime-correlatable** `toolCallId` on the
