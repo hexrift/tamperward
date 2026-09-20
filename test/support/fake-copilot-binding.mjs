@@ -24,13 +24,15 @@
 //   extraProtectedCompletion    emit a SECOND completion for the protected op on the same toolCallId:
 //                               'duplicate' (repeat the primary), 'success', or 'denied' (contradictory)
 //   duplicateProtectedExecStart emit the protected op's tool.execution_start twice (must stay harmless)
-// The fake models the REAL lifecycle: tool.execution_start fires BEFORE the permission callback; a
-// completion emits the pinned SDK public shape `{ success, error?: { code, message } }` — a
-// `success:false` completion with a permission-gate `error.code` (`permission_denied` on a reject,
-// `user_not_available` on a broken/timed-out callback) represents a tool the gate withheld, and a
-// `success:true` completion represents a tool that actually ran past the gate. Both the shape and the
-// codes come from ./fixtures.mjs (sdkCompletionEventData / PERMISSION_*_CODE), the single definition the
-// orchestrator normalizes against, so the fake cannot drift from the pinned contract (#615 review).
+// The fake models the previously observed hosted ordering (tool.execution_start before the permission
+// callback — a regression guard, not a public-contract claim). A `tool.execution_complete` emits the
+// pinned SDK public SHAPE `{ success, error?: { code, message } }`; a `success:true` completion is the
+// documented "ran past the gate" signal. The particular `error.code` values the fake attaches on a
+// `success:false` completion (`permission_denied` / `user_not_available`) are SYNTHETIC / UNCONFIRMED
+// candidate codes (see ./fixtures.mjs — the pinned v1.0.14 E2E does not assert them); they exist only to
+// exercise the DIAGNOSTIC completion-hash classifier and never drive the qualification verdict, which
+// uses the runtime-observable `permission.completed.result.kind` instead (#618). So the completion SHAPE
+// is pinned via ./fixtures.mjs (sdkCompletionEventData), while those codes are deliberately not contract.
 
 import { writeFileSync, rmSync, mkdirSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
