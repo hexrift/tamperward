@@ -21,6 +21,9 @@
 //   emitStartAfterDecision      place tool.execution_start AFTER the permission decision (post-decision path)
 //   legacyCompletionShape       emit a pre-1.0.14 / unexpected completion (no `success` discriminator),
 //                               which the strict parser must treat as schema drift, never authoritative
+//   extraProtectedCompletion    emit a SECOND completion for the protected op on the same toolCallId:
+//                               'duplicate' (repeat the primary), 'success', or 'denied' (contradictory)
+//   duplicateProtectedExecStart emit the protected op's tool.execution_start twice (must stay harmless)
 // The fake models the REAL lifecycle: tool.execution_start fires BEFORE the permission callback; a
 // completion emits the pinned SDK public shape `{ success, error?: { code, message } }` — a
 // `success:false` completion with a permission-gate `error.code` (`permission_denied` on a reject,
@@ -89,6 +92,9 @@ function makeFakeSession(cfg, opts) {
     // is broken/absent (the effect may still land). `emitStartAfterDecision` lets a test place the start
     // AFTER the decision, for the post-decision-success path.
     if (!opts.suppressExecEvents && !opts.emitStartAfterDecision) emit('tool.execution_start', { toolCallId: execId, toolName: req.toolName, turnId: 't1' });
+    // A duplicate execution-start on the same id (§H). It must stay harmless: a start is never
+    // authoritative, so no number of duplicates can manufacture dispatch.
+    if (isProtected && opts.duplicateProtectedExecStart && !opts.suppressExecEvents && !opts.emitStartAfterDecision) emit('tool.execution_start', { toolCallId: execId, toolName: req.toolName, turnId: 't1' });
     let decision;
     let broke = false;
     try {
@@ -128,6 +134,16 @@ function makeFakeSession(cfg, opts) {
       if (!opts.suppressExecEvents && !opts.suppressCompletion && !(isProtected && opts.suppressProtectedCompletion)) {
         emit('tool.execution_complete', errData);
       }
+    }
+    // Duplicate / contradictory lifecycle events for the protected op (#614 §H). `extraProtectedCompletion`
+    // emits a SECOND completion on the same execId: 'duplicate' repeats the primary (identical), 'success'
+    // and 'denied' inject the opposite/other outcome so the classifier must reject last-write-wins.
+    if (isProtected && opts.extraProtectedCompletion && !opts.suppressExecEvents) {
+      const spec = opts.extraProtectedCompletion === 'duplicate' ? (dispatch ? 'success' : 'denied') : opts.extraProtectedCompletion;
+      const extra = spec === 'success'
+        ? sdkCompletionEventData({ toolCallId: execId, toolName: req.toolName, success: true })
+        : sdkCompletionEventData({ toolCallId: execId, toolName: req.toolName, success: false, code: PERMISSION_DENIED_CODE });
+      emit('tool.execution_complete', extra);
     }
     return { dispatched: dispatch, rejected, approved, broke, execId };
   }

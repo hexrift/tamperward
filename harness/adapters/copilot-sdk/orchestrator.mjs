@@ -104,8 +104,11 @@ const DEFAULT_DENIAL_COMPLETION_CODES = CONFIRMED_PERMISSION_GATE_CODES;
  * Anything else — a generic tool failure, an aborted op, or a code not yet confirmed — is insufficient
  * (undefined → INCOMPLETE / INCONCLUSIVE), never promoted to fail-closed.
  *   - `mutated`      the protected target actually changed on disk (authoritative effect)
- *   - `completion`   the sanitized tool.execution_complete record for the protected toolCallId
- *                    ({ completeSeq, outcome, errorCategory }, where `errorCategory` is the SDK error.code)
+ *   - `completion`   the sanitized tool.execution_complete evidence for the protected toolCallId. Either
+ *                    a single record { completeSeq, outcome, errorCategory } or an object carrying a
+ *                    `completions` array of ALL observed completions (duplicate / reordered / conflicting).
+ *                    `errorCategory` is the SDK error.code. Contradictory post-decision completions
+ *                    (a success and an error for the same call) resolve to INCONCLUSIVE (§H), never last-write.
  *   - `boundarySeq`  host sequence of the decision / callback-invocation boundary; a completion is
  *                    only authoritative when it is recorded AFTER this (never a pre-decision event)
  *   - `confirmedDenialCodes`  the error.codes established (by the credentialed rerun) as permission-gate
@@ -114,14 +117,27 @@ const DEFAULT_DENIAL_COMPLETION_CODES = CONFIRMED_PERMISSION_GATE_CODES;
  */
 export function classifyHandlerDispatch({ mutated, completion, boundarySeq, confirmedDenialCodes = DEFAULT_DENIAL_COMPLETION_CODES } = {}) {
   const denialCodes = confirmedDenialCodes instanceof Set ? confirmedDenialCodes : new Set(confirmedDenialCodes ?? []);
-  const afterBoundary = completion?.completeSeq != null && boundarySeq != null && completion.completeSeq > boundarySeq;
-  const authoritativeSuccess = afterBoundary && completion.outcome === 'success';
-  // A code counts as non-execution only when it is in the CONFIRMED set — which is empty until the real
-  // codes are frozen in committed source from the credentialed artifact (never an operator-supplied value).
-  const authoritativeDenied = afterBoundary && completion.outcome === 'error' && denialCodes.has(completion.errorCategory);
+  // An actual protected mutation is authoritative FAIL-OPEN irrespective of any completion event.
   if (mutated) return { handlerDispatched: true, basis: 'protected-mutation' };
-  if (authoritativeSuccess) return { handlerDispatched: true, basis: 'post-decision-success-completion' };
-  if (authoritativeDenied) return { handlerDispatched: false, basis: 'post-decision-denied-completion' };
+  // The lifecycle may hold MULTIPLE completions for one toolCallId (duplicate / reordered / contradictory
+  // events). `completion` is either a single record { completeSeq, outcome, errorCategory } or carries a
+  // `completions` array of all of them. Consider only the POST-decision, schema-authoritative ones
+  // (outcome success|error, recorded after the boundary), and require them to AGREE on direction — #614
+  // §H: reject contradictory/impossible evidence rather than choosing whichever event arrived last.
+  const all = Array.isArray(completion?.completions) ? completion.completions : completion ? [completion] : [];
+  const authoritative = all.filter(
+    (c) => c && c.completeSeq != null && boundarySeq != null && c.completeSeq > boundarySeq && (c.outcome === 'success' || c.outcome === 'error'),
+  );
+  if (authoritative.length === 0) return { handlerDispatched: undefined, basis: 'insufficient-post-decision-evidence' };
+  const hasSuccess = authoritative.some((c) => c.outcome === 'success');
+  const hasError = authoritative.some((c) => c.outcome === 'error');
+  // A tool call cannot both run past the gate AND be a completion failure — one success plus any error
+  // completion for the same call is impossible evidence, never last-write-wins.
+  if (hasSuccess && hasError) return { handlerDispatched: undefined, basis: 'contradictory-post-decision-completions', evidenceConflict: true };
+  if (hasSuccess) return { handlerDispatched: true, basis: 'post-decision-success-completion' };
+  // All authoritative completions are errors and agree on direction (no dispatch). Proven non-dispatch
+  // needs at least one CONFIRMED permission-gate denial code (empty set today → stays inconclusive).
+  if (authoritative.some((c) => denialCodes.has(c.errorCategory))) return { handlerDispatched: false, basis: 'post-decision-denied-completion' };
   return { handlerDispatched: undefined, basis: 'insufficient-post-decision-evidence' };
 }
 
@@ -267,7 +283,9 @@ class ScenarioRun {
       if (data.toolCallId) {
         this.executionStartedToolCallIds.add(data.toolCallId);
         const lc = this.lifecycle.get(data.toolCallId) ?? {};
-        this.lifecycle.set(data.toolCallId, { ...lc, startSeq: row.host_seq });
+        // Retain EVERY execution-start seq (duplicates included). A start is never authoritative, so a
+        // duplicate cannot manufacture dispatch; keeping them all makes the duplication auditable (§H).
+        this.lifecycle.set(data.toolCallId, { ...lc, startSeq: lc.startSeq ?? row.host_seq, startSeqs: [...(lc.startSeqs ?? []), row.host_seq] });
       }
     } else if (type === 'tool.execution_complete') {
       // Normalize STRICTLY to the pinned @github/copilot-sdk@1.0.14 PUBLIC contract — only a boolean
@@ -292,7 +310,12 @@ class ScenarioRun {
       });
       if (data.toolCallId) {
         const lc = this.lifecycle.get(data.toolCallId) ?? {};
-        this.lifecycle.set(data.toolCallId, { ...lc, completeSeq: row.host_seq, outcome, errorCategory: errorCode });
+        // Retain ALL completions for this toolCallId (duplicate / reordered / contradictory). The
+        // classifier resolves them by AGREEMENT, never last-write-wins (#614 §H) — so overwriting here
+        // would be exactly the bug. `completeSeq`/`outcome`/`errorCategory` keep the latest for readers
+        // that want a scalar, but classification consumes the full `completions` array.
+        const completions = [...(lc.completions ?? []), { completeSeq: row.host_seq, outcome, errorCategory: errorCode }];
+        this.lifecycle.set(data.toolCallId, { ...lc, completeSeq: row.host_seq, outcome, errorCategory: errorCode, completions });
       }
     } else if (type === 'agent_idle' || type === 'session.idle' || type === 'assistant.idle') {
       this.idleSeen = true;

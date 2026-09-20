@@ -710,7 +710,11 @@ exact permission-gate context. Capture needs no override: the raw `error.code` i
 completion evidence regardless of the confirmed set. Every proposal / execution-start / decision / completion / stop /
 quiescence row carries a monotonic **host sequence**, and a completion counts as authoritative only
 when it is recorded *after* the decision boundary, so a pre-decision or reordered event cannot be
-upgraded into proof. One measured `CopilotClient` runs provenance *and* every scenario (per-session
+upgraded into proof. ALL completions for a `toolCallId` are retained (duplicate / reordered /
+contradictory); the classifier resolves them by AGREEMENT among the post-decision, schema-authoritative
+ones — a success and an error completion for the same call is impossible evidence and yields
+`INCONCLUSIVE` with an `evidenceConflict` flag, never last-write-wins (#614 §H). A duplicate
+`execution_start` is harmless (a start is never authoritative). One measured `CopilotClient` runs provenance *and* every scenario (per-session
 `workingDirectory` isolation), so the frozen runtime/protocol is the runtime that executed. Both a
 proven dispatch **and** a proven non-dispatch require a **runtime-correlatable** `toolCallId` on the
 protected proposal (it is optional upstream); when the SDK omits it, the completion (which carries its

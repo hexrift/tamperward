@@ -712,6 +712,48 @@ describe('#614 — execution_start is lifecycle-start, not dispatch; completion 
     expect(compRow?.completion_outcome).toBeUndefined();
   });
 
+  it('classifyHandlerDispatch: duplicate/contradictory completions resolve by AGREEMENT, never last-write (#614 §H)', () => {
+    const confirmedDenialCodes = [...CANDIDATE_PERMISSION_GATE_CODES];
+    const denied = (seq: number) => ({ completeSeq: seq, outcome: 'error', errorCategory: PERMISSION_DENIED_CODE });
+    const success = (seq: number) => ({ completeSeq: seq, outcome: 'success' });
+    const run = (completions: unknown[]) => classifyHandlerDispatch({ mutated: false, completion: { completions }, boundarySeq: 5, confirmedDenialCodes });
+
+    // deny → denied → duplicate IDENTICAL denied: consistent, still usable as non-dispatch.
+    expect(run([denied(6), denied(7)])).toMatchObject({ handlerDispatched: false, basis: 'post-decision-denied-completion' });
+    // deny → denied → success: contradictory → INCONCLUSIVE + conflict flag, NOT last-write success.
+    expect(run([denied(6), success(7)])).toMatchObject({ handlerDispatched: undefined, basis: 'contradictory-post-decision-completions', evidenceConflict: true });
+    // deny → success → denied (reverse order): still contradictory, NOT last-write denial.
+    expect(run([success(6), denied(7)])).toMatchObject({ handlerDispatched: undefined, evidenceConflict: true });
+    // completion BEFORE the decision boundary is ignored; the single post-decision completion governs.
+    expect(run([success(4), denied(6)])).toMatchObject({ handlerDispatched: false, basis: 'post-decision-denied-completion' });
+    // two post-decision successes (duplicate) agree → dispatch.
+    expect(run([success(6), success(7)])).toMatchObject({ handlerDispatched: true, basis: 'post-decision-success-completion' });
+  });
+
+  it('deny → denied-completion → contradictory success completion is INCONCLUSIVE end-to-end (#614 §H)', async () => {
+    const r = await runPreDenyScenario({ binding: createFakeBinding({ extraProtectedCompletion: 'success' }), adapter, config: CFG(), mechanism: 'shell' });
+    expect(r.evidence.finalStateMutated).toBe(false); // the injected success completion is NOT a real mutation
+    expect(r.evidence.handlerDispatched).toBeUndefined();
+    expect(r.evidence.dispatchBasis).toBe('contradictory-post-decision-completions');
+    expect(r.semantic).toBe('INCOMPLETE');
+  });
+
+  it('deny → denied-completion → duplicate IDENTICAL denied stays usable non-dispatch (#614 §H)', async () => {
+    const r = await runPreDenyScenario({ binding: createFakeBinding({ extraProtectedCompletion: 'duplicate' }), adapter, config: CFG(), mechanism: 'shell' });
+    expect(r.evidence.handlerDispatched).toBe(false);
+    expect(r.evidence.dispatchBasis).toBe('post-decision-denied-completion');
+  });
+
+  it('a duplicate protected execution_start cannot manufacture dispatch (#614 §H)', async () => {
+    const r = await runPreDenyScenario({ binding: createFakeBinding({ duplicateProtectedExecStart: true }), adapter, config: CFG(), mechanism: 'shell' });
+    const starts = r.evidenceRows.filter((e: { stage?: string; proposal_id?: string }) => e.stage === 'execution-start');
+    // The protected op emitted two starts, both retained.
+    expect(starts.length).toBeGreaterThanOrEqual(2);
+    expect(r.evidence.finalStateMutated).toBe(false);
+    // A start is never authoritative: duplicates don't flip dispatch — non-dispatch proven by the denied completion.
+    expect(r.evidence.handlerDispatched).toBe(false);
+  });
+
   it('runQualification enforces the committed confirmed-code authority — a caller cannot inject it (#615 boundary)', async () => {
     // Bypass buildConfig and hand the exported driver its own classification authority. It must be
     // ignored: the committed CONFIRMED_PERMISSION_GATE_CODES (empty) governs, so an injected `rejected`
