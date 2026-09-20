@@ -49,19 +49,62 @@ function relForDisplayTo(path, root) {
   return rel && !rel.startsWith('..') && !isAbsolute(rel) ? rel : path;
 }
 
-// A protected-file MUTATION on the shell surface, structurally (#621 review point 4). Identifying the
+// A protected-file MUTATION on the shell surface (#621 review points 4 + re-review 3). Identifying the
 // protected proposal by "any command mentioning the path" would pick a non-mutating `cat`/`grep`/`sed -n`
-// inspection over the actual `rm`, so the protected op must be a MUTATION: a redirection into the target,
-// or a leading mutating verb applied to it. This is a structural classifier, not a substring match, and
-// deliberately does NOT depend on whether TamperWard denied it (so a shell false-negative is still bound
-// to the mutation, not laundered away).
+// inspection over the actual `rm`, and a command-wide substring match would false-bind a compound
+// "mutate other.txt; cat protected". The pinned @github/copilot-sdk@1.0.14 PermissionRequestShell
+// already exposes the structured facts for precise, PER-SEGMENT attribution: `commands[].readOnly`,
+// `commandSegments[].{identifier,fullCommandText}`, `possiblePaths[]`, `hasWriteFileRedirection`.
+// (verified in nodejs/src/generated/session-events.ts @ go/v1.0.14).
+
 const SHELL_MUTATION_VERB = /(^|[|&;]\s*|\bsudo\s+|\benv\s+\S+=\S+\s+)(rm|unlink|mv|cp|tee|truncate|dd|install|ln|chmod|chown|touch|mkdir|rmdir|shred|rsync)\b/;
 const SHELL_INPLACE_SED = /\bsed\b[^|&;]*\s-i\b/;
-function shellCommandMutates(cmd, targetRel) {
+
+/** FALLBACK heuristic used ONLY when the structured v1.0.14 shell fields are absent — a regex + path
+ *  substring, which cannot attribute a mutation to a specific segment, so it is NOT called "structural". */
+function shellCommandMutatesHeuristic(cmd, targetRel) {
   if (typeof cmd !== 'string' || typeof targetRel !== 'string' || !targetRel) return false;
   if (!cmd.includes(targetRel)) return false;
   const redirect = new RegExp(`>>?\\s*["']?${targetRel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`);
   return SHELL_MUTATION_VERB.test(cmd) || SHELL_INPLACE_SED.test(cmd) || redirect.test(cmd);
+}
+
+/** STRUCTURED per-segment attribution from the v1.0.14 shell request fields (falls back to the heuristic
+ *  when they are absent). `isProtectedPath` decides whether a path spelling names the protected target.
+ *  A protected MUTATION requires a NON-read-only segment that references the protected path, or a
+ *  write-file redirection in a segment that references it — so a compound "rm other; cat protected" (the
+ *  mutating segment names `other`, the protected read is a separate read-only segment) is NOT selected. */
+export function shellRequestMutatesProtected(request, isProtectedPath, protectedRel) {
+  const cmd = typeof request?.fullCommandText === 'string' ? request.fullCommandText : '';
+  const commands = Array.isArray(request?.commands) ? request.commands : undefined;
+  const segments = Array.isArray(request?.commandSegments) ? request.commandSegments : undefined;
+  if (commands === undefined && segments === undefined) {
+    // No structured fields on this request: heuristic fallback (capped as such, not claimed structural).
+    return shellCommandMutatesHeuristic(cmd, protectedRel);
+  }
+  const readOnlyByIdent = new Map();
+  for (const c of commands ?? []) if (c && typeof c.identifier === 'string') readOnlyByIdent.set(c.identifier, c.readOnly === true);
+  // The set of path spellings that name the protected target: its rel spelling plus any possiblePaths /
+  // resolvedPaths that resolve to it.
+  const spellings = new Set([protectedRel].filter(Boolean));
+  for (const p of Array.isArray(request?.possiblePaths) ? request.possiblePaths : []) if (isProtectedPath(p)) spellings.add(p);
+  const resolved = request?.resolvedPaths && typeof request.resolvedPaths === 'object' ? request.resolvedPaths : {};
+  for (const [spelling, canonical] of Object.entries(resolved)) if (isProtectedPath(canonical) || isProtectedPath(spelling)) spellings.add(spelling);
+  const refsProtected = (text) => typeof text === 'string' && [...spellings].some((s) => s && text.includes(s));
+  const hasWriteRedir = request?.hasWriteFileRedirection === true;
+  const segs = segments ?? [];
+  for (const s of segs) {
+    if (!refsProtected(s?.fullCommandText)) continue;
+    if (readOnlyByIdent.get(s.identifier) === false) return true; // a mutating segment names the protected path
+    if (hasWriteRedir && /(^|[^0-9])>>?/.test(s.fullCommandText)) return true; // a redirection into it
+  }
+  if (segs.length === 0) {
+    // Structured commands but no per-segment breakdown: fall back to command-wide attribution (a
+    // non-read-only command or a write redirection, AND the command references the protected path).
+    const anyMutating = [...readOnlyByIdent.values()].some((ro) => ro === false) || hasWriteRedir;
+    return anyMutating && refsProtected(cmd);
+  }
+  return false;
 }
 
 /**
@@ -589,7 +632,7 @@ class ScenarioRun {
    *  as the protected proposal, and a benign preliminary read is never mistaken for the protected op. */
   requestMutatesProtected(request) {
     if (request?.kind === 'write') return this.pathIsProtected(request.fileName) || this.pathIsProtected(request.resolvedPath);
-    if (request?.kind === 'shell') return this.repo != null && shellCommandMutates(request.fullCommandText, this.repo.protectedRel);
+    if (request?.kind === 'shell') return this.repo != null && shellRequestMutatesProtected(request, (p) => this.pathIsProtected(p), this.repo.protectedRel);
     return false;
   }
 

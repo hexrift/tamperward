@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { copilotSdkAdapter } from '../src/adapters/copilot-sdk/adapter';
 // @ts-expect-error - the orchestrator is a plain .mjs harness module, no d.ts
-import { buildConfig, runQualification, runPreDenyScenario, runBrokenPathScenario, runEndOfTurnScenario, assembleResult, serializeRequest, promptHash, classifyHandlerDispatch, decisionCategory, normalizeCompletionEvent, semanticEvaluation } from '../harness/adapters/copilot-sdk/orchestrator.mjs';
+import { buildConfig, runQualification, runPreDenyScenario, runBrokenPathScenario, runEndOfTurnScenario, assembleResult, serializeRequest, promptHash, classifyHandlerDispatch, decisionCategory, normalizeCompletionEvent, semanticEvaluation, shellRequestMutatesProtected } from '../harness/adapters/copilot-sdk/orchestrator.mjs';
 // @ts-expect-error - the reconstruction diagnostics are a plain .mjs harness module, no d.ts
 import { reconstructionDiagnostic } from '../harness/adapters/copilot-sdk/reconstruction-diagnostics.mjs';
 // @ts-expect-error - the fixtures are a plain .mjs harness module, no d.ts
@@ -1388,11 +1388,84 @@ describe('#614 — execution_start is lifecycle-start, not dispatch; completion 
     expect(huge.diffByteCountTruncated).toBe(true);
     expect(huge.diffByteCount).toBeLessThan(5_000_000);
     const hugeWs = reconstructionDiagnostic({ path: target, diff: ' '.repeat(5_000_000) }, 'reconstruction');
-    expect(hugeWs.diffUsable).toBe(false);
-    expect(hugeWs.failureCategory).toBe('no-usable-content');
+    // All-whitespace WITHIN the scanned prefix but truncated past it → usability is unknown, not a
+    // definite no-usable-content (the parser trims the full string).
+    expect(hugeWs.diffUsableKnown).toBe(false);
+    expect(hugeWs.diffShape.category).toBe('unknown-truncated');
     const hugeTarget = reconstructionDiagnostic({ path: 'a'.repeat(5_000_000), newFileContents: 'x' }, 'reconstruction');
     expect(hugeTarget.target.hashTruncated).toBe(true);
     expect(hugeTarget.target.byteCountTruncated).toBe(true);
+
+    // TRUNCATION HONESTY (#621 re-review pt 1): whitespace fills the scan prefix and a real diff follows
+    // within the parser's byte budget → the diagnostic must NOT assert `no-usable-content`; it reports
+    // an explicit unknown-truncated state.
+    const wsThenDiff = reconstructionDiagnostic(
+      { path: target, diff: ' '.repeat(262_144) + `\n--- a/other.ts\n+++ b/other.ts\n@@ -1 +1 @@\n-a\n+b` },
+      'reconstruction',
+    );
+    expect(wsThenDiff.diffShape.category).toBe('unknown-truncated');
+    expect(wsThenDiff.failureCategory).toBe('diff:unknown-truncated');
+    expect(wsThenDiff.diffUsableKnown).toBe(false);
+    // A capped scan that never reaches the first hunk is unknown-truncated, not a definite no-hunk.
+    const hugeHeaderNoHunk = reconstructionDiagnostic({ path: target, diff: `--- a/${target}\n` + 'x'.repeat(5_000_000) }, 'reconstruction');
+    expect(hugeHeaderNoHunk.diffShape.category).toBe('unknown-truncated');
+
+    // OPERATION-CONSISTENCY (#621 re-review pt 2): `new file mode` / `deleted file mode` with endpoints
+    // that imply a different op is a parser reject BEFORE git apply — not full-unified-diff.
+    const createModeModify = reconstructionDiagnostic(
+      { path: target, diff: `--- a/${target}\n+++ b/${target}\nnew file mode 100644\n@@ -1 +1 @@\n-a\n+b` },
+      'reconstruction',
+    );
+    expect(createModeModify.diffShape.metadataOperationMismatch).toBe(true);
+    expect(createModeModify.diffShape.category).toBe('metadata-operation-mismatch');
+    const deleteModeModify = reconstructionDiagnostic(
+      { path: target, diff: `--- a/${target}\n+++ b/${target}\ndeleted file mode 100644\n@@ -1 +1 @@\n-a\n+b` },
+      'reconstruction',
+    );
+    expect(deleteModeModify.diffShape.category).toBe('metadata-operation-mismatch');
+    // A create-mode WITH create endpoints is consistent → not a mismatch.
+    const createModeCreate = reconstructionDiagnostic(
+      { path: target, diff: `new file mode 100644\n--- /dev/null\n+++ b/${target}\n@@ -0,0 +1 @@\n+x` },
+      'reconstruction',
+    );
+    expect(createModeCreate.diffShape.metadataOperationMismatch).toBe(false);
+    expect(createModeCreate.diffShape.category).not.toBe('metadata-operation-mismatch');
+  });
+
+  it('#621 re-review pt 3 — shellRequestMutatesProtected attributes mutation PER SEGMENT from v1.0.14 fields', () => {
+    const protectedRel = 'src/keep.spec.ts';
+    const isProtected = (p: unknown) => p === protectedRel;
+    const seg = (fullCommandText: string) => ({ identifier: fullCommandText.split(/\s+/)[0], fullCommandText });
+    const req = (fullCommandText: string, cmds: { identifier: string; readOnly: boolean }[], extra: Record<string, unknown> = {}) => ({
+      kind: 'shell',
+      fullCommandText,
+      commands: cmds,
+      commandSegments: fullCommandText.split(/\s*;\s*/).map(seg),
+      possiblePaths: [...fullCommandText.matchAll(/([\w./-]+\.\w+)/g)].map((m) => m[1]),
+      ...extra,
+    });
+    // rm of the protected path → mutation.
+    expect(shellRequestMutatesProtected(req(`rm ${protectedRel}`, [{ identifier: 'rm', readOnly: false }]), isProtected, protectedRel)).toBe(true);
+    // cat of the protected path → NOT a mutation.
+    expect(shellRequestMutatesProtected(req(`cat ${protectedRel}`, [{ identifier: 'cat', readOnly: true }]), isProtected, protectedRel)).toBe(false);
+    // COMPOUND: mutate another file, then READ the protected path → NOT a protected mutation.
+    expect(
+      shellRequestMutatesProtected(
+        req(`rm other.txt ; cat ${protectedRel}`, [{ identifier: 'rm', readOnly: false }, { identifier: 'cat', readOnly: true }]),
+        isProtected,
+        protectedRel,
+      ),
+    ).toBe(false);
+    // A write-file redirection into the protected path → mutation.
+    expect(
+      shellRequestMutatesProtected(
+        req(`echo x > ${protectedRel}`, [{ identifier: 'echo', readOnly: true }], { hasWriteFileRedirection: true }),
+        isProtected,
+        protectedRel,
+      ),
+    ).toBe(true);
+    // No structured fields → heuristic fallback still catches an obvious rm.
+    expect(shellRequestMutatesProtected({ kind: 'shell', fullCommandText: `rm ${protectedRel}` }, isProtected, protectedRel)).toBe(true);
   });
 
   it('the fake models the PREVIOUSLY OBSERVED hosted ordering (execution-start before its decision) — a regression guard, not an SDK-contract claim', async () => {

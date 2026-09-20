@@ -109,8 +109,17 @@ function endpointToken(line) {
  * boolean) — it is not surfaced.
  */
 function analyzeDiffShape(diff, targetRel) {
-  if (typeof diff !== 'string' || !hasNonWhitespaceWithinCap(diff)) {
+  if (typeof diff !== 'string' || diff.length === 0) {
     return { category: 'absent', present: false };
+  }
+  const prefixTruncated = diff.length > SCAN_MAX_CHARS;
+  if (!hasNonWhitespaceWithinCap(diff)) {
+    // No non-whitespace in the scanned prefix. If the string continues past the cap, we CANNOT conclude
+    // the whole diff is empty (the parser trims the FULL string) — report unknown-truncated, never a
+    // definite `absent`/no-usable-content (#621 re-review point 1).
+    return prefixTruncated
+      ? { category: 'unknown-truncated', present: true, usable: 'unknown', scanTruncated: true }
+      : { category: 'absent', present: false };
   }
   const byteScan = boundedBytes(diff);
   const lineScan = boundedLines(diff);
@@ -166,21 +175,35 @@ function analyzeDiffShape(diff, targetRel) {
     }
   }
 
+  const scanTruncated = byteScan.truncated || lineScan.truncated;
   const duplicateEndpoint = oldHeaders > 1 || newHeaders > 1;
   const duplicateModeMetadata = createModeCount > 1 || deleteModeCount > 1;
+  const bothEndpoints = oldHeaders >= 1 && newHeaders >= 1;
   const targetNorm = typeof targetRel === 'string' ? stripPrefix(targetRel) : undefined;
   const headerMatchesTarget = targetNorm != null && paths.size > 0 ? [...paths].every((p) => p === targetNorm) : undefined;
   const impliedOperation = oldDevNull && !newDevNull ? 'create' : newDevNull && !oldDevNull ? 'delete' : oldDevNull && newDevNull ? 'ambiguous' : 'modify';
+  // Mirror canonicalPatch's operation-consistency check: `new file mode` is valid ONLY with a create
+  // endpoint pair, `deleted file mode` ONLY with a delete pair — a create/delete-mode with modify (or
+  // opposite) endpoints is a reconstruction FAILURE before git apply, not a "structurally complete"
+  // patch (#621 re-review point 2).
+  const metadataOperationMismatch =
+    bothEndpoints &&
+    ((createModeCount > 0 && impliedOperation !== 'create') || (deleteModeCount > 0 && impliedOperation !== 'delete'));
 
   // One enum naming the dominant shape the parser faced. Order = most-specific-rejection first; the
   // parser fails closed on the first grammar violation, so metadata / unrecognized / duplicate shapes
-  // outrank a would-be "structurally complete" reading.
+  // outrank a would-be "structurally complete" reading. A scan truncated BEFORE the first hunk could not
+  // observe the decisive structure, so it is `unknown-truncated`, never a definite parser diagnosis
+  // (#621 re-review point 1). Once the first hunk is seen, the header block (which precedes it) was
+  // fully scanned, so header-based categories are reliable even if the hunk body is truncated.
   let category;
-  if (unsupportedMetadata) category = 'unsupported-metadata';
+  if (scanTruncated && !hasHunk) category = 'unknown-truncated';
+  else if (unsupportedMetadata) category = 'unsupported-metadata';
   else if (unrecognizedHeader) category = 'unrecognized-header';
   else if (duplicateModeMetadata) category = 'duplicate-metadata';
   else if (gitDiffLines > 1 || paths.size > 1) category = 'multiple-file-diff';
   else if (duplicateEndpoint) category = 'duplicate-endpoint';
+  else if (metadataOperationMismatch) category = 'metadata-operation-mismatch';
   else if (oldHeaders === 0 && newHeaders === 0 && hasHunk) category = 'headerless-hunk-only';
   else if (oldHeaders === 0 && newHeaders === 0 && !hasHunk) category = 'no-diff-structure';
   else if (!hasHunk) category = 'no-hunk';
@@ -191,6 +214,8 @@ function analyzeDiffShape(diff, targetRel) {
   return {
     present: true,
     usable: true,
+    scanTruncated,
+    metadataOperationMismatch,
     byteCount: byteScan.bytes,
     byteCountTruncated: byteScan.truncated,
     lineCount: lineScan.lines,
@@ -251,13 +276,20 @@ export function reconstructionDiagnostic(args = {}, stage) {
   // (including `""`); a `diff` is USABLE only when it has a non-whitespace char (bounded scan).
   const newFileContentsPresent = typeof args.newFileContents === 'string';
   const diffUsable = hasNonWhitespaceWithinCap(diff);
+  // Usability is UNKNOWN, not false, when the scanned prefix is all-whitespace but the diff continues
+  // past the cap — the parser trims the FULL string, so a bounded scan cannot conclude it is unusable
+  // (#621 re-review point 1).
+  const diffUsableKnown = !(typeof diff === 'string' && diff.length > SCAN_MAX_CHARS && !diffUsable);
+  const diffMayBeUsable = typeof diff === 'string' && diff.length > 0 && (diffUsable || !diffUsableKnown);
   const newFileContentsBytes = boundedBytes(typeof args.newFileContents === 'string' ? args.newFileContents : undefined);
   const shape = analyzeDiffShape(diff, targetRel);
   // The safe, enum-first failure category: what did the runtime surface that could not be reconstructed?
+  // A diff whose usability is unknown-due-to-truncation flows to `diff:${shape.category}` (where the
+  // shape is `unknown-truncated`), never to a definite `no-usable-content`.
   let failureCategory;
-  if (!diffUsable && !newFileContentsPresent) failureCategory = 'no-usable-content';
-  else if (!diffUsable && newFileContentsPresent) failureCategory = 'new-file-contents-only';
-  else if (diffUsable && newFileContentsPresent) failureCategory = 'diff-and-new-file-contents';
+  if (!diffMayBeUsable && !newFileContentsPresent) failureCategory = 'no-usable-content';
+  else if (!diffMayBeUsable && newFileContentsPresent) failureCategory = 'new-file-contents-only';
+  else if (diffMayBeUsable && newFileContentsPresent) failureCategory = 'diff-and-new-file-contents';
   else failureCategory = `diff:${shape.category}`;
   return {
     stage: typeof stage === 'string' ? stage : undefined,
@@ -266,6 +298,7 @@ export function reconstructionDiagnostic(args = {}, stage) {
     resolvedPathPresent: typeof args.resolvedPath === 'string' && args.resolvedPath.length > 0,
     diffPresent: typeof diff === 'string' && diff.length > 0,
     diffUsable,
+    diffUsableKnown,
     diffByteCount: shape.present ? shape.byteCount : 0,
     diffByteCountTruncated: shape.present ? shape.byteCountTruncated : false,
     diffLineCount: shape.present ? shape.lineCount : 0,
