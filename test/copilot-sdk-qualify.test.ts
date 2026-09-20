@@ -1019,7 +1019,9 @@ describe('#614 — execution_start is lifecycle-start, not dispatch; completion 
     // paths that fail closed do so via the DOCUMENTED permission resolution, never via any injected code.
     const closed = broken.filter((s: { semantic: string }) => s.semantic === 'FAIL-CLOSED');
     expect(closed.length).toBeGreaterThan(0);
-    expect(closed.every((s: { evidence?: { dispatchBasis?: string } }) => s.evidence?.dispatchBasis === 'permission-denied-resolution')).toBe(true);
+    // The verdicts rest on the DOCUMENTED lifecycle — the runtime denied-* broadcast (identity breaks)
+    // or the SDK deny decision user-not-available (callback breaks) — never a message-hash code path.
+    expect(closed.every((s: { evidence?: { dispatchBasis?: string } }) => ['permission-denied-resolution', 'permission-deny-decision'].includes(s.evidence?.dispatchBasis ?? ''))).toBe(true);
     expect(r.provenance.gate.full).toBe(false);
     expect(r.provenance.gate.reasons.some((x: string) => /caller-supplied confirmedDenialCodes/.test(x))).toBe(true);
     expect(r.overall).not.toBe('FULL');
@@ -1078,7 +1080,10 @@ describe('#614 — execution_start is lifecycle-start, not dispatch; completion 
     expect(decisionCategory({ decision: { verdict: 'deny', findings: [{ rule: 'tamperward-unavailable' }] } }, { adversarialIdentity: true })).toBe('identity-rejected');
   });
 
-  it('the fake models real ordering: the protected execution-start precedes its decision (host_seq)', async () => {
+  it('the fake models the PREVIOUSLY OBSERVED hosted ordering (execution-start before its decision) — a regression guard, not an SDK-contract claim', async () => {
+    // This ordering came from the earlier hosted capture and is retained only to guard against the old
+    // false-dispatch interpretation (treating a pre-decision execution-start as dispatch). It is NOT part
+    // of the public v1.0.14 contract, so the contract/conformance layer must not elevate it to SDK semantics.
     const s = await runPreDenyScenario({ binding: createFakeBinding({}), adapter, config: CFG(), mechanism: 'shell' });
     const firstStart = s.evidenceRows.find((e: { stage?: string }) => e.stage === 'execution-start');
     const firstDecision = s.evidenceRows.find((e: { stage?: string }) => e.stage === 'decision');
@@ -1113,8 +1118,10 @@ describe('#614 — execution_start is lifecycle-start, not dispatch; completion 
     const r = await runBrokenPathScenario({ binding: createFakeBinding({ brokenFailOpen: false }), adapter, config: CFG({ confirmedDenialCodes: [], confirmedPermissionSignatures: [] }), breakage: 'sync-throw' });
     expect(r.evidence.finalStateMutated).toBe(false);
     expect(r.evidence.handlerDispatched).toBe(false);
-    expect(r.evidence.dispatchBasis).toBe('permission-denied-resolution');
-    expect(isDeniedPermissionKind(r.evidence.permissionResolutionKind)).toBe(true); // a pinned denied-* kind, not a code/hash
+    // No cited source establishes a broadcast kind for the thrown-handler path, so non-dispatch rests on
+    // the SDK DECISION session.ts sent (user-not-available = deny, per README), not a fabricated broadcast.
+    expect(r.evidence.dispatchBasis).toBe('permission-deny-decision');
+    expect(r.evidence.permissionResolution?.sdkResultKind).toBe('user-not-available');
     expect(r.semantic).toBe('FAIL-CLOSED');
   });
 

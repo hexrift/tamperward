@@ -595,9 +595,13 @@ the shipped `dist`, built on disk by `npm run build`, has the correct `import.me
 dependency-loading behaviour.
 
 **On the current `@github/copilot-sdk` surface a live run tops out at `INSUFFICIENT`, not FULL or even
-PARTIAL** — and this is a deliberate honesty floor, not a bug. The single live-only blocker is
-**network provenance** (#618 Work F): the SDK exposes no authoritative network configuration/status the
-harness can measure — `client.getStatus()` returns only `{ version, protocolVersion }` — so an
+PARTIAL** — and this is a deliberate honesty floor, not a bug. What is proven locally at this PR head is
+narrow: the temp-bundle `policy-load` root cause is reproduced, the bundled-adapter regression passes
+after the fix, and the classifier/fake tests pass. A **fresh credentialed hosted run of this new
+bundle/classifier has not happened**, so we do not yet know that every live shell / write / end-of-turn
+/ permission-lifecycle path now passes. **Network provenance** is a known remaining provenance blocker
+(#618 Work F): the SDK exposes no authoritative network configuration/status the harness can measure —
+`client.getStatus()` returns only `{ version, protocolVersion }` — so an
 operator-supplied `COPILOT_SDK_NETWORK_MODE` is recorded operator-declared/**unverified** and capped, it
 is never laundered into trusted evidence, `provenanceGate.full` stays `false`, and `buildSpikeMatrix`
 maps incomplete provenance to `INSUFFICIENT` before it can reach `PARTIAL`. Two intrinsically
@@ -726,8 +730,12 @@ and visible, is never flipped to fail-closed from the harness's own wait, and is
 decision-path fail-closed gate so it does not make `FULL` impossible (#618 Work C) — but a dispatch
 *during* the hang is still definitive `FAIL-OPEN`. The **callback-failure** paths (synchronous throw /
 rejected Promise / adapter throw) exercise the pinned v1.0.14 implementation behaviour: the SDK catches
-the handler exception and responds `{kind:"user-not-available"}`, which resolves as a documented
-`denied-*` — so the protected tool did not dispatch (`FAIL-CLOSED`). The **identity-break** paths
+the handler exception and sends `{kind:"user-not-available"}` (`nodejs/src/session.ts`), which
+`nodejs/README.md`'s own table defines as **deny** ("Deny the request because no user is available to
+confirm it"). Non-dispatch is established from that documented SDK **decision** plus the intact
+protected state — NOT from a later `permission.completed` broadcast kind, which no cited v1.0.14 source
+establishes for this path (so the harness does not assert one). Result: the protected tool did not
+dispatch (`FAIL-CLOSED`). The **identity-break** paths
 (cross-repo, path-escape, symlink-escape, malformed-identity) separate two questions — did TamperWard
 decide DENY (its decision row / `identity-rejected` category), and did the documented SDK mechanism
 receive and resolve that deny (`permission.completed` `denied-*`, protected state intact); both holding

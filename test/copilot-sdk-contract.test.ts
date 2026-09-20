@@ -141,6 +141,26 @@ describe('classifyProtectedDispatch — dispatch decided from DOCUMENTED signals
   it('no resolution at all (e.g. a hung/timeout handler emits none) is undefined — never inferred from absence', () => {
     expect(classifyProtectedDispatch({ resolvedKind: undefined, mutated: false })).toMatchObject({ handlerDispatched: undefined, basis: 'no-permission-resolution' });
   });
+
+  it('with NO broadcast, a DOCUMENTED-deny SDK result (reject / user-not-available, per README) is non-dispatch', () => {
+    // The broken-handler path: session.ts sends {kind:"user-not-available"} (a documented deny) and no
+    // cited source establishes a later broadcast kind — so the DECISION establishes non-dispatch.
+    expect(classifyProtectedDispatch({ resolvedKind: undefined, sdkResultKind: 'user-not-available', mutated: false }))
+      .toMatchObject({ handlerDispatched: false, basis: 'permission-deny-decision' });
+    expect(classifyProtectedDispatch({ resolvedKind: undefined, sdkResultKind: 'reject', mutated: false }))
+      .toMatchObject({ handlerDispatched: false, basis: 'permission-deny-decision' });
+  });
+
+  it('a NON-deny SDK result (approve-once / no-result) does not establish non-dispatch on its own', () => {
+    expect(classifyProtectedDispatch({ resolvedKind: undefined, sdkResultKind: 'approve-once', mutated: false })).toMatchObject({ handlerDispatched: undefined, basis: 'no-permission-resolution' });
+    expect(classifyProtectedDispatch({ resolvedKind: undefined, sdkResultKind: 'no-result', mutated: false })).toMatchObject({ handlerDispatched: undefined, basis: 'no-permission-resolution' });
+  });
+
+  it('the runtime BROADCAST takes precedence over the SDK result when both are present', () => {
+    // A denied-* broadcast is the stronger, runtime-confirmed signal.
+    expect(classifyProtectedDispatch({ resolvedKind: 'denied-interactively-by-user', sdkResultKind: 'reject', mutated: false }))
+      .toMatchObject({ handlerDispatched: false, basis: 'permission-denied-resolution' });
+  });
 });
 
 describe('fake binding conformance — only HARD FACTS, not invented host-result→broadcast mappings', () => {
@@ -171,11 +191,21 @@ describe('fake binding conformance — only HARD FACTS, not invented host-result
     expect((req?.data.permissionRequest as { toolCallId?: string }).toolCallId).toBeTruthy();
   });
 
-  it('every emitted permission.completed kind is within the pinned allowlist (schema conformance, not a mapping claim)', async () => {
-    for (const handler of [async () => ({ kind: 'approve-once' }), async () => ({ kind: 'reject', feedback: 'no' })]) {
-      const { events } = await drive({ handler, prompt: shellPrompt });
-      for (const k of completedKinds(events)) expect(isKnownPermissionKind(k)).toBe(true);
-    }
+  it('the default broadcast mappings are exactly the pinned v1.0.14 E2E test mappings (multi-client.e2e.test.ts)', async () => {
+    // approve-once → "approved", reject → "denied-interactively-by-user" are asserted by the SDK's own
+    // E2E test, so they are the ONLY host-result→broadcast defaults the fake bakes in.
+    const { events: approved } = await drive({ handler: async () => ({ kind: 'approve-once' }), prompt: shellPrompt });
+    expect(completedKinds(approved)).toContain('approved');
+    const { events: rejected } = await drive({ handler: async () => ({ kind: 'reject', feedback: 'no' }), prompt: shellPrompt });
+    expect(completedKinds(rejected)).toContain('denied-interactively-by-user');
+    expect(completedKinds(rejected)).not.toContain('denied-by-rules'); // the previous unproven default is gone
+    for (const k of [...completedKinds(approved), ...completedKinds(rejected)]) expect(isKnownPermissionKind(k)).toBe(true);
+  });
+
+  it('a THROWN handler emits NO permission.completed broadcast by default (no cited source establishes its broadcast kind)', async () => {
+    const { events, results } = await drive({ handler: () => { throw new Error('boom'); }, prompt: shellPrompt });
+    expect(events.some((e) => e.type === 'permission.completed')).toBe(false); // no fabricated broadcast
+    expect(results.some((r) => r.result.kind === 'user-not-available')).toBe(true); // only the pinned RPC-result fact
   });
 
   it('HARD FACT: a THROWN host handler is caught and the SDK sends {kind:"user-not-available"} (session.ts), not a claimed broadcast kind', async () => {

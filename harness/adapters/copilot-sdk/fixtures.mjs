@@ -207,6 +207,18 @@ export const PERMISSION_COMPLETED_KIND = Object.freeze({
   DENIED_BY_PERMISSION_REQUEST_HOOK: 'denied-by-permission-request-hook',
 });
 
+// The handler-side `PermissionRequestResult` kinds the pinned SDK treats as a DENY decision, from
+// nodejs/README.md's own table: `reject` = "Deny the request"; `user-not-available` = "Deny the request
+// because no user is available to confirm it." (These are the SDK RPC-result kinds session.ts sends via
+// handlePendingPermissionRequest — distinct from the runtime's permission.completed broadcast kinds.)
+// This lets the broken-handler path establish non-dispatch from the DOCUMENTED SDK decision
+// (user-not-available, which session.ts sends when the handler throws) rather than a fabricated
+// permission.completed broadcast, which no cited v1.0.14 source establishes for that path.
+export const PERMISSION_RESULT_DENY_KINDS = Object.freeze(['reject', 'user-not-available']);
+export function isDenySdkResultKind(kind) {
+  return PERMISSION_RESULT_DENY_KINDS.includes(kind);
+}
+
 /** EXACT membership in the pinned generated schema — a value the runtime can actually emit. */
 export function isKnownPermissionKind(kind) {
   return PERMISSION_COMPLETED_KINDS.includes(kind);

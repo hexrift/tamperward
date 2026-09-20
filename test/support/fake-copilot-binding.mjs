@@ -130,33 +130,43 @@ function makeFakeSession(cfg, opts) {
     else if (rejected) dispatch = !!opts.ignoreDeny;
     else dispatch = approved;
 
+    // This scenario models an UNOBSERVABLE resolution when the handler hung (timeout, FACT 6 — nothing
+    // sent), the whole event/response channel is broken (suppressExecEvents), or the scenario suppresses
+    // the (protected) op's resolution (suppressCompletion / suppressProtectedCompletion). In those cases
+    // neither the RPC result nor the runtime broadcast is observable.
+    const resolutionSuppressed =
+      timedOut || opts.suppressExecEvents || opts.suppressCompletion || (isProtected && opts.suppressProtectedCompletion);
+
     // HARD FACT (nodejs/src/session.ts _executePermissionAndRespond): the SDK sends the host handler's
     // result to the runtime; if the handler THROWS/rejects it catches the error and sends
     // `{kind:"user-not-available"}` instead; a hung handler is awaited and NOTHING is sent.
     // `onPermissionResult` mirrors that RPC result exactly — the pinned-source behaviour we CAN assert,
     // distinct from the runtime's subsequent `permission.completed` broadcast below.
-    if (!timedOut && cfg.onPermissionResult) {
+    if (!resolutionSuppressed && cfg.onPermissionResult) {
       const sdkResult = threw ? { kind: 'user-not-available' } : (decision ?? { kind: 'no-result' });
       cfg.onPermissionResult({ requestId, result: sdkResult });
     }
 
-    // The runtime's `permission.completed.result.kind` broadcast. The mapping from the SDK RPC result to
-    // this broadcast kind is NOT established by the cited v1.0.14 sources, so the fake does NOT assert it:
-    // the kind is a SCRIPTED input (`opts.permissionCompletedKind`), defaulting to a driving-only
-    // SCAFFOLDING value (a value from the pinned allowlist, used solely to exercise the classifier — never
-    // a claim about what the real runtime emits; the credentialed rerun records that). The resolution is
-    // unobservable when the handler hung (timeout, FACT 6 — no resolution), the event channel is broken
+    // The runtime's `permission.completed.result.kind` broadcast. The mapping from an SDK RPC result to
+    // this broadcast kind is established by a pinned source ONLY for approve-once and reject, from the
+    // SDK's own v1.0.14 E2E test (nodejs/test/e2e/multi-client.e2e.test.ts): approve-once → "approved",
+    // reject → "denied-interactively-by-user". Those are the defaults here. For a THROWN/rejected handler
+    // NO broadcast kind is established by any cited source, so the fake emits NO permission.completed for
+    // it (the broken-handler path establishes non-dispatch from the SDK RPC result `user-not-available`,
+    // a documented deny — see onPermissionResult above). A test may still SCRIPT any allowlist kind via
+    // `opts.permissionCompletedKind` to exercise the classifier directly. The broadcast is also
+    // unobservable when the handler hung (timeout, FACT 6), the event channel is broken
     // (suppressExecEvents), or this scenario models a missing resolution (suppressCompletion /
     // suppressProtectedCompletion).
-    const resolutionSuppressed =
-      timedOut || opts.suppressExecEvents || opts.suppressCompletion || (isProtected && opts.suppressProtectedCompletion);
-    if (!resolutionSuppressed) {
-      const scaffold = approved
-        ? PERMISSION_COMPLETED_KIND.APPROVED
-        : threw
-          ? PERMISSION_COMPLETED_KIND.DENIED_NO_APPROVAL_USER_UNAVAILABLE
-          : PERMISSION_COMPLETED_KIND.DENIED_BY_RULES;
-      const resolvedKind = typeof opts.permissionCompletedKind === 'string' ? opts.permissionCompletedKind : scaffold;
+    const scripted = typeof opts.permissionCompletedKind === 'string' ? opts.permissionCompletedKind : undefined;
+    // Only approve/reject have a pinned-E2E broadcast mapping; a throw has none.
+    const e2eDefault = approved
+      ? PERMISSION_COMPLETED_KIND.APPROVED
+      : rejected
+        ? PERMISSION_COMPLETED_KIND.DENIED_INTERACTIVELY_BY_USER
+        : undefined;
+    const resolvedKind = scripted ?? e2eDefault;
+    if (!resolutionSuppressed && resolvedKind !== undefined) {
       emit('permission.completed', permissionCompletedEventData({ requestId, kind: resolvedKind }));
     }
     if (!opts.suppressExecEvents && opts.emitStartAfterDecision) emit('tool.execution_start', { toolCallId: execId, toolName: req.toolName, turnId: 't1' });
