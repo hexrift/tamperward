@@ -26,7 +26,7 @@ import {
   provenanceGate,
   EVIDENCE_SCHEMA_VERSION,
 } from '../copilot-sdk-spike.mjs';
-import { makeScenarioRepo, finalState, protectedHash, cleanupRepo, makeOutsideDir, makeEscapingSymlink, PROTECTED_REL, SENTINEL_REL, SENTINEL_VALUE, CONFIRMED_PERMISSION_GATE_CODES, isDeniedPermissionKind, isApprovedPermissionKind, isKnownPermissionKind, isDenySdkResultKind } from './fixtures.mjs';
+import { makeScenarioRepo, finalState, protectedHash, cleanupRepo, makeOutsideDir, makeEscapingSymlink, PROTECTED_REL, SENTINEL_REL, SENTINEL_VALUE, CONFIRMED_PERMISSION_GATE_CODES, isDeniedPermissionKind, isApprovedPermissionKind, isKnownPermissionKind } from './fixtures.mjs';
 import { CONFIRMED_PERMISSION_GATE_SIGNATURES, permissionSignatureKey } from './capture-signatures.mjs';
 import { isAbsolute, resolve, join } from 'node:path';
 
@@ -112,7 +112,7 @@ const DEFAULT_DENIAL_COMPLETION_SIGNATURES = CONFIRMED_PERMISSION_GATE_SIGNATURE
  *   - no resolution observed (e.g. a hung/timeout handler emits no `permission.completed`, FACT 6) →
  *     undefined (INCOMPLETE / INCONCLUSIVE), never inferred from absence.
  */
-export function classifyProtectedDispatch({ resolvedKind, sdkResultKind, mutated, completion, boundarySeq } = {}) {
+export function classifyProtectedDispatch({ resolvedKind, mutated, completion, boundarySeq } = {}) {
   // FAIL-OPEN is authoritative from a DOCUMENTED effect/outcome — a landed mutation, or a documented
   // post-decision `tool.execution_complete` with `success:true` (streaming-events.md: `success` is the
   // documented boolean discriminator — this is contract, not a message hash). A pre-decision
@@ -128,22 +128,17 @@ export function classifyProtectedDispatch({ resolvedKind, sdkResultKind, mutated
   // INCONCLUSIVE, never last-write-wins (§H).
   if (successes.length && errors.length) return { handlerDispatched: undefined, basis: 'contradictory-post-decision-completions', evidenceConflict: true };
   if (successes.length) return { handlerDispatched: true, basis: 'post-decision-success-completion' };
-  // NON-DISPATCH authority, in order of strength:
-  //   1. the runtime BROADCAST `permission.completed.result.kind` is EXACTLY one of the pinned `denied-*`
-  //      values (the strongest, runtime-confirmed signal);
-  //   2. else the SDK PERMISSION RESULT that session.ts sent to the runtime is a DOCUMENTED deny —
-  //      `reject` or `user-not-available` (nodejs/README.md's own table) — with the protected state
-  //      already intact (FAIL-OPEN ruled out above). This is the broken-handler path: session.ts sends
-  //      `{kind:"user-not-available"}` on a thrown handler, a documented deny, and NO cited source
-  //      establishes a later broadcast kind for it, so we use the decision fact directly rather than
-  //      fabricating a broadcast.
-  // A `tool.execution_complete` error code/message hash is NEVER used here (diagnostic only, #618). An
-  // UNRECOGNIZED broadcast kind — schema drift, or the known-but-non-enforcing `cancelled` — is never
-  // promoted to non-dispatch; it is INCONCLUSIVE, failing closed in the evidence sense.
+  // NON-DISPATCH authority is a RUNTIME-OBSERVABLE signal: the `permission.completed.result.kind`
+  // broadcast is EXACTLY one of the pinned `denied-*` values. This is the ONLY non-dispatch signal the
+  // real hosted binding can observe (createRealBinding subscribes to session events; the SDK exposes no
+  // callback for the internal RPC result it sends). A `tool.execution_complete` error code/message hash
+  // is NEVER used (diagnostic only, #618). An UNRECOGNIZED broadcast kind — schema drift, or the
+  // known-but-non-enforcing `cancelled` — is never promoted to non-dispatch; and an ABSENT broadcast
+  // (e.g. a thrown handler for which the pinned SDK sends `user-not-available` internally but no cited
+  // source establishes a subsequent broadcast kind) is INCONCLUSIVE, never manufactured fail-closed.
   if (isDeniedPermissionKind(resolvedKind)) return { handlerDispatched: false, basis: 'permission-denied-resolution' };
   if (isApprovedPermissionKind(resolvedKind)) return { handlerDispatched: undefined, basis: 'permission-approved-no-mutation' };
   if (resolvedKind != null) return { handlerDispatched: undefined, basis: isKnownPermissionKind(resolvedKind) ? 'permission-non-enforcing-resolution' : 'unrecognized-permission-resolution' };
-  if (isDenySdkResultKind(sdkResultKind)) return { handlerDispatched: false, basis: 'permission-deny-decision' };
   return { handlerDispatched: undefined, basis: 'no-permission-resolution' };
 }
 
@@ -338,9 +333,6 @@ class ScenarioRun {
     // signal — correlated to a tool call via `permissionRequest.toolCallId`.
     this.permissionRequests = new Map(); // requestId -> { kind, toolCallId, requestedSeq }
     this.permissionResolutions = new Map(); // requestId -> { resolvedKind, completedSeq }
-    // The SDK RPC result session.ts sent to the runtime (approve-once / reject / user-not-available / …),
-    // keyed by requestId — the DECISION layer, distinct from the runtime broadcast above.
-    this.permissionResults = new Map(); // requestId -> resultKind
     // Host sequence of each proposal's DECISION row (the callback-resolution boundary), by runtime id.
     this.decisionSeqById = new Map();
     this.proposals = []; // { proposalId, runtimeId, kind, toolName, deny }
@@ -463,25 +455,17 @@ class ScenarioRun {
     }
   }
 
-  /** Record the SDK RPC permission result session.ts sent to the runtime (session-level callback, not a
-   *  session event): {requestId, result:{kind}}. This is the DECISION the SDK enforced — `reject` /
-   *  `user-not-available` are documented denies (README) — distinct from the runtime broadcast. */
-  onPermissionResult(payload) {
-    const requestId = payload?.requestId;
-    const kind = payload?.result && typeof payload.result.kind === 'string' ? payload.result.kind : undefined;
-    if (requestId != null) this.permissionResults.set(requestId, kind);
-  }
-
   /** The DOCUMENTED permission resolution for a tool call, correlated via permissionRequest.toolCallId
    *  → requestId → permission.completed.result.kind. `resolvedKind` is undefined when no permission was
-   *  requested for the id, or the resolution never arrived (e.g. a hung/timeout handler). Also carries
-   *  the SDK RPC `sdkResultKind` (the decision session.ts sent) for the same request. */
+   *  requested for the id, or the resolution never arrived (e.g. a hung/timeout handler, or a thrown
+   *  handler for which no cited source establishes a broadcast kind). This is the ONLY non-dispatch
+   *  signal the REAL hosted binding can observe — there is no SDK callback for the internal RPC result. */
   permissionResolutionForToolCall(toolCallId) {
     if (toolCallId == null) return undefined;
     for (const [requestId, reqRow] of this.permissionRequests) {
       if (reqRow.toolCallId === toolCallId) {
         const res = this.permissionResolutions.get(requestId);
-        return { requestId, kind: reqRow.kind, toolCallId, requestedSeq: reqRow.requestedSeq, resolvedKind: res?.resolvedKind, completedSeq: res?.completedSeq, sdkResultKind: this.permissionResults.get(requestId) };
+        return { requestId, kind: reqRow.kind, toolCallId, requestedSeq: reqRow.requestedSeq, resolvedKind: res?.resolvedKind, completedSeq: res?.completedSeq };
       }
     }
     return undefined;
@@ -670,7 +654,6 @@ export async function runPreDenyScenario({ binding, adapter, config, mechanism }
       model: config.model,
       availableTools: config.availableTools,
       onPermissionRequest: (request, invocation) => run.decide(request, invocation),
-      onPermissionResult: (r) => run.onPermissionResult(r),
       onEvent: (ev) => run.onEvent(ev),
     });
     run.sessionId = session.sessionId;
@@ -698,7 +681,6 @@ export async function runPreDenyScenario({ binding, adapter, config, mechanism }
   const resolution = run.permissionResolutionForToolCall(protectedRuntimeId);
   const disp = classifyProtectedDispatch({
     resolvedKind: resolution?.resolvedKind,
-    sdkResultKind: resolution?.sdkResultKind,
     mutated: state.protectedMutated,
     completion: run.completionFor(protectedRuntimeId),
     boundarySeq: run.decisionSeqFor(protectedRuntimeId),
@@ -887,7 +869,6 @@ export async function runBrokenPathScenario({ binding, adapter, config, breakage
         // identity breaks: the real adapter is expected to fail closed (deny) on the ADVERSARIAL claim.
         return run.decide(request, invocation, adversarialCwd);
       },
-      onPermissionResult: (r) => run.onPermissionResult(r),
       onEvent: (ev) => run.onEvent(ev),
     });
     run.sessionId = session.sessionId;
@@ -906,21 +887,24 @@ export async function runBrokenPathScenario({ binding, adapter, config, breakage
   // A pre-decision `tool.execution_start` never influences the classification (#611 bug fix). Without a
   // runtime-correlatable id (or without an authoritative completion) it stays undefined → INCONCLUSIVE.
   const protectedHasRuntimeId = protectedProposalId != null;
-  // PRIMARY: the DOCUMENTED permission resolution for the protected tool call, plus the protected
-  // filesystem state (#618 Work B/D/F). This decides handlerDispatched for EVERY break kind from the
-  // documented lifecycle rather than a message hash:
-  //   - sync-throw / reject / adapter-throw → the pinned v1.0.14 SDK catches the handler exception and
-  //     responds `{kind:"user-not-available"}` (session.ts _executePermissionAndRespond, FACT 5), which
-  //     resolves as a documented `denied-*` — so the protected tool did NOT dispatch (FAIL-CLOSED);
-  //   - identity breaks → the adapter returns `{kind:"reject"}` for the adversarial claim → a documented
-  //     `denied-*` resolution → non-dispatch (the SDK permission mechanism received and resolved the
-  //     deny), separate from "did TamperWard decide DENY?" which the decision row records;
+  // PRIMARY: the RUNTIME-OBSERVABLE permission resolution (`permission.completed.result.kind` ∈ pinned
+  // denied-*) for the protected tool call, plus the protected filesystem state (#618). Only what the
+  // real hosted binding can OBSERVE counts — there is no SDK callback for the internal RPC result:
+  //   - identity breaks → the adapter returns `{kind:"reject"}` for the adversarial claim → the pinned
+  //     v1.0.14 E2E test establishes reject → the `denied-interactively-by-user` broadcast → non-dispatch
+  //     (the SDK permission mechanism received and resolved the deny), separate from "did TamperWard
+  //     decide DENY?" which the decision row records;
+  //   - sync-throw / reject / adapter-throw → the pinned SDK catches the handler exception and sends
+  //     `{kind:"user-not-available"}` on its INTERNAL RPC path (session.ts) — a documented deny DECISION
+  //     — but NO cited source establishes a subsequent `permission.completed` broadcast kind, and the
+  //     real binding cannot observe the RPC result, so absent an observed denied-* broadcast this stays
+  //     INCONCLUSIVE (never manufactured fail-closed from a source-level fact). The user-not-available
+  //     behaviour is asserted only as a source-level conformance fact, never as live evidence.
   //   - timeout → a never-resolving handler emits NO `permission.completed` (FACT 6) → undefined →
   //     INCONCLUSIVE (handled below), never fail-closed from our own wait.
   const resolution = run.permissionResolutionForToolCall(protectedProposalId);
   const disp = classifyProtectedDispatch({
     resolvedKind: resolution?.resolvedKind,
-    sdkResultKind: resolution?.sdkResultKind,
     mutated: state.protectedMutated,
     completion: run.completionFor(protectedProposalId),
     boundarySeq: protectedBoundarySeq,

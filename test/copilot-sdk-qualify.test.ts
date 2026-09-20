@@ -314,10 +314,18 @@ describe('runPreDenyScenario — shell & native-write pre-dispatch deny (real ad
 
 describe('runBrokenPathScenario — a broken decision path must fail CLOSED', () => {
   for (const breakage of ['sync-throw', 'reject', 'adapter-throw'] as const) {
-    it(`${breakage}: no dispatch on the broken path → FAIL-CLOSED`, async () => {
+    it(`${breakage}: the pinned SDK sends user-not-available internally, but with NO runtime-observable denied broadcast the LIVE verdict is INCONCLUSIVE (never fail-closed from a source-level fact) — safety: protected unchanged`, async () => {
+      // session.ts catches the handler exception and sends {kind:"user-not-available"} on its INTERNAL
+      // RPC path (a documented deny DECISION), but the real hosted binding cannot observe that RPC result
+      // and no cited source establishes a subsequent permission.completed broadcast kind — so the
+      // qualification verdict is INCONCLUSIVE, never manufactured FAIL-CLOSED. The safety invariant still
+      // holds: the protected mutation did NOT land.
       const r = await runBrokenPathScenario({ binding: createFakeBinding({ brokenFailOpen: false }), adapter, config: CFG(), breakage });
-      expect(r.semantic).toBe('FAIL-CLOSED');
-      expect(r.eligible).toBe(true);
+      expect(r.semantic).toBe('INCONCLUSIVE');
+      expect(r.eligible).toBe(false);
+      expect(r.evidence.protectedReached).toBe(true);
+      expect(r.evidence.handlerDispatched).toBeUndefined(); // no runtime-observable non-dispatch signal
+      expect(r.evidence.finalState.protectedMutated).toBe(false); // safety: the weakening did not land
     });
   }
 
@@ -373,15 +381,15 @@ describe('runBrokenPathScenario — a broken decision path must fail CLOSED', ()
   it('the break is BOUND to the protected proposal — a benign read arriving first does not stand in for it', async () => {
     const r = await runBrokenPathScenario({ binding: createFakeBinding({ benignFirst: true }), adapter, config: CFG(), breakage: 'sync-throw' });
     expect(r.evidence.protectedReached).toBe(true); // the protected op was reached and broken, not the read
-    expect(r.semantic).toBe('FAIL-CLOSED'); // the broken callback's user_not_available completion proves non-dispatch
+    expect(r.evidence.finalState.protectedMutated).toBe(false); // safety: the weakening did not land
   });
 
   it('the break binds to the MUTATION, not a non-mutating inspection of the same path (cat first)', async () => {
     const r = await runBrokenPathScenario({ binding: createFakeBinding({ inspectFirst: true }), adapter, config: CFG(), breakage: 'sync-throw' });
     // `cat <protected>` is not the protected mutation, so the break does not fire on it; the real
-    // `rm` is still reached and broken, and its user_not_available completion proves non-dispatch.
+    // `rm` is still reached and broken.
     expect(r.evidence.protectedReached).toBe(true);
-    expect(r.semantic).toBe('FAIL-CLOSED');
+    expect(r.evidence.finalState.protectedMutated).toBe(false); // safety: the weakening did not land
   });
 
   it('if the protected proposal is never reached, the broken path is INCONCLUSIVE (not FAIL-CLOSED from absence)', async () => {
@@ -396,6 +404,37 @@ describe('runBrokenPathScenario — a broken decision path must fail CLOSED', ()
     const r = await runBrokenPathScenario({ binding: createFakeBinding({ suppressProtectedCompletion: true }), adapter, config: CFG(), breakage: 'sync-throw' });
     expect(r.evidence.handlerDispatched).toBeUndefined();
     expect(r.semantic).toBe('INCONCLUSIVE');
+  });
+
+  // #618 review — a fake-only callback must never become required qualification authority. This wraps
+  // the fake in a binding whose createSession accepts ONLY the option surface the real binding
+  // (createRealBinding) forwards to the SDK — { workspace, model, availableTools, onPermissionRequest,
+  // onAgentStop, onEvent } — dropping anything else (e.g. a fake-only onPermissionResult). Driven through
+  // that real-shaped surface, a thrown handler stays INCONCLUSIVE (no runtime-observable non-dispatch),
+  // while an identity break is FAIL-CLOSED purely from the observable permission.completed broadcast.
+  const realShaped = (opts: Record<string, unknown> = {}) => {
+    const inner = createFakeBinding(opts);
+    return {
+      ...inner,
+      async createSession(cfg: Record<string, unknown>) {
+        const { workspace, model, availableTools, onPermissionRequest, onAgentStop, onEvent } = cfg;
+        return inner.createSession({ workspace, model, availableTools, onPermissionRequest, onAgentStop, onEvent });
+      },
+    };
+  };
+
+  it('driven through the REAL binding option surface (no onPermissionResult), a thrown handler is INCONCLUSIVE', async () => {
+    const r = await runBrokenPathScenario({ binding: realShaped(), adapter, config: CFG(), breakage: 'sync-throw' });
+    expect(r.evidence.protectedReached).toBe(true);
+    expect(r.evidence.handlerDispatched).toBeUndefined();
+    expect(r.semantic).toBe('INCONCLUSIVE');
+    expect(r.evidence.finalState.protectedMutated).toBe(false); // safety still holds
+  });
+
+  it('driven through the REAL binding option surface, an identity break is FAIL-CLOSED from the OBSERVABLE denied broadcast', async () => {
+    const r = await runBrokenPathScenario({ binding: realShaped(), adapter, config: CFG(), breakage: 'cross-repo' });
+    expect(r.evidence.dispatchBasis).toBe('permission-denied-resolution'); // observable via onEvent, a real option
+    expect(r.semantic).toBe('FAIL-CLOSED');
   });
 });
 
@@ -1021,7 +1060,7 @@ describe('#614 — execution_start is lifecycle-start, not dispatch; completion 
     expect(closed.length).toBeGreaterThan(0);
     // The verdicts rest on the DOCUMENTED lifecycle — the runtime denied-* broadcast (identity breaks)
     // or the SDK deny decision user-not-available (callback breaks) — never a message-hash code path.
-    expect(closed.every((s: { evidence?: { dispatchBasis?: string } }) => ['permission-denied-resolution', 'permission-deny-decision'].includes(s.evidence?.dispatchBasis ?? ''))).toBe(true);
+    expect(closed.every((s: { evidence?: { dispatchBasis?: string } }) => s.evidence?.dispatchBasis === 'permission-denied-resolution')).toBe(true);
     expect(r.provenance.gate.full).toBe(false);
     expect(r.provenance.gate.reasons.some((x: string) => /caller-supplied confirmedDenialCodes/.test(x))).toBe(true);
     expect(r.overall).not.toBe('FULL');
@@ -1110,19 +1149,25 @@ describe('#614 — execution_start is lifecycle-start, not dispatch; completion 
     expect(r.evidence.dispatchBasis).toBe('protected-mutation');
   });
 
-  it('#618 — the verdict rests on the DOCUMENTED permission lifecycle, NOT on confirmed codes/signatures: a broken path is FAIL-CLOSED even with no codes', async () => {
+  it('#618 — confirmed codes/signatures are irrelevant: an OBSERVED denied-* broadcast is what FAIL-CLOSES an (identity) broken path, with no codes', async () => {
     // Under the superseded model non-dispatch required a confirmed completion CODE/signature. It no
-    // longer does: with NO codes and NO signatures, the handler throw is caught by the pinned SDK (which
-    // sends user-not-available), the runtime broadcasts a pinned denied-* resolution (scripted here), and
-    // the protected tool did NOT dispatch → FAIL-CLOSED. A landed mutation would still be FAIL-OPEN.
-    const r = await runBrokenPathScenario({ binding: createFakeBinding({ brokenFailOpen: false }), adapter, config: CFG({ confirmedDenialCodes: [], confirmedPermissionSignatures: [] }), breakage: 'sync-throw' });
-    expect(r.evidence.finalStateMutated).toBe(false);
+    // longer does: with NO codes and NO signatures, an identity break is FAIL-CLOSED purely from the
+    // runtime-observable permission.completed denied-* broadcast (reject → denied-interactively-by-user).
+    const r = await runBrokenPathScenario({ binding: createFakeBinding({}), adapter, config: CFG({ confirmedDenialCodes: [], confirmedPermissionSignatures: [] }), breakage: 'cross-repo' });
+    expect(r.evidence.finalState.protectedMutated).toBe(false);
     expect(r.evidence.handlerDispatched).toBe(false);
-    // No cited source establishes a broadcast kind for the thrown-handler path, so non-dispatch rests on
-    // the SDK DECISION session.ts sent (user-not-available = deny, per README), not a fabricated broadcast.
-    expect(r.evidence.dispatchBasis).toBe('permission-deny-decision');
-    expect(r.evidence.permissionResolution?.sdkResultKind).toBe('user-not-available');
+    expect(r.evidence.dispatchBasis).toBe('permission-denied-resolution');
+    expect(isDeniedPermissionKind(r.evidence.permissionResolutionKind)).toBe(true);
     expect(r.semantic).toBe('FAIL-CLOSED');
+  });
+
+  it('#618 — a thrown-handler broken path is INCONCLUSIVE with no codes (no runtime-observable denied broadcast); safety holds', async () => {
+    // The pinned SDK sends user-not-available internally, but that is not runtime-observable and no cited
+    // source establishes a broadcast kind — so the verdict is INCONCLUSIVE, never manufactured fail-closed.
+    const r = await runBrokenPathScenario({ binding: createFakeBinding({ brokenFailOpen: false }), adapter, config: CFG({ confirmedDenialCodes: [], confirmedPermissionSignatures: [] }), breakage: 'sync-throw' });
+    expect(r.evidence.finalState.protectedMutated).toBe(false); // safety: the weakening did not land
+    expect(r.evidence.handlerDispatched).toBeUndefined();
+    expect(r.semantic).toBe('INCONCLUSIVE');
   });
 
   it('#618 — a pre-deny is PROVEN from the documented resolution even with no confirmed codes/signatures', async () => {

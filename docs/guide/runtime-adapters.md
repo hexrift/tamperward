@@ -729,13 +729,16 @@ the enforcement claim. The **timeout** broken path has no runtime-exposed permis
 and visible, is never flipped to fail-closed from the harness's own wait, and is carved out of the
 decision-path fail-closed gate so it does not make `FULL` impossible (#618 Work C) — but a dispatch
 *during* the hang is still definitive `FAIL-OPEN`. The **callback-failure** paths (synchronous throw /
-rejected Promise / adapter throw) exercise the pinned v1.0.14 implementation behaviour: the SDK catches
-the handler exception and sends `{kind:"user-not-available"}` (`nodejs/src/session.ts`), which
-`nodejs/README.md`'s own table defines as **deny** ("Deny the request because no user is available to
-confirm it"). Non-dispatch is established from that documented SDK **decision** plus the intact
-protected state — NOT from a later `permission.completed` broadcast kind, which no cited v1.0.14 source
-establishes for this path (so the harness does not assert one). Result: the protected tool did not
-dispatch (`FAIL-CLOSED`). The **identity-break** paths
+rejected Promise / adapter throw) separate a **source-level fact** from a **live verdict**. Source fact:
+the pinned SDK catches the handler exception and sends `{kind:"user-not-available"}` on its *internal*
+RPC path (`nodejs/src/session.ts`), which `nodejs/README.md`'s own table defines as **deny** ("Deny the
+request because no user is available to confirm it"). But the real hosted binding (`createRealBinding`)
+cannot **observe** that internal RPC result — the SDK exposes no callback for it — and no cited v1.0.14
+source establishes a subsequent `permission.completed` broadcast kind for this path. So the live
+qualification verdict is **`INCONCLUSIVE`**, never manufactured `FAIL-CLOSED` from the source-level fact;
+a fresh credentialed run could raise it only if the runtime emits an observable denied `permission.completed`.
+The safety invariant is checked regardless: the protected mutation must not land. (The `user-not-available`
+= deny fact is asserted only in the source-level conformance tests, never wired into the live classifier.) The **identity-break** paths
 (cross-repo, path-escape, symlink-escape, malformed-identity) separate two questions — did TamperWard
 decide DENY (its decision row / `identity-rejected` category), and did the documented SDK mechanism
 receive and resolve that deny (`permission.completed` `denied-*`, protected state intact); both holding

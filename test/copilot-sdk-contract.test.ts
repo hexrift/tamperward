@@ -19,7 +19,7 @@ import { describe, it, expect } from 'vitest';
 // @ts-expect-error - plain .mjs harness module, no d.ts
 import { classifyProtectedDispatch, toPermissionResult } from '../harness/adapters/copilot-sdk/orchestrator.mjs';
 // @ts-expect-error - plain .mjs harness module, no d.ts
-import { PERMISSION_COMPLETED_KINDS, PERMISSION_COMPLETED_KINDS_DOCUMENTED, PERMISSION_APPROVED_KINDS, PERMISSION_DENIED_KINDS, PERMISSION_OTHER_KINDS, isDeniedPermissionKind, isApprovedPermissionKind, isKnownPermissionKind } from '../harness/adapters/copilot-sdk/fixtures.mjs';
+import { PERMISSION_COMPLETED_KINDS, PERMISSION_COMPLETED_KINDS_DOCUMENTED, PERMISSION_APPROVED_KINDS, PERMISSION_DENIED_KINDS, PERMISSION_OTHER_KINDS, isDeniedPermissionKind, isApprovedPermissionKind, isKnownPermissionKind, isDenySdkResultKind } from '../harness/adapters/copilot-sdk/fixtures.mjs';
 // @ts-expect-error - plain .mjs test-support module, no d.ts
 import { createFakeBinding } from './support/fake-copilot-binding.mjs';
 
@@ -142,24 +142,26 @@ describe('classifyProtectedDispatch — dispatch decided from DOCUMENTED signals
     expect(classifyProtectedDispatch({ resolvedKind: undefined, mutated: false })).toMatchObject({ handlerDispatched: undefined, basis: 'no-permission-resolution' });
   });
 
-  it('with NO broadcast, a DOCUMENTED-deny SDK result (reject / user-not-available, per README) is non-dispatch', () => {
-    // The broken-handler path: session.ts sends {kind:"user-not-available"} (a documented deny) and no
-    // cited source establishes a later broadcast kind — so the DECISION establishes non-dispatch.
-    expect(classifyProtectedDispatch({ resolvedKind: undefined, sdkResultKind: 'user-not-available', mutated: false }))
-      .toMatchObject({ handlerDispatched: false, basis: 'permission-deny-decision' });
-    expect(classifyProtectedDispatch({ resolvedKind: undefined, sdkResultKind: 'reject', mutated: false }))
-      .toMatchObject({ handlerDispatched: false, basis: 'permission-deny-decision' });
+  it('the SDK RPC result decision (user-not-available / reject) is NOT accepted as a live non-dispatch signal — it is not runtime-observable', () => {
+    // The classifier only takes what the real hosted binding can OBSERVE (the permission.completed
+    // broadcast). It has no `sdkResultKind` input: a fake could not feed the internal RPC result as if it
+    // were host evidence. A broken handler with no observed broadcast therefore stays INCONCLUSIVE, even
+    // though the SDK sends user-not-available on its internal path — that fact lives in the source-level
+    // conformance test below, not in the live verdict.
+    expect(classifyProtectedDispatch({ resolvedKind: undefined, mutated: false })).toMatchObject({ handlerDispatched: undefined, basis: 'no-permission-resolution' });
   });
+});
 
-  it('a NON-deny SDK result (approve-once / no-result) does not establish non-dispatch on its own', () => {
-    expect(classifyProtectedDispatch({ resolvedKind: undefined, sdkResultKind: 'approve-once', mutated: false })).toMatchObject({ handlerDispatched: undefined, basis: 'no-permission-resolution' });
-    expect(classifyProtectedDispatch({ resolvedKind: undefined, sdkResultKind: 'no-result', mutated: false })).toMatchObject({ handlerDispatched: undefined, basis: 'no-permission-resolution' });
-  });
-
-  it('the runtime BROADCAST takes precedence over the SDK result when both are present', () => {
-    // A denied-* broadcast is the stronger, runtime-confirmed signal.
-    expect(classifyProtectedDispatch({ resolvedKind: 'denied-interactively-by-user', sdkResultKind: 'reject', mutated: false }))
-      .toMatchObject({ handlerDispatched: false, basis: 'permission-denied-resolution' });
+describe('source-level conformance (not live evidence) — the pinned SDK deny decisions (README + session.ts)', () => {
+  it('reject and user-not-available are documented DENY decisions; nothing else is', () => {
+    // nodejs/README.md: reject = "Deny the request"; user-not-available = "Deny the request because no
+    // user is available to confirm it". session.ts sends user-not-available on a thrown handler. This is
+    // a SOURCE fact used only for conformance — it is NOT wired into the live qualification verdict.
+    expect(isDenySdkResultKind('reject')).toBe(true);
+    expect(isDenySdkResultKind('user-not-available')).toBe(true);
+    for (const k of ['approve-once', 'approve-for-session', 'no-result', 'approved', undefined]) {
+      expect(isDenySdkResultKind(k)).toBe(false);
+    }
   });
 });
 
