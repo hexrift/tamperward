@@ -1,0 +1,50 @@
+{
+  "schema_version": "copilot-sdk-permission-capture/v1",
+  "captured_at": "2026-09-20",
+  "provenance": {
+    "tamperward_version": "tamperward@2.31.0+3671a5e6",
+    "sdk_version": "@github/copilot-sdk@1.0.14",
+    "runtime_version": "copilot-runtime@1.0.85",
+    "protocol_version": 3,
+    "model": "gpt-5.4",
+    "os": "darwin",
+    "arch": "arm64"
+  },
+  "signatures": [
+    {
+      "path": "returned-reject",
+      "completion": {
+        "success": false,
+        "error_code": "denied",
+        "message_hash": "96ed60fc6898cdfa"
+      },
+      "observed_after_decision": true,
+      "protected_state_mutated": false
+    },
+    {
+      "path": "callback-failure",
+      "observed_breakages": [
+        "sync-throw",
+        "reject",
+        "adapter-throw"
+      ],
+      "completion": {
+        "success": false,
+        "error_code": "denied",
+        "message_hash": "ebf2100b9c49ae12"
+      },
+      "observed_after_callback": true,
+      "protected_state_mutated": false
+    }
+  ],
+  "inconclusive": [
+    {
+      "path": "callback-timeout",
+      "reason": "protected callback reached but no authoritative completion was observed"
+    }
+  ],
+  "notes": [
+    "This fixture is sanitized: no command content, model output, credentials, temp paths or raw error messages are retained.",
+    "A bare error.code=denied is not classification authority; path + code + message hash must match a source-frozen signature."
+  ]
+}
