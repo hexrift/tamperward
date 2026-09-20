@@ -164,7 +164,7 @@ export function classifyHandlerDispatch({ mutated, completion, boundarySeq, perm
     }
     const distinct = new Set(observedKeys);
     if (distinct.size !== 1) return conflict;
-    return { handlerDispatched: false, basis: 'post-decision-denied-signature' };
+    return { handlerDispatched: false, basis: 'post-decision-denied-completion' };
   }
 
   const confirmedCodes = new Set(errors.filter((c) => denialCodes.has(c.errorCategory)).map((c) => c.errorCategory));
