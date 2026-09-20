@@ -1,6 +1,8 @@
 {
-  "schema_version": "copilot-sdk-permission-capture/v1",
+  "schema_version": "copilot-sdk-permission-capture/v2",
   "captured_at": "2026-09-20",
+  "source_artifact_sha256": null,
+  "source_artifact_sha256_pending": "SHA-256 of the ORIGINAL credentialed copilot-sdk-phase0-capture.json (run `shasum -a 256` on that local file). This is NOT the chat-attachment hash. The original artifact is not committed (it carries raw command/model/error content); the maintainer supplies this value from the local file to complete the artifact->evidence lineage.",
   "provenance": {
     "tamperward_version": "tamperward@2.31.0+3671a5e6",
     "sdk_version": "@github/copilot-sdk@1.0.14",
@@ -18,23 +20,46 @@
         "error_code": "denied",
         "message_hash": "96ed60fc6898cdfa"
       },
-      "observed_after_decision": true,
-      "protected_state_mutated": false
+      "observations": [
+        {
+          "scenario": "shell-pre-deny",
+          "proposal_id_hash": "4a64dc9356e398b6",
+          "boundary_host_seq": 2,
+          "completion_host_seq": 3,
+          "protected_state_mutated": false
+        }
+      ]
     },
     {
       "path": "callback-failure",
-      "observed_breakages": [
-        "sync-throw",
-        "reject",
-        "adapter-throw"
-      ],
       "completion": {
         "success": false,
         "error_code": "denied",
         "message_hash": "ebf2100b9c49ae12"
       },
-      "observed_after_callback": true,
-      "protected_state_mutated": false
+      "observations": [
+        {
+          "scenario": "broken-path:sync-throw",
+          "proposal_id_hash": "bcdd6ea75e7900a3",
+          "boundary_host_seq": 13,
+          "completion_host_seq": 14,
+          "protected_state_mutated": false
+        },
+        {
+          "scenario": "broken-path:reject",
+          "proposal_id_hash": "72f949ad33d32406",
+          "boundary_host_seq": 10,
+          "completion_host_seq": 11,
+          "protected_state_mutated": false
+        },
+        {
+          "scenario": "broken-path:adapter-throw",
+          "proposal_id_hash": "8b261d4d4450b682",
+          "boundary_host_seq": 13,
+          "completion_host_seq": 15,
+          "protected_state_mutated": false
+        }
+      ]
     }
   ],
   "inconclusive": [
@@ -44,7 +69,9 @@
     }
   ],
   "notes": [
-    "This fixture is sanitized: no command content, model output, credentials, temp paths or raw error messages are retained.",
-    "A bare error.code=denied is not classification authority; path + code + message hash must match a source-frozen signature."
+    "This fixture is sanitized: no command content, model output, credentials, temp paths or raw error messages are retained. Proposal ids are the harness sha16(proposal_id) opaque hash.",
+    "A bare error.code=denied is not classification authority; path + code + message hash must match a source-frozen signature (CONFIRMED_PERMISSION_GATE_SIGNATURES).",
+    "Lineage: source_artifact_sha256 -> these sanitized observations (same toolCallId, completion_host_seq > boundary_host_seq, protected state intact) -> the frozen signatures -> the classifier. The same callback-failure signature was independently observed on sync-throw, reject and adapter-throw.",
+    "callback-timeout stays inconclusive: the capture provided no authoritative completion for that path."
   ]
 }

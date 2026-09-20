@@ -59,6 +59,44 @@ describe('#616 — live permission signatures and canonical SDK provenance', () 
     expect(CONFIRMED_PERMISSION_GATE_SIGNATURES).toEqual(fromFixture);
   });
 
+  it('every frozen signature is justified by post-boundary, same-target sanitized observations (#616 lineage)', () => {
+    const fixturePath = join(__dirname, '..', 'harness', 'adapters', 'copilot-sdk', 'evidence', 'capture-2026-09-20.json');
+    const capture = JSON.parse(readFileSync(fixturePath, 'utf8')) as {
+      source_artifact_sha256: string | null;
+      source_artifact_sha256_pending?: string;
+      signatures: Array<{
+        path: string;
+        completion: { success: boolean; error_code: string; message_hash: string };
+        observations: Array<{ scenario: string; proposal_id_hash: string; boundary_host_seq: number; completion_host_seq: number; protected_state_mutated: boolean }>;
+      }>;
+    };
+    // The original-artifact hash is either a real 64-hex SHA-256 or an explicit pending marker — never a
+    // fabricated value. When pending, the reason must be recorded (the original artifact is uncommitted).
+    if (capture.source_artifact_sha256 === null) {
+      expect(typeof capture.source_artifact_sha256_pending).toBe('string');
+    } else {
+      expect(capture.source_artifact_sha256).toMatch(/^[0-9a-f]{64}$/);
+    }
+    // Each frozen signature is backed by ≥1 sanitized observation whose completion matches the signature,
+    // recorded strictly AFTER the decision/callback boundary, on an opaque (sha16) proposal id, with the
+    // protected state intact. This is the evidence-rows → signatures link of the lineage.
+    for (const sig of CONFIRMED_PERMISSION_GATE_SIGNATURES as ReadonlyArray<{ path: string; code: string; messageHash: string }>) {
+      const row = capture.signatures.find((s) => s.path === sig.path);
+      expect(row, sig.path).toBeTruthy();
+      if (!row) continue;
+      expect(row.completion.success).toBe(false);
+      expect(row.completion.error_code).toBe(sig.code);
+      expect(row.completion.message_hash).toBe(sig.messageHash);
+      expect(row.observations.length).toBeGreaterThanOrEqual(1);
+      for (const o of row.observations) {
+        expect(o.proposal_id_hash, o.scenario).toMatch(/^[0-9a-f]{16}$/); // sha16(proposal_id) convention
+        expect(o.completion_host_seq, o.scenario).toBeGreaterThan(o.boundary_host_seq); // post-boundary
+        expect(o.protected_state_mutated, o.scenario).toBe(false); // protected state intact
+        expect(typeof o.scenario).toBe('string');
+      }
+    }
+  });
+
   it('requires path + code + message hash for live non-dispatch authority', () => {
     const completion = {
       completions: [{ completeSeq: 3, outcome: 'error', errorCategory: 'denied', errorHash: '96ed60fc6898cdfa' }],
