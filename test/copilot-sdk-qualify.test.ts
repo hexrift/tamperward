@@ -5,7 +5,7 @@
 // decisive classifications run against real observations, and CI proves it cannot false-green.
 
 import { describe, it, expect } from 'vitest';
-import { existsSync, readdirSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { existsSync, readdirSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { copilotSdkAdapter } from '../src/adapters/copilot-sdk/adapter';
@@ -45,6 +45,18 @@ describe('#616 — live permission signatures and canonical SDK provenance', () 
       { path: 'returned-reject', code: 'denied', messageHash: '96ed60fc6898cdfa' },
       { path: 'callback-failure', code: 'denied', messageHash: 'ebf2100b9c49ae12' },
     ]);
+  });
+
+  it('the frozen classification authority is mechanically bound to the committed capture fixture (#616 lineage)', () => {
+    // The classification constants must not be able to drift from the sanitized evidence record they
+    // claim to come from: derive the authority from the fixture and require an EXACT match. A future
+    // edit to CONFIRMED_PERMISSION_GATE_SIGNATURES must therefore change the committed evidence too.
+    const fixturePath = join(__dirname, '..', 'harness', 'adapters', 'copilot-sdk', 'evidence', 'capture-2026-09-20.json');
+    const capture = JSON.parse(readFileSync(fixturePath, 'utf8')) as {
+      signatures: Array<{ path: string; completion: { error_code: string; message_hash: string } }>;
+    };
+    const fromFixture = capture.signatures.map((s) => ({ path: s.path, code: s.completion.error_code, messageHash: s.completion.message_hash }));
+    expect(CONFIRMED_PERMISSION_GATE_SIGNATURES).toEqual(fromFixture);
   });
 
   it('requires path + code + message hash for live non-dispatch authority', () => {
