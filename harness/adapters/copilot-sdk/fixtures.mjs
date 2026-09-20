@@ -151,6 +151,40 @@ export function sdkCompletionEventData({ toolCallId, toolName, success, code, me
   return data;
 }
 
+// The DOCUMENTED @github/copilot-sdk@1.0.14 permission lifecycle (docs/features/streaming-events.md).
+// `permission.completed.result.kind` is the SINGLE documented resolution discriminator — `approved`
+// vs the `denied-*` family — and is the PRIMARY enforcement signal the harness classifies on (the
+// tool.execution_complete `error.code`/message is diagnostic only, never the permission contract).
+// These are the exact documented values; a bare `denied` prefix test distinguishes deny from approve.
+export const PERMISSION_COMPLETED_KIND = Object.freeze({
+  APPROVED: 'approved',
+  DENIED_BY_RULES: 'denied-by-rules',
+  DENIED_INTERACTIVELY_BY_USER: 'denied-interactively-by-user',
+  DENIED_NO_APPROVAL_USER_UNAVAILABLE: 'denied-no-approval-rule-and-could-not-request-from-user',
+  DENIED_BY_CONTENT_EXCLUSION: 'denied-by-content-exclusion-policy',
+});
+export const PERMISSION_COMPLETED_KINDS = Object.freeze(Object.values(PERMISSION_COMPLETED_KIND));
+
+/** A documented permission resolution is a DENY iff its result.kind is one of the `denied-*` values.
+ *  (docs/features/streaming-events.md: the only non-`denied` documented kind is `approved`.) */
+export function isDeniedPermissionKind(kind) {
+  return typeof kind === 'string' && kind.startsWith('denied');
+}
+export function isApprovedPermissionKind(kind) {
+  return kind === PERMISSION_COMPLETED_KIND.APPROVED;
+}
+
+/** The documented `permission.requested` event data (streaming-events.md §permission.requested):
+ *  `{ requestId, permissionRequest }`, where permissionRequest carries `kind` + optional `toolCallId`. */
+export function permissionRequestedEventData({ requestId, permissionRequest } = {}) {
+  return { requestId, permissionRequest };
+}
+/** The documented `permission.completed` event data (streaming-events.md §permission.completed):
+ *  `{ requestId, result: { kind } }`. */
+export function permissionCompletedEventData({ requestId, kind } = {}) {
+  return { requestId, result: { kind } };
+}
+
 // Provenance status of the permission-gate completion codes (#615 review, final blocker). The pinned
 // github/copilot-sdk@1.0.14 E2E tests establish a WITHHELD tool only as `success === false` plus an
 // error MESSAGE substring — "user rejected" for an explicit reject, "Permission denied" for

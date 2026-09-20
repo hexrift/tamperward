@@ -36,7 +36,14 @@ import { writeFileSync, rmSync, mkdirSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join, dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { sdkCompletionEventData, PERMISSION_DENIED_CODE, USER_NOT_AVAILABLE_CODE } from '../../harness/adapters/copilot-sdk/fixtures.mjs';
+import {
+  sdkCompletionEventData,
+  PERMISSION_DENIED_CODE,
+  USER_NOT_AVAILABLE_CODE,
+  PERMISSION_COMPLETED_KIND,
+  permissionRequestedEventData,
+  permissionCompletedEventData,
+} from '../../harness/adapters/copilot-sdk/fixtures.mjs';
 
 const TIMEOUT = Symbol('timeout');
 const WEAKENED = `it('keeps one', () => { expect(1).toBe(1); });\n`;
@@ -95,23 +102,53 @@ function makeFakeSession(cfg, opts) {
     // A duplicate execution-start on the same id (§H). It must stay harmless: a start is never
     // authoritative, so no number of duplicates can manufacture dispatch.
     if (isProtected && opts.duplicateProtectedExecStart && !opts.suppressExecEvents && !opts.emitStartAfterDecision) emit('tool.execution_start', { toolCallId: execId, toolName: req.toolName, turnId: 't1' });
+    // The documented permission lifecycle (streaming-events.md): the runtime raises `permission.requested`
+    // (carrying its own `requestId` plus the permissionRequest, which links back to the tool call via
+    // `toolCallId`) and the host handler resolves it. We emit it here — around the real host callback —
+    // so the orchestrator observes the SAME documented events a live run would.
+    const requestId = `req_${execId}`;
+    // `suppressExecEvents` models a fully broken/absent session-event channel — no permission events
+    // either, so the documented resolution is unobservable (the effect may still land).
+    if (!opts.suppressExecEvents) emit('permission.requested', permissionRequestedEventData({ requestId, permissionRequest: { ...req, toolCallId: execId } }));
     let decision;
-    let broke = false;
+    let threw = false;
+    let timedOut = false;
     try {
       decision = await raceTimeout(cfg.onPermissionRequest(req, { sessionId }), opts.callbackBudgetMs ?? 50);
     } catch {
-      broke = true;
+      threw = true; // synchronous throw / rejected Promise from the host handler
     }
     if (decision === TIMEOUT) {
-      broke = true;
+      timedOut = true; // never-resolving handler — the pinned SDK has NO permission-handler timeout (FACT 6)
       decision = undefined;
     }
+    const broke = threw || timedOut;
     const rejected = !broke && decision && decision.kind === 'reject';
     const approved = !broke && decision && decision.kind !== 'reject';
     let dispatch;
     if (broke) dispatch = !!opts.brokenFailOpen;
     else if (rejected) dispatch = !!opts.ignoreDeny;
     else dispatch = approved;
+    // The DOCUMENTED resolution the runtime records via `permission.completed.result.kind`
+    // (streaming-events.md §permission.completed). A host `approve-once` → `approved`; a host `reject`
+    // → a rule denial; a THROWN/rejected handler → the SDK's `user-not-available` fallback
+    // (session.ts _executePermissionAndRespond), which resolves as the "could not request from user"
+    // denial. A never-resolving handler (timeout) resolves NOTHING — the SDK just awaits it — so NO
+    // `permission.completed` is emitted (the resolution hangs), matching FACT 6.
+    // The resolution is unobservable when: the handler hung (timeout, FACT 6 — no resolution), the whole
+    // event channel is broken (suppressExecEvents), or this scenario models a missing resolution for the
+    // (protected) op (suppressCompletion / suppressProtectedCompletion). Otherwise emit the documented
+    // permission.completed.
+    const resolutionSuppressed =
+      timedOut || opts.suppressExecEvents || opts.suppressCompletion || (isProtected && opts.suppressProtectedCompletion);
+    if (!resolutionSuppressed) {
+      const resolvedKind = approved
+        ? PERMISSION_COMPLETED_KIND.APPROVED
+        : threw
+          ? PERMISSION_COMPLETED_KIND.DENIED_NO_APPROVAL_USER_UNAVAILABLE
+          : PERMISSION_COMPLETED_KIND.DENIED_BY_RULES;
+      emit('permission.completed', permissionCompletedEventData({ requestId, kind: resolvedKind }));
+    }
     if (!opts.suppressExecEvents && opts.emitStartAfterDecision) emit('tool.execution_start', { toolCallId: execId, toolName: req.toolName, turnId: 't1' });
     if (dispatch) {
       applyEffect(cfg.workspace, req);

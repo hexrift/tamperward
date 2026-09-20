@@ -68,15 +68,16 @@
       "reason": "protected callback reached but no authoritative completion was observed"
     },
     {
-      "path": "identity-rejected",
-      "reason": "the identity-break paths (cross-repo, path-escape, symlink-escape, malformed-identity) are all correctly DENIED by the adapter before policy, but this capture recorded no authoritative post-decision completion for them, so non-dispatch is INCONCLUSIVE (#618 Work D). The next credentialed run should capture the identity-rejected returned-reject completion (host-known path 'identity-rejected' + exact error.code + sanitized message hash + matching toolCallId + completion strictly after the host decision boundary, protected state intact); only then may an 'identity-rejected' signature be frozen. It is deliberately a DISTINCT path from 'returned-reject' so the weakening-reject signature can never authorize an identity-break non-dispatch, and a bare error.code=denied is never sufficient."
+      "path": "callback-failure-user-not-available",
+      "reason": "The pinned @github/copilot-sdk@1.0.14 catches a thrown/rejected permission handler and responds {kind:\"user-not-available\"} (nodejs/src/session.ts _executePermissionAndRespond), which the runtime resolves as the documented permission.completed result.kind 'denied-no-approval-rule-and-could-not-request-from-user'. That DOCUMENTED resolution is now the primary non-dispatch signal (#618), so this path no longer needs a captured completion error-code/message signature; the code/hash below is retained as diagnostic lineage only."
     }
   ],
   "notes": [
+    "IMPORTANT (#618): as of the SDK-grounded rework, the PRIMARY enforcement signal is the DOCUMENTED permission lifecycle — permission.completed.result.kind (approved vs the denied-* family), correlated by requestId (docs/features/streaming-events.md). The path+code+message-hash signatures recorded in this fixture are DIAGNOSTIC ONLY; they are no longer the authority for 'did the denied tool run?'. tool.execution_complete error.code/message is not the documented permission contract.",
     "This fixture is sanitized: no command content, model output, credentials, temp paths or raw error messages are retained. Proposal ids are the harness sha16(proposal_id) opaque hash.",
-    "A bare error.code=denied is not classification authority; path + code + message hash must match a source-frozen signature (CONFIRMED_PERMISSION_GATE_SIGNATURES).",
-    "Lineage: source_artifact_sha256 -> these sanitized observations (same toolCallId, completion_host_seq > boundary_host_seq, protected state intact) -> the frozen signatures -> the classifier. The same callback-failure signature was independently observed on sync-throw, reject and adapter-throw.",
-    "callback-timeout stays inconclusive: the capture provided no authoritative completion for that path.",
-    "identity-rejected stays inconclusive: the capture recorded no authoritative completion for the identity-break paths; the classifier labels them under the distinct host-known path 'identity-rejected' (never 'returned-reject'), so they remain INCONCLUSIVE for non-dispatch until a credentialed run captures and a reviewed source change freezes an identity signature (#618 Work D)."
+    "A bare error.code=denied was never classification authority; and error codes/hashes are now diagnostic regardless (the documented result.kind governs).",
+    "Lineage (diagnostic): source_artifact_sha256 -> these sanitized observations (same toolCallId, completion_host_seq > boundary_host_seq, protected state intact) -> the diagnostic signatures. The same callback-failure signature was independently observed on sync-throw, reject and adapter-throw.",
+    "callback-timeout stays inconclusive: a hung permission handler emits no permission.completed at all (the pinned SDK has no permission-handler timeout, nodejs/src/session.ts), so non-dispatch is intrinsically unobservable there — never fail-closed from the harness's own wait.",
+    "identity-break paths (cross-repo, path-escape, symlink-escape, malformed-identity): TamperWard returns {kind:\"reject\"} for the adversarial claim, which resolves as a documented denied-* permission.completed, so non-dispatch is now observable from the documented lifecycle + intact protected state (#618). No message-hash signature is needed to establish it."
   ]
 }

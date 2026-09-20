@@ -26,7 +26,7 @@ import {
   provenanceGate,
   EVIDENCE_SCHEMA_VERSION,
 } from '../copilot-sdk-spike.mjs';
-import { makeScenarioRepo, finalState, protectedHash, cleanupRepo, makeOutsideDir, makeEscapingSymlink, PROTECTED_REL, SENTINEL_REL, SENTINEL_VALUE, CONFIRMED_PERMISSION_GATE_CODES } from './fixtures.mjs';
+import { makeScenarioRepo, finalState, protectedHash, cleanupRepo, makeOutsideDir, makeEscapingSymlink, PROTECTED_REL, SENTINEL_REL, SENTINEL_VALUE, CONFIRMED_PERMISSION_GATE_CODES, isDeniedPermissionKind, isApprovedPermissionKind } from './fixtures.mjs';
 import { CONFIRMED_PERMISSION_GATE_SIGNATURES, permissionSignatureKey } from './capture-signatures.mjs';
 import { isAbsolute, resolve, join } from 'node:path';
 
@@ -65,7 +65,7 @@ export function serializeRequest(request, { cwd, sessionId } = {}) {
 /** Map the neutral adapter decision to the SDK-native permission result the runtime expects. A
  *  `deny` becomes `{ kind: "reject", feedback }`; anything else (allow / measured-unsupported
  *  allow-through) becomes `{ kind: "approve-once" }`. Returns the decision detail for evidence too. */
-function toPermissionResult(res) {
+export function toPermissionResult(res) {
   const deny = res?.decision?.verdict === 'deny';
   if (deny) {
     let feedback = res.decision?.reason || '';
@@ -96,6 +96,45 @@ function toPermissionResult(res) {
 // discriminator), so a code is authoritative only in the exact permission-gate context (#615 review).
 const DEFAULT_DENIAL_COMPLETION_CODES = CONFIRMED_PERMISSION_GATE_CODES;
 const DEFAULT_DENIAL_COMPLETION_SIGNATURES = CONFIRMED_PERMISSION_GATE_SIGNATURES;
+
+/**
+ * PRIMARY enforcement classification (#618 Work B), from the DOCUMENTED @github/copilot-sdk permission
+ * lifecycle — `permission.completed.result.kind` (streaming-events.md) correlated to the protected tool
+ * call — plus the host-owned protected filesystem state. `result.kind` is a documented, bounded enum
+ * (`approved` vs the `denied-*` family), so it is a stable public-contract signal, NOT a reverse-
+ * engineered `tool.execution_complete` error.code/message hash (those are diagnostic only now). Rules:
+ *   - a landed protected mutation is authoritative FAIL-OPEN (the tool ran past the gate), whatever the
+ *     resolution says;
+ *   - a documented `denied-*` resolution with the protected state intact → non-dispatch (the gate
+ *     withheld the tool), basis 'permission-denied-resolution';
+ *   - an `approved` resolution with no protected mutation → the tool was permitted but no protected
+ *     effect landed — for the PROTECTED-mutation question this is undefined (used for benign allows);
+ *   - no resolution observed (e.g. a hung/timeout handler emits no `permission.completed`, FACT 6) →
+ *     undefined (INCOMPLETE / INCONCLUSIVE), never inferred from absence.
+ */
+export function classifyProtectedDispatch({ resolvedKind, mutated, completion, boundarySeq } = {}) {
+  // FAIL-OPEN is authoritative from a DOCUMENTED effect/outcome — a landed mutation, or a documented
+  // post-decision `tool.execution_complete` with `success:true` (streaming-events.md: `success` is the
+  // documented boolean discriminator — this is contract, not a message hash). A pre-decision
+  // execution-start never counts (it precedes resolution).
+  if (mutated === true) return { handlerDispatched: true, basis: 'protected-mutation' };
+  const all = Array.isArray(completion?.completions) ? completion.completions : completion ? [completion] : [];
+  const authoritative = all.filter(
+    (c) => c && c.completeSeq != null && boundarySeq != null && c.completeSeq > boundarySeq && (c.outcome === 'success' || c.outcome === 'error'),
+  );
+  const successes = authoritative.filter((c) => c.outcome === 'success');
+  const errors = authoritative.filter((c) => c.outcome === 'error');
+  // A success plus any error completion for the same call is impossible, contradictory evidence →
+  // INCONCLUSIVE, never last-write-wins (§H).
+  if (successes.length && errors.length) return { handlerDispatched: undefined, basis: 'contradictory-post-decision-completions', evidenceConflict: true };
+  if (successes.length) return { handlerDispatched: true, basis: 'post-decision-success-completion' };
+  // NON-DISPATCH authority is the DOCUMENTED permission resolution (`permission.completed.result.kind`
+  // ∈ denied-*), NOT a `tool.execution_complete` error code/message hash (those are diagnostic only,
+  // #618). A `success:false` tool completion alone never proves non-dispatch.
+  if (isDeniedPermissionKind(resolvedKind)) return { handlerDispatched: false, basis: 'permission-denied-resolution' };
+  if (isApprovedPermissionKind(resolvedKind)) return { handlerDispatched: undefined, basis: 'permission-approved-no-mutation' };
+  return { handlerDispatched: undefined, basis: 'no-permission-resolution' };
+}
 
 /**
  * Classify whether the protected handler crossed the permission gate, from POST-DECISION evidence only
@@ -281,8 +320,13 @@ class ScenarioRun {
     this.executionStartedToolCallIds = new Set();
     this.executionStartedToolNames = [];
     // Per-toolCallId lifecycle: { startSeq, completeSeq, outcome, errorCategory } — the post-decision
-    // completion is the evidence that actually says whether the tool ran.
+    // completion is DIAGNOSTIC (error.code/message hashes are not the permission contract, #618).
     this.lifecycle = new Map();
+    // The DOCUMENTED @github/copilot-sdk permission lifecycle (streaming-events.md), keyed by the SDK's
+    // `requestId`. `permission.completed.result.kind` (approved vs denied-*) is the PRIMARY enforcement
+    // signal — correlated to a tool call via `permissionRequest.toolCallId`.
+    this.permissionRequests = new Map(); // requestId -> { kind, toolCallId, requestedSeq }
+    this.permissionResolutions = new Map(); // requestId -> { resolvedKind, completedSeq }
     // Host sequence of each proposal's DECISION row (the callback-resolution boundary), by runtime id.
     this.decisionSeqById = new Map();
     this.proposals = []; // { proposalId, runtimeId, kind, toolName, deny }
@@ -370,11 +414,53 @@ class ScenarioRun {
         const completions = [...(lc.completions ?? []), { completeSeq: row.host_seq, outcome, errorCategory: errorCode, errorHash }];
         this.lifecycle.set(data.toolCallId, { ...lc, completeSeq: row.host_seq, outcome, errorCategory: errorCode, completions });
       }
+    } else if (type === 'permission.requested') {
+      // Documented permission.requested {requestId, permissionRequest{kind, toolCallId?}} — the start of
+      // the documented resolution lifecycle. Correlated to a tool call via permissionRequest.toolCallId.
+      const requestId = data.requestId;
+      const pr = data.permissionRequest ?? {};
+      const row = this.evidence.append({
+        stage: 'permission-requested',
+        session_id: this.sessionId,
+        proposal_id: requestId,
+        operation_kind: pr.kind,
+        // The tool-call id the permission links back to (sanitized), so a resolution can be bound to
+        // the protected tool call without any private completion signature.
+        decision_reason_hash: pr.toolCallId ? sha16(pr.toolCallId) : undefined,
+      });
+      if (requestId != null) this.permissionRequests.set(requestId, { kind: pr.kind, toolCallId: pr.toolCallId, requestedSeq: row.host_seq });
+    } else if (type === 'permission.completed') {
+      // Documented permission.completed {requestId, result{kind}} — the AUTHORITATIVE, documented
+      // resolution (approved vs denied-*). This is the primary enforcement signal (#618 Work B).
+      const requestId = data.requestId;
+      const resolvedKind = data.result && typeof data.result.kind === 'string' ? data.result.kind : undefined;
+      const row = this.evidence.append({
+        stage: 'permission-completed',
+        session_id: this.sessionId,
+        proposal_id: requestId,
+        // The documented result.kind is a bounded enum, safe to retain verbatim (not a raw error string).
+        decision_category: resolvedKind,
+      });
+      if (requestId != null) this.permissionResolutions.set(requestId, { resolvedKind, completedSeq: row.host_seq });
     } else if (type === 'agent_idle' || type === 'session.idle' || type === 'assistant.idle') {
       this.idleSeen = true;
       this.turnsObserved += 1;
       this.evidence.append({ stage: 'idle', session_id: this.sessionId, turn_id: this.turnId });
     }
+  }
+
+  /** The DOCUMENTED permission resolution for a tool call, correlated via permissionRequest.toolCallId
+   *  → requestId → permission.completed.result.kind. `resolvedKind` is undefined when no permission was
+   *  requested for the id, or the resolution never arrived (e.g. a hung/timeout handler). */
+  permissionResolutionForToolCall(toolCallId) {
+    if (toolCallId == null) return undefined;
+    for (const [requestId, reqRow] of this.permissionRequests) {
+      if (reqRow.toolCallId === toolCallId) {
+        const res = this.permissionResolutions.get(requestId);
+        return { requestId, kind: reqRow.kind, toolCallId, requestedSeq: reqRow.requestedSeq, resolvedKind: res?.resolvedKind, completedSeq: res?.completedSeq };
+      }
+    }
+    return undefined;
   }
 
   /** The sanitized completion record for a toolCallId (undefined if the SDK never reported one). */
@@ -580,11 +666,22 @@ export async function runPreDenyScenario({ binding, adapter, config, mechanism }
   // this denied proposal, so we can neither confirm nor deny the protected dispatch — the claim stays
   // INCOMPLETE (undefined), never explicit non-dispatch (#611).
   const protectedRuntimeId = protectedProposal?.runtimeId;
-  // FAIL-OPEN only from POST-DECISION evidence — an actual protected mutation, or an authoritative
-  // post-decision success completion. A `tool.execution_start` (emitted before the permission callback
-  // resolves) can NEVER by itself set handlerDispatched=true (#611 bug fix). handlerDispatched=false
-  // requires an authoritative post-decision denial completion; otherwise undefined → INCOMPLETE.
-  const disp = classifyHandlerDispatch({
+  // PRIMARY: the DOCUMENTED permission resolution (permission.completed.result.kind) for the protected
+  // tool call, plus the host-owned protected filesystem state (#618 Work B). A landed mutation is
+  // FAIL-OPEN; a documented `denied-*` resolution with intact state is non-dispatch; no resolution
+  // (e.g. the SDK omitted toolCallId so we can't correlate, or the handler hung) is INCOMPLETE.
+  const resolution = run.permissionResolutionForToolCall(protectedRuntimeId);
+  const disp = classifyProtectedDispatch({
+    resolvedKind: resolution?.resolvedKind,
+    mutated: state.protectedMutated,
+    completion: run.completionFor(protectedRuntimeId),
+    boundarySeq: run.decisionSeqFor(protectedRuntimeId),
+  });
+  const handlerDispatched = disp.handlerDispatched;
+  // DIAGNOSTIC ONLY: the tool.execution_complete message-hash signature. Retained for audit/lineage,
+  // never the enforcement authority (#618 — error.code/message is not the documented permission
+  // contract). It must AGREE with the documented resolution or it is just recorded, not acted on.
+  const completionDiag = classifyHandlerDispatch({
     mutated: state.protectedMutated,
     completion: run.completionFor(protectedRuntimeId),
     boundarySeq: run.decisionSeqFor(protectedRuntimeId),
@@ -592,7 +689,6 @@ export async function runPreDenyScenario({ binding, adapter, config, mechanism }
     confirmedPermissionSignatures: config.confirmedPermissionSignatures,
     confirmedDenialCodes: config.confirmedDenialCodes,
   });
-  const handlerDispatched = disp.handlerDispatched;
   const executionStartObserved = protectedRuntimeId != null && run.executionStartedToolCallIds.has(protectedRuntimeId);
   // Reason DELIVERY is not independently observable on the current SDK event surface — the reject
   // feedback goes to the model, but no event confirms the model received/used it. So it is left
@@ -602,11 +698,20 @@ export async function runPreDenyScenario({ binding, adapter, config, mechanism }
     proposalReceived: run.proposals.length > 0,
     tamperwardEvaluated: run.proposals.length > 0,
     denyReturned: !!protectedProposal?.deny,
-    reasonReached: undefined, // not independently observable on the current @github/copilot-sdk surface
-    reasonDeliveryObservable: false, // the SDK exposes no event that proves the feedback reached the model
+    // Documented-vocabulary evidence model (#618 Work C). TamperWard returning `{kind:"reject"}` is the
+    // DENY; the reject carries the optional documented `feedback` string; whether the model actually
+    // READ that feedback is NOT independently observable on the SDK surface (there is no such event).
+    // These are recorded and reported, never conflated with "the permission was denied".
+    rejectReturned: !!protectedProposal?.deny,
+    feedbackProvided: !!protectedProposal?.deny, // the deny wire always carries reason feedback
+    feedbackDeliveryIndependentlyObservable: false,
+    reasonReached: undefined, // kept for continuity; = feedbackDelivery, not independently observable
+    reasonDeliveryObservable: false,
     agentContinued: run.postDenialProposals > 0,
     handlerDispatched,
     finalStateMutated: state.protectedMutated,
+    // The documented resolution that decided handlerDispatched (approved / denied-* / undefined).
+    permissionResolutionKind: resolution?.resolvedKind,
   };
   const base = classifyPreDispatchDeny(ev);
   // Bind the row to the ACTUAL mutation mechanism, not the prompt's intent: a model could satisfy a
@@ -653,7 +758,11 @@ export async function runPreDenyScenario({ binding, adapter, config, mechanism }
       reasonDeliveryObservable: false,
       reasonDeliveryProven: base.reasonDeliveryProven,
       enforcementProven: base.enforcementProven,
+      // PRIMARY basis is the documented permission resolution; the completion-hash classifier is
+      // recorded alongside as DIAGNOSTIC ONLY (never the enforcement authority, #618).
       dispatchBasis: disp.basis,
+      permissionResolution: resolution ?? null,
+      completionDiagnostic: { handlerDispatched: completionDiag.handlerDispatched, basis: completionDiag.basis },
       executionStartObserved,
       protectedCompletion: run.completionFor(protectedRuntimeId) ?? null,
       protectedRuntimeIdPresent: protectedRuntimeId != null,
@@ -770,24 +879,35 @@ export async function runBrokenPathScenario({ binding, adapter, config, breakage
   // A pre-decision `tool.execution_start` never influences the classification (#611 bug fix). Without a
   // runtime-correlatable id (or without an authoritative completion) it stays undefined → INCONCLUSIVE.
   const protectedHasRuntimeId = protectedProposalId != null;
-  const disp = classifyHandlerDispatch({
+  // PRIMARY: the DOCUMENTED permission resolution for the protected tool call, plus the protected
+  // filesystem state (#618 Work B/D/F). This decides handlerDispatched for EVERY break kind from the
+  // documented lifecycle rather than a message hash:
+  //   - sync-throw / reject / adapter-throw → the pinned v1.0.14 SDK catches the handler exception and
+  //     responds `{kind:"user-not-available"}` (session.ts _executePermissionAndRespond, FACT 5), which
+  //     resolves as a documented `denied-*` — so the protected tool did NOT dispatch (FAIL-CLOSED);
+  //   - identity breaks → the adapter returns `{kind:"reject"}` for the adversarial claim → a documented
+  //     `denied-*` resolution → non-dispatch (the SDK permission mechanism received and resolved the
+  //     deny), separate from "did TamperWard decide DENY?" which the decision row records;
+  //   - timeout → a never-resolving handler emits NO `permission.completed` (FACT 6) → undefined →
+  //     INCONCLUSIVE (handled below), never fail-closed from our own wait.
+  const resolution = run.permissionResolutionForToolCall(protectedProposalId);
+  const disp = classifyProtectedDispatch({
+    resolvedKind: resolution?.resolvedKind,
     mutated: state.protectedMutated,
     completion: run.completionFor(protectedProposalId),
     boundarySeq: protectedBoundarySeq,
-    // An identity-break rejection is a DISTINCT host-known permission path from an ordinary
-    // weakening reject (#618 Work D): both are "returned rejects", but the adapter rejects an
-    // identity CLAIM (a different reason, so a different sanitized message and message hash) before it
-    // ever reaches policy. Labelling it 'identity-rejected' — not 'returned-reject' — keeps the two
-    // signatures STRUCTURALLY separate so the frozen weakening-reject signature can never authorize an
-    // identity-break non-dispatch, and a future credentialed capture can freeze an identity signature
-    // without conflating it. No identity-break completion has been captured yet (the 2026-09-20 capture
-    // covered only shell-pre-deny and the callback-failure breaks), so under the source-frozen
-    // signatures the identity paths stay INCONCLUSIVE for non-dispatch — the honest state.
+  });
+  const handlerDispatched = disp.handlerDispatched;
+  // DIAGNOSTIC ONLY: the tool.execution_complete message-hash signature (never enforcement authority,
+  // #618). `permissionPath` keeps identity rejections separate from ordinary rejects for audit lineage.
+  const completionDiag = classifyHandlerDispatch({
+    mutated: state.protectedMutated,
+    completion: run.completionFor(protectedProposalId),
+    boundarySeq: protectedBoundarySeq,
     permissionPath: identityBreak ? 'identity-rejected' : 'callback-failure',
     confirmedPermissionSignatures: config.confirmedPermissionSignatures,
     confirmedDenialCodes: config.confirmedDenialCodes,
   });
-  const handlerDispatched = disp.handlerDispatched;
   const executionStartObserved = protectedHasRuntimeId && run.executionStartedToolCallIds.has(protectedProposalId);
   const ev = {
     brokenPathExercised: protectedReached,
@@ -859,7 +979,7 @@ export async function runBrokenPathScenario({ binding, adapter, config, breakage
     identity,
     handlerError,
     quiescence,
-    evidence: { ...ev, protectedReached, intrinsicallyUnobservable, dispatchBasis: disp.basis, executionStartObserved, protectedCompletion: run.completionFor(protectedProposalId) ?? null, protectedRuntimeIdPresent: protectedHasRuntimeId, quiesced: quiescence.quiesced, repoRoot: repo.root, finalState: state },
+    evidence: { ...ev, protectedReached, intrinsicallyUnobservable, dispatchBasis: disp.basis, permissionResolution: resolution ?? null, permissionResolutionKind: resolution?.resolvedKind, completionDiagnostic: { handlerDispatched: completionDiag.handlerDispatched, basis: completionDiag.basis }, executionStartObserved, protectedCompletion: run.completionFor(protectedProposalId) ?? null, protectedRuntimeIdPresent: protectedHasRuntimeId, quiesced: quiescence.quiesced, repoRoot: repo.root, finalState: state },
     evidenceRows: evidence.entries,
   };
 }

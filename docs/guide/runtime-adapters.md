@@ -602,22 +602,23 @@ operator-supplied `COPILOT_SDK_NETWORK_MODE` is recorded operator-declared/**unv
 is never laundered into trusted evidence, `provenanceGate.full` stays `false`, and `buildSpikeMatrix`
 maps incomplete provenance to `INSUFFICIENT` before it can reach `PARTIAL`. Two intrinsically
 unobservable surfaces are recorded honestly but, by design, do **not** block a would-be `FULL` once
-provenance is complete: **reason-delivery** to the agent is a diagnostic, not a gate (#618 Work B) — the
-Phase-0 enforcement claim rests only on independently observable facts (proposal received → evaluated →
-deny → handler not dispatched → final state intact → agent continued), and `reasonDeliveryProven` is
-recorded, never manufactured `true`; and the **permission-callback timeout** has no runtime-exposed
-completion (a hung callback emits none), so it is *intrinsically* unobservable as fail-closed and stays
-`INCONCLUSIVE` and visible while being carved out of the decision-path fail-closed gate (#618 Work C) —
-a dispatch *during* a timeout is still definitive `FAIL-OPEN`. The **identity-break** paths (cross-repo,
-path-escape, symlink-escape, malformed-identity) are correctly denied but their non-dispatch is
-`INCONCLUSIVE` under the source-frozen signatures: they classify under the distinct host-known path
-`identity-rejected` (never `returned-reject`), and no identity completion has been captured yet, so a
-future credentialed run must capture and freeze one before they can be proven (#618 Work D). `PARTIAL`
-therefore requires a future SDK surface that exposes a **verifiable network mode** (lifting provenance to
-full); `FULL` additionally requires a pinned run proving shell + content-aware file-edit + end-of-turn
-with the *observable* broken decision paths failing **closed** (the intrinsic timeout carved out, its
-INCONCLUSIVE still surfaced). Absent that — as today — the honest overall is `INSUFFICIENT`, and a
-single observed fail-open is INELIGIBLE. Copilot stays `steering: 'neutral'`, the adapter is not
+provenance is complete: **reason/feedback delivery** to the agent is a diagnostic, not a gate (#618 Work
+C) — the Phase-0 enforcement claim rests on the documented permission resolution and observable facts
+(proposal received → evaluated → deny → documented `denied-*` resolution → final state intact → agent
+continued), and `feedbackDeliveryIndependentlyObservable` is recorded `false`, never conflated with the
+deny; and the **permission-callback timeout** has no runtime-exposed completion (a hung callback emits no
+`permission.completed`, per pinned `session.ts`), so it is *intrinsically* unobservable as fail-closed
+and stays `INCONCLUSIVE` and visible while being carved out of the decision-path fail-closed gate (#618
+Work C) — a dispatch *during* a timeout is still definitive `FAIL-OPEN`. The **identity-break** paths
+(cross-repo, path-escape, symlink-escape, malformed-identity) are `FAIL-CLOSED` from the documented
+lifecycle: TamperWard returns `{kind:"reject"}` for the adversarial claim, the runtime resolves it as a
+documented `denied-*`, and the protected state stays intact — the SDK permission mechanism received and
+resolved the deny, established without any bare code, message hash, or `tool.execution_start` (#618 Work
+F). `PARTIAL` therefore requires a future SDK surface that exposes a **verifiable network mode** (lifting
+provenance to full); `FULL` additionally requires a pinned run proving shell + content-aware file-edit +
+end-of-turn with the *observable* broken decision paths failing **closed** (the intrinsic timeout carved
+out, its INCONCLUSIVE still surfaced). Absent that — as today — the honest overall is `INSUFFICIENT`, and
+a single observed fail-open is INELIGIBLE. Copilot stays `steering: 'neutral'`, the adapter is not
 registered as a detected runtime, and **no** Round 4.1 eligibility is claimed until the exact pinned
 hosted configuration passes the full #482 parity suite.
 
@@ -688,22 +689,38 @@ runner does not execute. `phase0_passed` is the signal a FULL Phase-0 earns; a s
 maintainer-reviewed pinned parity run is the only thing that may later set Round 4.1 eligibility.
 Passing the harness never registers a production runtime or flips Copilot to `in-loop`.
 
-Honest limits on the current SDK surface: **reason-delivery to the agent is not independently
-observable**, so it is a recorded diagnostic (`reasonDeliveryProven`, never manufactured `true`) and
-does **not** gate the enforcement claim (#618 Work B) — the pre-deny scenarios are `PROVEN` on the
-independently observable enforcement facts alone (deny returned, handler not dispatched, final state
-intact, continuation observed via a post-denial proposal/dispatch). The **timeout** broken path has no
-runtime-exposed permission-callback completion, so it is *intrinsically* unobservable as fail-closed: it
-stays `INCONCLUSIVE` and visible, is never flipped to fail-closed from the harness's own wait, and is
-carved out of the decision-path fail-closed gate so it does not make `FULL` impossible (#618 Work C) —
-but a dispatch *during* the hang is still definitive `FAIL-OPEN`. The **identity-break** paths are
-denied but `INCONCLUSIVE` for non-dispatch under the source-frozen signatures (they classify under the
-distinct host-known path `identity-rejected`, and no identity completion has been captured to freeze
-yet — #618 Work D). The **write** row counts only when the observed protected proposal is actually a
-`write`/`apply_patch` surface (a shell proposal satisfying a write prompt is `UNSUPPORTED` for that
-row). The **broken-decision-path** injection is bound to the actual protected *mutation* (identified by
-the canonical adapter/engine denying it, so a non-mutating inspection like `cat` of the same path cannot
-stand in).
+**Enforcement is decided from the DOCUMENTED permission lifecycle (#618).** The primary signal for
+"did the denied tool run?" is the documented `permission.completed.result.kind` (streaming-events.md:
+`approved` vs the `denied-*` family) correlated to the tool call by `requestId`, together with the
+host-owned protected filesystem state — NOT a `tool.execution_complete` error-code/message hash (those
+are diagnostic only). A documented `denied-*` resolution with the protected target intact is
+non-dispatch; a landed mutation, or a documented `success:true` completion, is `FAIL-OPEN`. Because the
+resolution is a bounded, documented enum, non-dispatch is provable without any captured error signature
+— so the frozen `capture-2026-09-20.json` message-hash signatures are retained as **diagnostic lineage
+only**, never the enforcement authority.
+
+Honest limits on the current SDK surface: **reason/feedback delivery to the agent is not independently
+observable** — TamperWard returning `{kind:"reject"}` with the documented optional `feedback` is the
+deny, but no event proves the model *read* the feedback, so `feedbackDeliveryIndependentlyObservable` is
+recorded `false` and never conflated with "the permission was denied" (#618 Work C). It does **not** gate
+the enforcement claim. The **timeout** broken path has no runtime-exposed permission-callback timeout
+(pinned `nodejs/src/session.ts` awaits the handler with no timeout), so a hung handler emits no
+`permission.completed` at all: it is *intrinsically* unobservable as fail-closed, stays `INCONCLUSIVE`
+and visible, is never flipped to fail-closed from the harness's own wait, and is carved out of the
+decision-path fail-closed gate so it does not make `FULL` impossible (#618 Work C) — but a dispatch
+*during* the hang is still definitive `FAIL-OPEN`. The **callback-failure** paths (synchronous throw /
+rejected Promise / adapter throw) exercise the pinned v1.0.14 implementation behaviour: the SDK catches
+the handler exception and responds `{kind:"user-not-available"}`, which resolves as a documented
+`denied-*` — so the protected tool did not dispatch (`FAIL-CLOSED`). The **identity-break** paths
+(cross-repo, path-escape, symlink-escape, malformed-identity) separate two questions — did TamperWard
+decide DENY (its decision row / `identity-rejected` category), and did the documented SDK mechanism
+receive and resolve that deny (`permission.completed` `denied-*`, protected state intact); both holding
+is `FAIL-CLOSED`, and with the documented resolution suppressed it stays `INCONCLUSIVE` (never
+established from a bare code, a message hash, or a `tool.execution_start`). The **write** row counts
+only when the observed protected proposal is actually a `write`/`apply_patch` surface (a shell proposal
+satisfying a write prompt is `UNSUPPORTED` for that row). The **broken-decision-path** injection is bound
+to the actual protected *mutation* (identified by the canonical adapter/engine denying it, so a
+non-mutating inspection like `cat` of the same path cannot stand in).
 
 **`tool.execution_start` is a lifecycle-START / execution-ATTEMPT observation, never dispatch past the
 permission gate** (#614): the measured hosted runtime emits it *before* the permission callback

@@ -20,7 +20,7 @@ import { resolve, isAbsolute, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { RuntimeAdapter } from '../src/adapters/contract';
 // @ts-expect-error - the orchestrator is a plain .mjs harness module, no d.ts
-import { buildConfig, runEndOfTurnScenario } from '../harness/adapters/copilot-sdk/orchestrator.mjs';
+import { buildConfig, runEndOfTurnScenario, toPermissionResult } from '../harness/adapters/copilot-sdk/orchestrator.mjs';
 // @ts-expect-error - the fake binding is a plain .mjs test-support module, no d.ts
 import { createFakeBinding } from './support/fake-copilot-binding.mjs';
 
@@ -68,6 +68,8 @@ describe('#618 Work A — self-bundled hosted adapter resolves lazy deps from th
     expect(res.unavailableReason).toBeUndefined();
     expect(res.decision?.verdict).toBe('allow');
     for (const f of res.decision?.findings ?? []) expect(f.rule).not.toBe('tamperward-unavailable');
+    // #618 Section A item 3: an ordinary allowed read maps to the documented {kind:"approve-once"}.
+    expect(toPermissionResult(res).result).toEqual({ kind: 'approve-once' });
   });
 
   it('loads the policy and routes a protected weakening to the real engine (not policy-load)', () => {
