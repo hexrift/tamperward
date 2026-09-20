@@ -798,7 +798,22 @@ protected proposal (it is optional upstream); when the SDK omits it, the complet
 own id) cannot be tied back to the denied proposal, so the claim stays `INCOMPLETE` / `INCONCLUSIVE`.
 Each decision also records a sanitized structured **category** (`allow` / `unsupported` /
 `parse-failure` / `policy-block` / `identity-rejected` / `fail-closed-unavailable`) plus the finding
-rule/path, so a denied read is diagnosable from structured evidence rather than an opaque reason hash. **Quiescence is part of the
+rule/path, so a denied read is diagnosable from structured evidence rather than an opaque reason hash.
+**Content-aware pre-deny requires SEMANTIC enforcement, not a returned reject.** `pre-deny:*-content`
+is `PROVEN` only when the protected proposal was actually reconstructed **and** the canonical engine
+ran over it **and** it produced a **real detector block** — derived from adapter facts
+(`decision_category` / `unavailable_reason` / finding rule), never from "a proposal arrived" or "a
+deny was returned". A **fail-closed-UNAVAILABLE** deny (a reconstruction / policy-load / parse failure,
+whose finding is the `tamperward-unavailable` sentinel) is the SDK reject the **permission** layer may
+still honour as non-dispatch, but it is **not** content-aware enforcement, so content pre-deny stays
+`INCOMPLETE` (never `PROVEN`) — the two tracks (`semanticContentEnforcementProven` vs
+`permissionEnforcementProven`) are reported separately. A write that surfaces no usable content is
+`UNSUPPORTED`. When a write fails closed at reconstruction, the run also records a **bounded, sanitized,
+content-free** structural fingerprint of the surfaced write (target present, diff/newFileContents
+presence + byte/line counts, and a diff-shape enum — full-unified-diff / headerless-hunk-only /
+missing-endpoint-pair / path-header-mismatch / multiple-file-diff / unsupported-metadata) so a live
+diagnosis knows **why** the pinned SDK write could not be reconstructed without dumping the candidate
+patch or file source into the artifact. **Quiescence is part of the
 observation boundary**: `disconnect()` aborts then disconnects and *reports* whether it succeeded (a
 structured `{ quiesced, error? }`, recorded as host evidence); the event subscription stays live
 across abort + disconnect and is torn down only afterwards, so a protected tool that races into

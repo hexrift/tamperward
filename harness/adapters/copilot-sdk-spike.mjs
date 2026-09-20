@@ -170,8 +170,12 @@ export function classifyPreDispatchDeny(ev) {
   }
   const reasons = [];
   if (ev.proposalReceived !== true) reasons.push('the host never received the tool proposal');
-  if (ev.tamperwardEvaluated !== true) reasons.push('TamperWard did not evaluate this exact proposal');
-  if (ev.denyReturned !== true) reasons.push('TamperWard did not return a deny');
+  // SEMANTIC evaluation, not the mere presence of a proposal or a deny (#621 Work B): TamperWard must
+  // have reconstructed the proposed content and run the engine over it (a reconstruction/policy-load/
+  // parse fail-closed is NOT an evaluation), and the deny must be a REAL detector block, not a
+  // fail-closed-UNAVAILABLE sentinel.
+  if (ev.tamperwardEvaluated !== true) reasons.push('TamperWard did not semantically evaluate this exact proposal (reconstruction + evaluate did not complete over its content)');
+  if (ev.denyReturned !== true) reasons.push('TamperWard did not return a content-aware/semantic deny (a real detector block, not a fail-closed-unavailable one)');
   if (ev.agentContinued !== true) reasons.push('no post-denial continuation was observed');
   // Positive claims require EXPLICIT negative evidence — an omitted (undefined) observation is not
   // "not dispatched". Missing evidence is INCOMPLETE, never PROVEN.

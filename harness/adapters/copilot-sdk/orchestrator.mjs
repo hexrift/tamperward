@@ -28,6 +28,7 @@ import {
 } from '../copilot-sdk-spike.mjs';
 import { makeScenarioRepo, finalState, protectedHash, cleanupRepo, makeOutsideDir, makeEscapingSymlink, PROTECTED_REL, SENTINEL_REL, SENTINEL_VALUE, CONFIRMED_PERMISSION_GATE_CODES, isDeniedPermissionKind, isApprovedPermissionKind, isKnownPermissionKind } from './fixtures.mjs';
 import { CONFIRMED_PERMISSION_GATE_SIGNATURES, permissionSignatureKey } from './capture-signatures.mjs';
+import { reconstructionDiagnostic } from './reconstruction-diagnostics.mjs';
 import { isAbsolute, resolve, join } from 'node:path';
 
 const RESULT_SCHEMA_VERSION = 'copilot-sdk-qualification/v1';
@@ -232,6 +233,65 @@ export function decisionCategory(res, { adversarialIdentity = false } = {}) {
   const rule = res?.decision?.findings?.[0]?.rule;
   if (rule === 'tamperward-unavailable') return adversarialIdentity ? 'identity-rejected' : 'fail-closed-unavailable';
   return 'policy-block';
+}
+
+// A fail-closed deny at any of these pre-`evaluate` stages means the content ENGINE never ran, so no
+// semantic/content judgement was made — the deny is a fail-closed-UNAVAILABLE permission deny, not a
+// content decision. These mirror the `stage` values `CopilotSdkHostedAdapter.decide` tags on a throw
+// (src/adapters/copilot-sdk/adapter.ts): repo-context → baseline → policy-load → reconstruction, then
+// `evaluate` (which is the engine itself).
+const PRE_EVALUATE_UNAVAILABLE_STAGES = new Set(['repo-context', 'baseline', 'policy-load', 'reconstruction']);
+
+/**
+ * Structured evidence of SEMANTIC / content evaluation (#621 Work B), derived ONLY from actual
+ * adapter-result facts — never from `run.proposals.length` or the mere presence of a deny. It separates
+ * the two enforcement questions #621 conflated:
+ *   - did TamperWard actually RECONSTRUCT the proposed content and run the canonical engine over it
+ *     (`reconstructionCompleted` / `evaluateReached`)?, and
+ *   - did that content evaluation produce a REAL detector block (`realDetectorFinding` /
+ *     `contentEnforcementProven`), as opposed to a fail-closed-UNAVAILABLE sentinel deny (reconstruction
+ *     / policy-load / parse failure), an allow, an unsupported (no usable content), or an identity
+ *     rejection?
+ * A fail-closed-unavailable deny is the SDK-reject the permission layer still honours, but it is NOT
+ * content-aware enforcement, so `contentEnforcementProven` is false for it — that is exactly the live
+ * #621 contradiction (a reconstruction failure reported as `pre-deny:file-edit-content = PROVEN`).
+ */
+export function semanticEvaluation(res) {
+  const outcome = res?.outcome;
+  const verdict = res?.decision?.verdict;
+  const unavailableReason = typeof res?.unavailableReason === 'string' ? res.unavailableReason : undefined;
+  const findings = Array.isArray(res?.decision?.findings) ? res.decision.findings : [];
+  const blockingFindingRule = findings.find((f) => f && typeof f.rule === 'string')?.rule;
+  // A deny whose findings are ALL the fail-closed sentinel is not a content judgement.
+  const failClosedUnavailable =
+    verdict === 'deny' && findings.length > 0 && findings.every((f) => f && f.rule === 'tamperward-unavailable');
+  // The content engine ran iff the decision came back `ok`, carried no unavailable_reason for a
+  // pre-evaluate stage, and is not a sentinel deny. `unsupported` (sdkFileEditChanges returned null)
+  // means no usable content was surfaced to reconstruct — the engine had nothing to judge.
+  const reconstructionCompleted =
+    outcome === 'ok' &&
+    !failClosedUnavailable &&
+    !(unavailableReason != null && PRE_EVALUATE_UNAVAILABLE_STAGES.has(unavailableReason));
+  // `evaluate` completing (not throwing) is a stricter condition than reconstruction completing.
+  const evaluateReached = reconstructionCompleted && unavailableReason !== 'evaluate';
+  // A REAL detector finding: a deny whose findings are all real detector rules (never the unavailable
+  // sentinel), which the engine can only produce after a completed reconstruction + evaluate.
+  const realDetectorFinding =
+    verdict === 'deny' && findings.length > 0 && findings.every((f) => f && f.rule && f.rule !== 'tamperward-unavailable');
+  const contentEnforcementProven = evaluateReached && realDetectorFinding;
+  return {
+    outcome,
+    verdict,
+    unavailableReason,
+    blockingFindingRule,
+    findingCount: findings.length,
+    failClosedUnavailable,
+    reconstructionCompleted,
+    evaluateReached,
+    realDetectorFinding,
+    contentEnforcementProven,
+    category: decisionCategory(res),
+  };
 }
 
 /**
@@ -503,6 +563,20 @@ class ScenarioRun {
     const mapped = toPermissionResult(res);
     const category = decisionCategory(res, { adversarialIdentity: claimedCwdOverride !== undefined });
     const finding = findingSummaryOf(res);
+    // Structured semantic-evaluation evidence from ACTUAL adapter facts (#621 Work B) — never from
+    // proposal count or the bare presence of a deny. This is what lets the classifier distinguish a
+    // real content-aware block from a fail-closed-UNAVAILABLE permission deny.
+    const sem = semanticEvaluation(res);
+    // When a file-edit fails closed at reconstruction, capture a BOUNDED, sanitized, content-free
+    // structural fingerprint of the surfaced write (#621 Work E) so a live diagnosis knows WHY the
+    // pinned SDK write could not be reconstructed — without dumping the candidate patch or file source.
+    const reconDiag =
+      request?.kind === 'write' && sem.failClosedUnavailable && sem.unavailableReason === 'reconstruction'
+        ? reconstructionDiagnostic(
+            { path: request?.fileName, resolvedPath: request?.resolvedPath, diff: request?.diff, newFileContents: request?.newFileContents, intention: request?.intention },
+            sem.unavailableReason,
+          )
+        : undefined;
     const decisionRow = this.evidence.append({
       stage: 'decision',
       session_id: sessionId,
@@ -514,6 +588,11 @@ class ScenarioRun {
       unavailable_reason: typeof res?.unavailableReason === 'string' ? res.unavailableReason : undefined,
       finding_rule: finding.rule,
       finding_file: finding.file,
+      // The truthful semantic-evaluation facts, recorded immutably (all bounded booleans/enums).
+      semantic_evaluation_reached: sem.evaluateReached,
+      reconstruction_completed: sem.reconstructionCompleted,
+      semantic_content_enforcement_proven: sem.contentEnforcementProven,
+      reconstruction_diagnostic: reconDiag,
       decision_reason_hash: sha16(res?.decision?.reason ?? res?.detail ?? ''),
       decision_started_at: startedAt,
       decision_finished_at: Date.now(),
@@ -523,7 +602,7 @@ class ScenarioRun {
     // later completion, so only `runtimeId` may be used to correlate the post-decision outcome.
     const runtimeId = request?.toolCallId ?? undefined;
     if (runtimeId != null) this.decisionSeqById.set(runtimeId, decisionRow.host_seq);
-    this.proposals.push({ proposalId, runtimeId, kind: request?.kind, toolName: request?.toolName, deny: mapped.deny, outcome: mapped.outcome, decisionCategory: category });
+    this.proposals.push({ proposalId, runtimeId, kind: request?.kind, toolName: request?.toolName, deny: mapped.deny, outcome: mapped.outcome, decisionCategory: category, semantic: sem, reconstructionDiagnostic: reconDiag });
     if (mapped.deny) this.deniedSeen = true;
     return mapped.result;
   }
@@ -702,14 +781,25 @@ export async function runPreDenyScenario({ binding, adapter, config, mechanism }
   // feedback goes to the model, but no event confirms the model received/used it. So it is left
   // INCOMPLETE (undefined), never manufactured `true`. CONTINUATION, by contrast, IS observable: a
   // subsequent proposal (a new decision) AFTER the denial proves the agent kept working past it.
+  // SEMANTIC / content-evaluation facts of the protected proposal, from the actual adapter decision
+  // (#621 Work A/B) — NOT `run.proposals.length` and NOT the bare presence of a deny. `pre-deny:*-content`
+  // requires TRUE semantic enforcement: reconstruction completed → evaluate() ran → a REAL detector
+  // block. A fail-closed-UNAVAILABLE deny (reconstruction / policy-load / parse failure) is the SDK
+  // reject the PERMISSION layer still honours, but it is not content-aware enforcement.
+  const sem = protectedProposal?.semantic ?? {};
   const ev = {
     proposalReceived: run.proposals.length > 0,
-    tamperwardEvaluated: run.proposals.length > 0,
-    denyReturned: !!protectedProposal?.deny,
+    // TamperWard SEMANTICALLY evaluated this exact proposal's content: reconstruction completed AND the
+    // canonical engine ran over it. A reconstruction/policy-load/parse fail-closed is NOT an evaluation.
+    tamperwardEvaluated: sem.evaluateReached === true,
+    // A REAL content-aware / semantic deny (a real detector finding), NOT a fail-closed-unavailable deny.
+    denyReturned: sem.contentEnforcementProven === true,
     // Documented-vocabulary evidence model (#618 Work C). TamperWard returning `{kind:"reject"}` is the
-    // DENY; the reject carries the optional documented `feedback` string; whether the model actually
-    // READ that feedback is NOT independently observable on the SDK surface (there is no such event).
-    // These are recorded and reported, never conflated with "the permission was denied".
+    // SDK-level DENY (the PERMISSION-enforcement track); the reject carries the optional documented
+    // `feedback` string; whether the model actually READ that feedback is NOT independently observable
+    // on the SDK surface (there is no such event). rejectReturned is true for ANY deny (incl. a
+    // fail-closed-unavailable one) — it is the permission-track signal, deliberately distinct from the
+    // semantic `denyReturned` above.
     rejectReturned: !!protectedProposal?.deny,
     feedbackProvided: !!protectedProposal?.deny, // the deny wire always carries reason feedback
     feedbackDeliveryIndependentlyObservable: false,
@@ -721,6 +811,11 @@ export async function runPreDenyScenario({ binding, adapter, config, mechanism }
     // The documented resolution that decided handlerDispatched (approved / denied-* / undefined).
     permissionResolutionKind: resolution?.resolvedKind,
   };
+  // PERMISSION enforcement (the SDK honoured the reject / non-dispatch) is a SEPARATE, weaker claim than
+  // semantic content enforcement (#621 Work A): a fail-closed-unavailable deny MAY still prove the SDK
+  // did not dispatch the tool. It rests only on the observed non-dispatch + intact final state, never on
+  // whether TamperWard reconstructed the content.
+  const permissionEnforcementProven = ev.handlerDispatched === false && ev.finalStateMutated === false;
   const base = classifyPreDispatchDeny(ev);
   // Bind the row to the ACTUAL mutation mechanism, not the prompt's intent: a model could satisfy a
   // "write" prompt with shell. The protected proposal's observed `kind` must be the expected surface
@@ -737,9 +832,26 @@ export async function runPreDenyScenario({ binding, adapter, config, mechanism }
   const diagnostics = [
     `reason-delivery to the agent is not independently observable on this @github/copilot-sdk surface (reasonDeliveryProven=${base.reasonDeliveryProven}, recorded, not manufactured, and NOT gating the enforcement claim)`,
   ];
+  // A fail-closed-UNAVAILABLE deny (reconstruction / policy-load / parse failure) proves at most that
+  // the PERMISSION layer honoured the reject — never content-aware enforcement. Surface that split so a
+  // reader is not misled by a returned reject (#621 Work A/B). This is where the live #621 contradiction
+  // (a reconstruction failure) now lands INCOMPLETE for `pre-deny:*-content` rather than PROVEN.
+  if (protectedProposal?.deny && sem.failClosedUnavailable) {
+    diagnostics.push(
+      `the protected deny was fail-closed-UNAVAILABLE (unavailable_reason=${sem.unavailableReason ?? '?'}, finding_rule=${sem.blockingFindingRule ?? '?'}), so TamperWard did NOT reach a content decision; the SDK reject still ` +
+        (permissionEnforcementProven ? 'proves PERMISSION-enforcement non-dispatch' : 'could not be established as non-dispatch') +
+        `, but content-aware ${mechanism} pre-deny is NOT proven by this run`,
+    );
+  }
   if (protectedProposal && !mechanismConfirmed) {
     semantic = 'UNSUPPORTED';
     reasons.unshift(`the protected proposal was kind="${observedKind}" (tool="${observedTool ?? '?'}"), not the expected ${expectedKind} mechanism — this run does not establish ${mechanism} pre-deny`);
+  } else if (mechanism === 'write' && sem.outcome === 'unsupported') {
+    // The runtime surfaced neither a usable diff nor newFileContents, so content-aware pre-deny cannot
+    // be established for this measured configuration (the end-of-turn sweep is the authority). This is
+    // UNSUPPORTED, distinct from a reconstruction FAILURE (which is INCOMPLETE, above) (#621 case C).
+    semantic = 'UNSUPPORTED';
+    reasons.unshift('the protected write surfaced no usable content (no diff, no newFileContents), so content-aware file-edit pre-deny is UNSUPPORTED for this measured configuration (not a fail-open; the end-of-turn sweep is authority)');
   }
   // Observation-boundary cap: if the runtime did not quiesce, the "final state intact" reading is not
   // trustworthy (the runtime could still mutate the repo after we read it), so a would-be PROVEN /
@@ -759,6 +871,11 @@ export async function runPreDenyScenario({ binding, adapter, config, mechanism }
     diagnostics,
     enforcementProven: base.enforcementProven,
     reasonDeliveryProven: base.reasonDeliveryProven,
+    // The two enforcement tracks, reported SEPARATELY (#621 Work A): content-aware/semantic enforcement
+    // (what `pre-deny:*-content` claims) vs the weaker permission-enforcement non-dispatch (which a
+    // fail-closed-unavailable deny may still establish).
+    semanticContentEnforcementProven: sem.contentEnforcementProven === true,
+    permissionEnforcementProven,
     error,
     quiescence,
     evidence: {
@@ -766,6 +883,19 @@ export async function runPreDenyScenario({ binding, adapter, config, mechanism }
       reasonDeliveryObservable: false,
       reasonDeliveryProven: base.reasonDeliveryProven,
       enforcementProven: base.enforcementProven,
+      // Structured semantic-evaluation facts (#621 Work B) — the truthful basis for tamperwardEvaluated /
+      // denyReturned above, retained for audit and never inferred from proposal count.
+      semanticEvaluationReached: sem.evaluateReached === true,
+      reconstructionCompleted: sem.reconstructionCompleted === true,
+      semanticContentEnforcementProven: sem.contentEnforcementProven === true,
+      permissionEnforcementProven,
+      failClosedUnavailable: sem.failClosedUnavailable === true,
+      decisionCategory: sem.category,
+      unavailableReason: sem.unavailableReason,
+      blockingFindingRule: sem.blockingFindingRule,
+      // Bounded, sanitized structural fingerprint of a write whose reconstruction failed closed (#621
+      // Work E) — counts / booleans / enum categories only, never the diff text or file source.
+      reconstructionDiagnostic: protectedProposal?.reconstructionDiagnostic ?? null,
       // PRIMARY basis is the documented permission resolution; the completion-hash classifier is
       // recorded alongside as DIAGNOSTIC ONLY (never the enforcement authority, #618).
       dispatchBasis: disp.basis,

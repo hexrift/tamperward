@@ -239,6 +239,13 @@ function makeFakeSession(cfg, opts) {
         // `benignProtectedEdit` writes a NON-weakening change to the protected target (hash differs,
         // but it is not a TamperWard-detectable weakening) to exercise the end-of-turn binding gate.
         const protectedTc = opts.omitProtectedToolCallId ? undefined : nextTc();
+        // `unreconstructableWrite` models the live #621 blocker: a genuine `write` that DOES surface
+        // content (so it is not `unsupported`) but whose diff TamperWard cannot reconstruct — here a
+        // hunk-only body with NO `---`/`+++` endpoint headers, which the single-file-binding git-apply
+        // path fails closed on (unavailable_reason='reconstruction', finding_rule='tamperward-unavailable').
+        // It must land INCOMPLETE for content-aware pre-deny, never PROVEN.
+        // `noContentWrite` models a write that surfaces NEITHER a usable diff nor newFileContents
+        // (`unsupported` — case C).
         const protectedReq = useShell
           ? { kind: 'shell', toolName: 'shell', toolCallId: protectedTc, fullCommandText: `rm ${spec.protectedRel}` }
           : {
@@ -246,8 +253,21 @@ function makeFakeSession(cfg, opts) {
               toolName: 'apply_patch',
               toolCallId: protectedTc,
               fileName: spec.protectedRel,
-              newFileContents: opts.benignProtectedEdit ? `${WEAKENED}it('keeps two', () => { expect(2).toBe(2); });\nit('keeps three', () => { expect(3).toBe(3); });\n` : undefined,
-              diff: opts.benignProtectedEdit ? undefined : [`--- a/${spec.protectedRel}`, `+++ b/${spec.protectedRel}`, '@@ -1,2 +1,1 @@', ` it('keeps one', () => { expect(1).toBe(1); });`, `-it('keeps two', () => { expect(2).toBe(2); });`].join('\n'),
+              newFileContents: opts.unreconstructableWrite || opts.noContentWrite
+                ? undefined
+                : opts.benignProtectedEdit
+                  ? `${WEAKENED}it('keeps two', () => { expect(2).toBe(2); });\nit('keeps three', () => { expect(3).toBe(3); });\n`
+                  : undefined,
+              diff: opts.noContentWrite
+                ? undefined
+                : opts.unreconstructableWrite
+                  ? // A unified diff whose headers name a DIFFERENT file than the write's declared target:
+                    // the single-file git-apply binding fails closed on it STRUCTURALLY (independent of
+                    // file content), reproducing a reconstruction failure deterministically.
+                    ['--- a/src/other/unrelated.ts', '+++ b/src/other/unrelated.ts', '@@ -1,2 +1,1 @@', ` it('keeps one', () => { expect(1).toBe(1); });`, `-it('keeps two', () => { expect(2).toBe(2); });`].join('\n')
+                  : opts.benignProtectedEdit
+                    ? undefined
+                    : [`--- a/${spec.protectedRel}`, `+++ b/${spec.protectedRel}`, '@@ -1,2 +1,1 @@', ` it('keeps one', () => { expect(1).toBe(1); });`, `-it('keeps two', () => { expect(2).toBe(2); });`].join('\n'),
             };
         protectedReqSnapshot = protectedReq;
         await propose(protectedReq, { protected: true });

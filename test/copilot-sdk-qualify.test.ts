@@ -10,7 +10,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { copilotSdkAdapter } from '../src/adapters/copilot-sdk/adapter';
 // @ts-expect-error - the orchestrator is a plain .mjs harness module, no d.ts
-import { buildConfig, runQualification, runPreDenyScenario, runBrokenPathScenario, runEndOfTurnScenario, assembleResult, serializeRequest, promptHash, classifyHandlerDispatch, decisionCategory, normalizeCompletionEvent } from '../harness/adapters/copilot-sdk/orchestrator.mjs';
+import { buildConfig, runQualification, runPreDenyScenario, runBrokenPathScenario, runEndOfTurnScenario, assembleResult, serializeRequest, promptHash, classifyHandlerDispatch, decisionCategory, normalizeCompletionEvent, semanticEvaluation } from '../harness/adapters/copilot-sdk/orchestrator.mjs';
+// @ts-expect-error - the reconstruction diagnostics are a plain .mjs harness module, no d.ts
+import { reconstructionDiagnostic } from '../harness/adapters/copilot-sdk/reconstruction-diagnostics.mjs';
 // @ts-expect-error - the fixtures are a plain .mjs harness module, no d.ts
 import { makeScenarioRepo, cleanupRepo, sdkCompletionEventData, PERMISSION_DENIED_CODE, USER_NOT_AVAILABLE_CODE, CANDIDATE_PERMISSION_GATE_CODES, CONFIRMED_PERMISSION_GATE_CODES, isDeniedPermissionKind } from '../harness/adapters/copilot-sdk/fixtures.mjs';
 // @ts-expect-error - capture signatures are a plain .mjs harness module, no d.ts
@@ -309,6 +311,82 @@ describe('runPreDenyScenario — shell & native-write pre-dispatch deny (real ad
     const seqs = r.evidenceRows.map((e: { host_seq?: number }) => e.host_seq);
     expect(seqs).toEqual([...seqs].sort((a, b) => a - b));
     expect(new Set(seqs).size).toBe(seqs.length);
+  });
+});
+
+describe('#621 — content-aware pre-deny requires SEMANTIC enforcement, not a returned reject', () => {
+  // The live #621 contradiction: a Copilot SDK write that FAILS TamperWard content reconstruction was
+  // reported `pre-deny:file-edit-content = PROVEN` because the classifier read `tamperwardEvaluated`
+  // from `run.proposals.length > 0` and `denyReturned` from the bare presence of a deny. A
+  // fail-closed-UNAVAILABLE deny (reconstruction / policy-load / parse failure) is the SDK reject the
+  // PERMISSION layer honours, but it is NOT content-aware enforcement, so it must land INCOMPLETE.
+
+  it('(B) a write whose reconstruction fails closed is INCOMPLETE for content-aware pre-deny, never PROVEN', async () => {
+    const r = await runPreDenyScenario({ binding: createFakeBinding({ unreconstructableWrite: true }), adapter, config: CFG(), mechanism: 'write' });
+    expect(r.semantic).not.toBe('PROVEN');
+    expect(r.semantic).toBe('INCOMPLETE');
+    expect(r.evidence.observedKind).toBe('write');
+    expect(r.evidence.mechanismConfirmed).toBe(true);
+    // The exact live-run facts that used to false-green PROVEN:
+    expect(r.evidence.rejectReturned).toBe(true); // TamperWard returned a {kind:"reject"} …
+    expect(r.evidence.denyReturned).toBe(false); // … but NOT a content-aware/semantic deny
+    expect(r.evidence.decisionCategory).toBe('fail-closed-unavailable');
+    expect(r.evidence.unavailableReason).toBe('reconstruction');
+    expect(r.evidence.blockingFindingRule).toBe('tamperward-unavailable');
+    expect(r.evidence.semanticEvaluationReached).toBe(false);
+    expect(r.evidence.reconstructionCompleted).toBe(false);
+    expect(r.evidence.semanticContentEnforcementProven).toBe(false);
+    // PERMISSION enforcement (non-dispatch) IS separately establishable — a fail-closed-unavailable
+    // deny still proves the SDK honoured the reject and the tool did not run (#621 Work A).
+    expect(r.evidence.handlerDispatched).toBe(false);
+    expect(r.evidence.finalStateMutated).toBe(false);
+    expect(r.permissionEnforcementProven).toBe(true);
+  });
+
+  it('(A) a real reconstructed weakening write (reconstruction + evaluate + real detector block) → content-aware PROVEN', async () => {
+    const r = await runPreDenyScenario({ binding: createFakeBinding({}), adapter, config: CFG(), mechanism: 'write' });
+    expect(r.semantic).toBe('PROVEN');
+    expect(r.evidence.semanticEvaluationReached).toBe(true);
+    expect(r.evidence.reconstructionCompleted).toBe(true);
+    expect(r.evidence.semanticContentEnforcementProven).toBe(true);
+    expect(r.evidence.denyReturned).toBe(true);
+    expect(r.evidence.decisionCategory).toBe('policy-block');
+    expect(r.evidence.blockingFindingRule).not.toBe('tamperward-unavailable');
+    expect(typeof r.evidence.blockingFindingRule).toBe('string');
+  });
+
+  it('(C) a write surfacing no usable content (no diff, no newFileContents) → UNSUPPORTED, never PROVEN', async () => {
+    const r = await runPreDenyScenario({ binding: createFakeBinding({ noContentWrite: true }), adapter, config: CFG(), mechanism: 'write' });
+    expect(r.semantic).toBe('UNSUPPORTED');
+    expect(r.evidence.decisionCategory).toBe('unsupported');
+    expect(r.evidence.semanticContentEnforcementProven).toBe(false);
+    expect(r.evidence.semanticEvaluationReached).toBe(false);
+  });
+
+  it('Work E: a reconstruction fail-closed emits a BOUNDED, sanitized structural diagnostic — no diff text or file source', async () => {
+    const r = await runPreDenyScenario({ binding: createFakeBinding({ unreconstructableWrite: true }), adapter, config: CFG(), mechanism: 'write' });
+    const diag = r.evidence.reconstructionDiagnostic;
+    expect(diag).toBeTruthy();
+    expect(diag.stage).toBe('reconstruction');
+    expect(diag.fileTargetPresent).toBe(true);
+    expect(diag.diffPresent).toBe(true);
+    expect(typeof diag.diffByteCount).toBe('number');
+    expect(diag.diffByteCount).toBeGreaterThan(0);
+    expect(typeof diag.diffLineCount).toBe('number');
+    expect(diag.newFileContentsPresent).toBe(false);
+    expect(diag.newFileContentsByteCount).toBe(0);
+    // The distinguishing shape category: the diff's headers name a different file than the target.
+    expect(diag.diffShape.category).toBe('path-header-mismatch');
+    expect(diag.diffShape.headerMatchesTarget).toBe(false);
+    expect(diag.diffShape.hunkHeaderCount).toBeGreaterThan(0);
+    expect(diag.failureCategory).toBe('diff:path-header-mismatch');
+    // CONTENT-FREE: neither the candidate diff text nor the file source leaks into a public artifact.
+    const serialized = JSON.stringify(diag);
+    for (const secret of ['keeps one', 'keeps two', 'expect(', 'it(']) expect(serialized).not.toContain(secret);
+    // The same holds for the immutable decision evidence row that persists into the artifact.
+    const decisionRow = r.evidenceRows.find((e: { stage?: string; reconstruction_diagnostic?: unknown }) => e.stage === 'decision' && e.reconstruction_diagnostic);
+    expect(decisionRow).toBeTruthy();
+    for (const secret of ['keeps one', 'keeps two', 'expect(']) expect(JSON.stringify(decisionRow)).not.toContain(secret);
   });
 });
 
@@ -1117,6 +1195,72 @@ describe('#614 — execution_start is lifecycle-start, not dispatch; completion 
     // The host's OWN knowledge that it injected an adversarial identity distinguishes an identity
     // rejection from a baseline/reconstruction fail-closed that also surfaces as tamperward-unavailable.
     expect(decisionCategory({ decision: { verdict: 'deny', findings: [{ rule: 'tamperward-unavailable' }] } }, { adversarialIdentity: true })).toBe('identity-rejected');
+  });
+
+  it('#621 semanticEvaluation distinguishes a REAL content block from a fail-closed-unavailable deny (shell and write alike)', () => {
+    // A real detector block from a completed reconstruction + evaluate — content enforcement PROVEN.
+    const block = semanticEvaluation({ outcome: 'ok', decision: { verdict: 'deny', findings: [{ rule: 'test-deletion' }] } });
+    expect(block.reconstructionCompleted).toBe(true);
+    expect(block.evaluateReached).toBe(true);
+    expect(block.realDetectorFinding).toBe(true);
+    expect(block.contentEnforcementProven).toBe(true);
+    expect(block.failClosedUnavailable).toBe(false);
+
+    // A fail-closed-UNAVAILABLE deny (reconstruction/policy-load/parse) — the engine never judged content.
+    for (const stage of ['reconstruction', 'policy-load', 'baseline', 'repo-context'] as const) {
+      const fc = semanticEvaluation({ outcome: 'ok', unavailableReason: stage, decision: { verdict: 'deny', findings: [{ rule: 'tamperward-unavailable' }] } });
+      expect(fc.failClosedUnavailable).toBe(true);
+      expect(fc.reconstructionCompleted).toBe(false);
+      expect(fc.evaluateReached).toBe(false);
+      expect(fc.contentEnforcementProven).toBe(false);
+      expect(fc.category).toBe('fail-closed-unavailable');
+    }
+
+    // An allow (evaluated, no finding), an unsupported (no usable content), and a parse-failure are all
+    // NOT content enforcement.
+    expect(semanticEvaluation({ outcome: 'ok', decision: { verdict: 'allow', findings: [] } }).contentEnforcementProven).toBe(false);
+    expect(semanticEvaluation({ outcome: 'ok', decision: { verdict: 'allow', findings: [] } }).evaluateReached).toBe(true);
+    const unsup = semanticEvaluation({ outcome: 'unsupported' });
+    expect(unsup.reconstructionCompleted).toBe(false);
+    expect(unsup.contentEnforcementProven).toBe(false);
+    expect(unsup.category).toBe('unsupported');
+    expect(semanticEvaluation({ outcome: 'parse-failure', unavailableReason: 'parse-failure', decision: { verdict: 'deny', findings: [{ rule: 'tamperward-unavailable' }] } }).contentEnforcementProven).toBe(false);
+  });
+
+  it('#621 Work E reconstructionDiagnostic is bounded, content-free, and distinguishes diff shapes', () => {
+    const secret = "it('keeps two', () => { expect(2).toBe(2); });";
+    // A hunk-only body with no ---/+++ headers.
+    const hunkOnly = reconstructionDiagnostic({ path: 'src/keep.spec.ts', diff: `@@ -1,2 +1,1 @@\n ok\n-${secret}` }, 'reconstruction');
+    expect(hunkOnly.diffShape.category).toBe('headerless-hunk-only');
+    expect(hunkOnly.failureCategory).toBe('diff:headerless-hunk-only');
+    expect(hunkOnly.diffPresent).toBe(true);
+    expect(hunkOnly.newFileContentsPresent).toBe(false);
+    expect(JSON.stringify(hunkOnly)).not.toContain('keeps two');
+
+    // A header whose path does not match the declared target → path-header-mismatch.
+    const mismatch = reconstructionDiagnostic({ path: 'src/keep.spec.ts', diff: '--- a/other/file.ts\n+++ b/other/file.ts\n@@ -1 +1 @@\n-a\n+b' }, 'reconstruction');
+    expect(mismatch.diffShape.category).toBe('path-header-mismatch');
+    expect(mismatch.diffShape.headerMatchesTarget).toBe(false);
+
+    // Two files in one patch → multiple-file-diff (a shape the single-file binding rejects).
+    const multi = reconstructionDiagnostic({ path: 'src/keep.spec.ts', diff: 'diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\ndiff --git a/y b/y\n--- a/y\n+++ b/y\n@@ -1 +1 @@\n-c\n+d' }, 'reconstruction');
+    expect(multi.diffShape.category).toBe('multiple-file-diff');
+
+    // Rename metadata → unsupported-metadata.
+    const rename = reconstructionDiagnostic({ path: 'src/keep.spec.ts', diff: 'diff --git a/keep.spec.ts b/renamed.ts\nrename from keep.spec.ts\nrename to renamed.ts' }, 'reconstruction');
+    expect(rename.diffShape.category).toBe('unsupported-metadata');
+
+    // No content at all.
+    const none = reconstructionDiagnostic({ path: 'src/keep.spec.ts' }, 'reconstruction');
+    expect(none.failureCategory).toBe('no-usable-content');
+    expect(none.diffPresent).toBe(false);
+
+    // newFileContents byte counts are recorded but the content itself never appears in the fingerprint.
+    const contentsOnly = reconstructionDiagnostic({ path: 'src/keep.spec.ts', newFileContents: secret }, 'reconstruction');
+    expect(contentsOnly.newFileContentsPresent).toBe(true);
+    expect(contentsOnly.newFileContentsByteCount).toBe(Buffer.byteLength(secret, 'utf8'));
+    expect(contentsOnly.failureCategory).toBe('new-file-contents-only');
+    expect(JSON.stringify(contentsOnly)).not.toContain('keeps two');
   });
 
   it('the fake models the PREVIOUSLY OBSERVED hosted ordering (execution-start before its decision) — a regression guard, not an SDK-contract claim', async () => {
