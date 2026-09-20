@@ -27,6 +27,7 @@ import {
   EVIDENCE_SCHEMA_VERSION,
 } from '../copilot-sdk-spike.mjs';
 import { makeScenarioRepo, finalState, protectedHash, cleanupRepo, makeOutsideDir, makeEscapingSymlink, PROTECTED_REL, SENTINEL_REL, SENTINEL_VALUE, CONFIRMED_PERMISSION_GATE_CODES } from './fixtures.mjs';
+import { CONFIRMED_PERMISSION_GATE_SIGNATURES, permissionSignatureKey } from './capture-signatures.mjs';
 
 const RESULT_SCHEMA_VERSION = 'copilot-sdk-qualification/v1';
 const RUNTIME_ID = 'github-copilot-sdk-hosted';
@@ -93,6 +94,7 @@ function toPermissionResult(res) {
 // freeze should be a permission-path SIGNATURE (decision kind + error.code + a sanitized message
 // discriminator), so a code is authoritative only in the exact permission-gate context (#615 review).
 const DEFAULT_DENIAL_COMPLETION_CODES = CONFIRMED_PERMISSION_GATE_CODES;
+const DEFAULT_DENIAL_COMPLETION_SIGNATURES = CONFIRMED_PERMISSION_GATE_SIGNATURES;
 
 /**
  * Classify whether the protected handler crossed the permission gate, from POST-DECISION evidence only
@@ -115,7 +117,7 @@ const DEFAULT_DENIAL_COMPLETION_CODES = CONFIRMED_PERMISSION_GATE_CODES;
  *                    non-execution signals; EMPTY by default, so no completion code proves non-dispatch
  *                    until the real codes are frozen (#615 review, final blocker)
  */
-export function classifyHandlerDispatch({ mutated, completion, boundarySeq, confirmedDenialCodes = DEFAULT_DENIAL_COMPLETION_CODES } = {}) {
+export function classifyHandlerDispatch({ mutated, completion, boundarySeq, permissionPath, confirmedPermissionSignatures = DEFAULT_DENIAL_COMPLETION_SIGNATURES, confirmedDenialCodes = DEFAULT_DENIAL_COMPLETION_CODES } = {}) {
   const denialCodes = confirmedDenialCodes instanceof Set ? confirmedDenialCodes : new Set(confirmedDenialCodes ?? []);
   // An actual protected mutation is authoritative FAIL-OPEN irrespective of any completion event.
   if (mutated) return { handlerDispatched: true, basis: 'protected-mutation' };
@@ -141,6 +143,30 @@ export function classifyHandlerDispatch({ mutated, completion, boundarySeq, conf
   // requires the WHOLE authoritative error set to be that one confirmed semantics — not merely
   // `some(confirmed)` (#615 review): a confirmed denial mixed with a generic/unconfirmed error, or two
   // DIFFERENT confirmed denial codes for one call, are ambiguous/contradictory → INCONCLUSIVE.
+  // Live qualification authority is a source-frozen permission-path SIGNATURE, not a bare code.
+  // The host supplies the path (returned-reject vs callback-failure); each completion supplies the
+  // SDK code + sanitized message hash. Every authoritative error must resolve to the SAME frozen
+  // signature, otherwise evidence is insufficient/conflicting. Bare-code authority remains only as a
+  // synthetic unit-test seam for legacy classifier tests and is never used by runQualification().
+  if (permissionPath) {
+    const confirmedKeys = new Set(
+      (confirmedPermissionSignatures ?? [])
+        .filter((s) => s?.path === permissionPath)
+        .map((s) => permissionSignatureKey(s))
+        .filter(Boolean),
+    );
+    const observedKeys = errors.map((c) =>
+      permissionSignatureKey({ path: permissionPath, code: c.errorCategory, messageHash: c.errorHash }),
+    );
+    if (observedKeys.some((k) => !k || !confirmedKeys.has(k))) {
+      const anyConfirmed = observedKeys.some((k) => k && confirmedKeys.has(k));
+      return anyConfirmed ? conflict : { handlerDispatched: undefined, basis: 'insufficient-post-decision-evidence' };
+    }
+    const distinct = new Set(observedKeys);
+    if (distinct.size !== 1) return conflict;
+    return { handlerDispatched: false, basis: 'post-decision-denied-signature' };
+  }
+
   const confirmedCodes = new Set(errors.filter((c) => denialCodes.has(c.errorCategory)).map((c) => c.errorCategory));
   const hasUnconfirmedError = errors.some((c) => !denialCodes.has(c.errorCategory));
   if (confirmedCodes.size === 0) return { handlerDispatched: undefined, basis: 'insufficient-post-decision-evidence' };
@@ -304,6 +330,7 @@ class ScenarioRun {
       // The error MESSAGE is retained (hashed) for diagnostics regardless of schema variant; it never
       // drives classification.
       const rawMsg = data.error && typeof data.error.message === 'string' ? data.error.message : typeof data.errorMessage === 'string' ? data.errorMessage : undefined;
+      const errorHash = rawMsg ? sha16(rawMsg) : undefined;
       const row = this.evidence.append({
         stage: 'completion',
         session_id: this.sessionId,
@@ -311,7 +338,7 @@ class ScenarioRun {
         operation_kind: data.toolName,
         completion_outcome: outcome,
         completion_error_category: errorCode,
-        completion_error_hash: rawMsg ? sha16(rawMsg) : undefined,
+        completion_error_hash: errorHash,
         completion_schema_variant: schemaVariant,
         handler_completed: outcome === 'success',
       });
@@ -321,7 +348,7 @@ class ScenarioRun {
         // classifier resolves them by AGREEMENT, never last-write-wins (#614 §H) — so overwriting here
         // would be exactly the bug. `completeSeq`/`outcome`/`errorCategory` keep the latest for readers
         // that want a scalar, but classification consumes the full `completions` array.
-        const completions = [...(lc.completions ?? []), { completeSeq: row.host_seq, outcome, errorCategory: errorCode }];
+        const completions = [...(lc.completions ?? []), { completeSeq: row.host_seq, outcome, errorCategory: errorCode, errorHash }];
         this.lifecycle.set(data.toolCallId, { ...lc, completeSeq: row.host_seq, outcome, errorCategory: errorCode, completions });
       }
     } else if (type === 'agent_idle' || type === 'session.idle' || type === 'assistant.idle') {
@@ -551,6 +578,8 @@ export async function runPreDenyScenario({ binding, adapter, config, mechanism }
     mutated: state.protectedMutated,
     completion: run.completionFor(protectedRuntimeId),
     boundarySeq: run.decisionSeqFor(protectedRuntimeId),
+    permissionPath: 'returned-reject',
+    confirmedPermissionSignatures: config.confirmedPermissionSignatures,
     confirmedDenialCodes: config.confirmedDenialCodes,
   });
   const handlerDispatched = disp.handlerDispatched;
@@ -727,6 +756,8 @@ export async function runBrokenPathScenario({ binding, adapter, config, breakage
     mutated: state.protectedMutated,
     completion: run.completionFor(protectedProposalId),
     boundarySeq: protectedBoundarySeq,
+    permissionPath: identityBreak ? 'returned-reject' : 'callback-failure',
+    confirmedPermissionSignatures: config.confirmedPermissionSignatures,
     confirmedDenialCodes: config.confirmedDenialCodes,
   });
   const handlerDispatched = disp.handlerDispatched;
@@ -989,10 +1020,12 @@ export function buildConfig(opts = {}, env = process.env) {
   // harness bytes, never a runtime-supplied value. (Capture needs no override: the raw error.code is
   // already recorded in the completion evidence regardless of this set.)
   const confirmedDenialCodes = [...CONFIRMED_PERMISSION_GATE_CODES];
+  const confirmedPermissionSignatures = CONFIRMED_PERMISSION_GATE_SIGNATURES.map((s) => ({ ...s }));
   return {
     model,
     availableTools, // when set, the session's tool surface is explicitly configured AND frozen
     confirmedDenialCodes,
+    confirmedPermissionSignatures,
     preflight: opts.preflight === true,
     scenarioFilter: opts.scenario || null,
     jsonPath: opts.json || null,
@@ -1038,10 +1071,22 @@ export async function runQualification({ binding, adapter, config }) {
   // run, caps the result below FULL and is recorded for audit). The pure scenario runners remain
   // injectable so unit tests can still exercise the classification logic directly.
   const activeConfirmedDenialCodes = [...CONFIRMED_PERMISSION_GATE_CODES];
+  const activeConfirmedPermissionSignatures = CONFIRMED_PERMISSION_GATE_SIGNATURES.map((s) => ({ ...s }));
   const norm = (v) => (Array.isArray(v) ? [...v].map(String).sort() : []);
+  const normSignatures = (v) =>
+    Array.isArray(v)
+      ? [...v].map((s) => permissionSignatureKey(s)).filter(Boolean).sort()
+      : [];
   const confirmedCodesOverrideIgnored =
     config.confirmedDenialCodes != null && norm(config.confirmedDenialCodes).join(',') !== norm(activeConfirmedDenialCodes).join(',');
-  config = { ...config, confirmedDenialCodes: activeConfirmedDenialCodes };
+  const confirmedSignaturesOverrideIgnored =
+    config.confirmedPermissionSignatures != null &&
+    normSignatures(config.confirmedPermissionSignatures).join(',') !== normSignatures(activeConfirmedPermissionSignatures).join(',');
+  config = {
+    ...config,
+    confirmedDenialCodes: activeConfirmedDenialCodes,
+    confirmedPermissionSignatures: activeConfirmedPermissionSignatures,
+  };
 
   let status;
   let auth;
@@ -1088,6 +1133,8 @@ export async function runQualification({ binding, adapter, config }) {
     // signature), never a caller/operator value.
     confirmed_denial_codes: activeConfirmedDenialCodes,
     confirmed_denial_codes_source: 'committed:CONFIRMED_PERMISSION_GATE_CODES',
+    confirmed_permission_signatures: activeConfirmedPermissionSignatures,
+    confirmed_permission_signatures_source: 'committed:CONFIRMED_PERMISSION_GATE_SIGNATURES',
   };
   const gate = provenanceGate({ expected: config.expected, measured });
   // #611: the code that actually RUNS must be provenance-pinned. Measured TamperWard provenance is only
@@ -1108,6 +1155,10 @@ export async function runQualification({ binding, adapter, config }) {
     // source must not be able to claim FULL.
     gate.full = false;
     gate.reasons = [...(gate.reasons || []), 'a caller-supplied confirmedDenialCodes set was ignored (qualification authority is the committed CONFIRMED_PERMISSION_GATE_CODES only) — this run cannot be FULL'];
+  }
+  if (!config.preflight && confirmedSignaturesOverrideIgnored) {
+    gate.full = false;
+    gate.reasons = [...(gate.reasons || []), 'a caller-supplied confirmedPermissionSignatures set was ignored (qualification authority is the committed CONFIRMED_PERMISSION_GATE_SIGNATURES only) — this run cannot be FULL'];
   }
   if (!config.preflight) {
     if (config.sourceTreeDirty === null) {
