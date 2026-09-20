@@ -151,6 +151,100 @@ export function sdkCompletionEventData({ toolCallId, toolName, success, code, me
   return data;
 }
 
+// The @github/copilot-sdk@1.0.14 permission lifecycle `permission.completed.result.kind` — the PRIMARY
+// enforcement signal the harness classifies on (the tool.execution_complete `error.code`/message is
+// diagnostic only, never the permission contract).
+//
+// SCHEMA DISCREPANCY (v1.0.14, documented deliberately): `docs/features/streaming-events.md` lists only
+// FIVE result kinds (approved + four denied-*), but the GENERATED implementation
+// (`nodejs/src/generated/session-events.ts` `PermissionResult`, matching `go/rpc/zsession_events.go`
+// `PermissionResultKind`) defines NINE: three approved variants, one `cancelled`, and five `denied-*`.
+// The generated source is the authority for what the runtime can actually emit, so the allowlists below
+// are the GENERATED set — in particular `denied-by-permission-request-hook` (a real value the docs omit)
+// is included. The parser is an EXACT allowlist: an unknown / schema-drift value (`denied-whatever`, a
+// bare `denied`, a future kind) is UNRECOGNIZED — never promoted to a proven deny or a proven approve —
+// so an unknown resolution is INCONCLUSIVE, failing closed in the evidence sense.
+export const PERMISSION_APPROVED_KINDS = Object.freeze([
+  'approved',
+  'approved-for-session',
+  'approved-for-location',
+]);
+export const PERMISSION_DENIED_KINDS = Object.freeze([
+  'denied-by-rules',
+  'denied-no-approval-rule-and-could-not-request-from-user',
+  'denied-interactively-by-user',
+  'denied-by-content-exclusion-policy',
+  'denied-by-permission-request-hook',
+]);
+// `cancelled` is neither an approval nor a deny — the request was dismissed, which does not establish
+// non-dispatch. It is a known kind but non-enforcing (INCONCLUSIVE for the dispatch question).
+export const PERMISSION_OTHER_KINDS = Object.freeze(['cancelled']);
+// Every kind the pinned generated schema can emit (the allowlist).
+export const PERMISSION_COMPLETED_KINDS = Object.freeze([
+  ...PERMISSION_APPROVED_KINDS,
+  ...PERMISSION_OTHER_KINDS,
+  ...PERMISSION_DENIED_KINDS,
+]);
+// The FIVE values `docs/features/streaming-events.md` enumerates (a subset of the generated schema),
+// retained so a test can pin the docs-vs-generated discrepancy explicitly.
+export const PERMISSION_COMPLETED_KINDS_DOCUMENTED = Object.freeze([
+  'approved',
+  'denied-by-rules',
+  'denied-interactively-by-user',
+  'denied-no-approval-rule-and-could-not-request-from-user',
+  'denied-by-content-exclusion-policy',
+]);
+// Named constants for the values the fake/tests reference by name.
+export const PERMISSION_COMPLETED_KIND = Object.freeze({
+  APPROVED: 'approved',
+  APPROVED_FOR_SESSION: 'approved-for-session',
+  APPROVED_FOR_LOCATION: 'approved-for-location',
+  CANCELLED: 'cancelled',
+  DENIED_BY_RULES: 'denied-by-rules',
+  DENIED_INTERACTIVELY_BY_USER: 'denied-interactively-by-user',
+  DENIED_NO_APPROVAL_USER_UNAVAILABLE: 'denied-no-approval-rule-and-could-not-request-from-user',
+  DENIED_BY_CONTENT_EXCLUSION: 'denied-by-content-exclusion-policy',
+  DENIED_BY_PERMISSION_REQUEST_HOOK: 'denied-by-permission-request-hook',
+});
+
+// The handler-side `PermissionRequestResult` kinds the pinned SDK treats as a DENY decision, from
+// nodejs/README.md's own table: `reject` = "Deny the request"; `user-not-available` = "Deny the request
+// because no user is available to confirm it." (These are the SDK RPC-result kinds session.ts sends via
+// handlePendingPermissionRequest — distinct from the runtime's permission.completed broadcast kinds.)
+// This lets the broken-handler path establish non-dispatch from the DOCUMENTED SDK decision
+// (user-not-available, which session.ts sends when the handler throws) rather than a fabricated
+// permission.completed broadcast, which no cited v1.0.14 source establishes for that path.
+export const PERMISSION_RESULT_DENY_KINDS = Object.freeze(['reject', 'user-not-available']);
+export function isDenySdkResultKind(kind) {
+  return PERMISSION_RESULT_DENY_KINDS.includes(kind);
+}
+
+/** EXACT membership in the pinned generated schema — a value the runtime can actually emit. */
+export function isKnownPermissionKind(kind) {
+  return PERMISSION_COMPLETED_KINDS.includes(kind);
+}
+/** A DENY iff result.kind is EXACTLY one of the pinned `denied-*` values. Unknown/absent/`cancelled` is
+ *  NOT a deny — an unrecognized kind must never read as proven non-dispatch. */
+export function isDeniedPermissionKind(kind) {
+  return PERMISSION_DENIED_KINDS.includes(kind);
+}
+/** An APPROVE iff result.kind is EXACTLY one of the pinned approved variants (incl. -for-session /
+ *  -for-location). Unknown/absent/`cancelled` is NOT an approve. */
+export function isApprovedPermissionKind(kind) {
+  return PERMISSION_APPROVED_KINDS.includes(kind);
+}
+
+/** The documented `permission.requested` event data (streaming-events.md §permission.requested):
+ *  `{ requestId, permissionRequest }`, where permissionRequest carries `kind` + optional `toolCallId`. */
+export function permissionRequestedEventData({ requestId, permissionRequest } = {}) {
+  return { requestId, permissionRequest };
+}
+/** The documented `permission.completed` event data (streaming-events.md §permission.completed):
+ *  `{ requestId, result: { kind } }`. */
+export function permissionCompletedEventData({ requestId, kind } = {}) {
+  return { requestId, result: { kind } };
+}
+
 // Provenance status of the permission-gate completion codes (#615 review, final blocker). The pinned
 // github/copilot-sdk@1.0.14 E2E tests establish a WITHHELD tool only as `success === false` plus an
 // error MESSAGE substring — "user rejected" for an explicit reject, "Permission denied" for

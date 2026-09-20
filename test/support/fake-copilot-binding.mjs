@@ -24,19 +24,28 @@
 //   extraProtectedCompletion    emit a SECOND completion for the protected op on the same toolCallId:
 //                               'duplicate' (repeat the primary), 'success', or 'denied' (contradictory)
 //   duplicateProtectedExecStart emit the protected op's tool.execution_start twice (must stay harmless)
-// The fake models the REAL lifecycle: tool.execution_start fires BEFORE the permission callback; a
-// completion emits the pinned SDK public shape `{ success, error?: { code, message } }` — a
-// `success:false` completion with a permission-gate `error.code` (`permission_denied` on a reject,
-// `user_not_available` on a broken/timed-out callback) represents a tool the gate withheld, and a
-// `success:true` completion represents a tool that actually ran past the gate. Both the shape and the
-// codes come from ./fixtures.mjs (sdkCompletionEventData / PERMISSION_*_CODE), the single definition the
-// orchestrator normalizes against, so the fake cannot drift from the pinned contract (#615 review).
+// The fake models the previously observed hosted ordering (tool.execution_start before the permission
+// callback — a regression guard, not a public-contract claim). A `tool.execution_complete` emits the
+// pinned SDK public SHAPE `{ success, error?: { code, message } }`; a `success:true` completion is the
+// documented "ran past the gate" signal. The particular `error.code` values the fake attaches on a
+// `success:false` completion (`permission_denied` / `user_not_available`) are SYNTHETIC / UNCONFIRMED
+// candidate codes (see ./fixtures.mjs — the pinned v1.0.14 E2E does not assert them); they exist only to
+// exercise the DIAGNOSTIC completion-hash classifier and never drive the qualification verdict, which
+// uses the runtime-observable `permission.completed.result.kind` instead (#618). So the completion SHAPE
+// is pinned via ./fixtures.mjs (sdkCompletionEventData), while those codes are deliberately not contract.
 
 import { writeFileSync, rmSync, mkdirSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join, dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { sdkCompletionEventData, PERMISSION_DENIED_CODE, USER_NOT_AVAILABLE_CODE } from '../../harness/adapters/copilot-sdk/fixtures.mjs';
+import {
+  sdkCompletionEventData,
+  PERMISSION_DENIED_CODE,
+  USER_NOT_AVAILABLE_CODE,
+  PERMISSION_COMPLETED_KIND,
+  permissionRequestedEventData,
+  permissionCompletedEventData,
+} from '../../harness/adapters/copilot-sdk/fixtures.mjs';
 
 const TIMEOUT = Symbol('timeout');
 const WEAKENED = `it('keeps one', () => { expect(1).toBe(1); });\n`;
@@ -95,23 +104,77 @@ function makeFakeSession(cfg, opts) {
     // A duplicate execution-start on the same id (§H). It must stay harmless: a start is never
     // authoritative, so no number of duplicates can manufacture dispatch.
     if (isProtected && opts.duplicateProtectedExecStart && !opts.suppressExecEvents && !opts.emitStartAfterDecision) emit('tool.execution_start', { toolCallId: execId, toolName: req.toolName, turnId: 't1' });
+    // The documented permission lifecycle (streaming-events.md): the runtime raises `permission.requested`
+    // (carrying its own `requestId` plus the permissionRequest, which links back to the tool call via
+    // `toolCallId`) and the host handler resolves it. We emit it here — around the real host callback —
+    // so the orchestrator observes the SAME documented events a live run would.
+    const requestId = `req_${execId}`;
+    // `suppressExecEvents` models a fully broken/absent session-event channel — no permission events
+    // either, so the documented resolution is unobservable (the effect may still land).
+    if (!opts.suppressExecEvents) emit('permission.requested', permissionRequestedEventData({ requestId, permissionRequest: { ...req, toolCallId: execId } }));
     let decision;
-    let broke = false;
+    let threw = false;
+    let timedOut = false;
     try {
       decision = await raceTimeout(cfg.onPermissionRequest(req, { sessionId }), opts.callbackBudgetMs ?? 50);
     } catch {
-      broke = true;
+      threw = true; // synchronous throw / rejected Promise from the host handler
     }
     if (decision === TIMEOUT) {
-      broke = true;
+      timedOut = true; // never-resolving handler — the pinned SDK has NO permission-handler timeout (FACT 6)
       decision = undefined;
     }
+    const broke = threw || timedOut;
     const rejected = !broke && decision && decision.kind === 'reject';
     const approved = !broke && decision && decision.kind !== 'reject';
     let dispatch;
     if (broke) dispatch = !!opts.brokenFailOpen;
     else if (rejected) dispatch = !!opts.ignoreDeny;
     else dispatch = approved;
+
+    // This scenario models an UNOBSERVABLE resolution when the handler hung (timeout, FACT 6 — nothing
+    // sent), the whole event/response channel is broken (suppressExecEvents), or the scenario suppresses
+    // the (protected) op's resolution (suppressCompletion / suppressProtectedCompletion). In those cases
+    // neither the RPC result nor the runtime broadcast is observable.
+    const resolutionSuppressed =
+      timedOut || opts.suppressExecEvents || opts.suppressCompletion || (isProtected && opts.suppressProtectedCompletion);
+
+    // SOURCE-LEVEL CONFORMANCE ONLY — NOT a qualification signal. Pinned nodejs/src/session.ts
+    // (_executePermissionAndRespond) sends the host handler's result to the runtime; if the handler
+    // THROWS/rejects it catches the error and sends `{kind:"user-not-available"}` instead; a hung handler
+    // is awaited and NOTHING is sent. The REAL binding (createRealBinding) exposes NO callback for this
+    // internal RPC result, so `onPermissionResult` exists ONLY for the source-level conformance tests
+    // that assert the pinned session.ts behaviour, and it is invoked ONLY when a caller explicitly
+    // supplies the callback. The orchestrator/qualification path deliberately does NOT supply it, so this
+    // never becomes non-dispatch authority (a thrown handler stays INCONCLUSIVE in qualification unless an
+    // OBSERVABLE denied `permission.completed` broadcast is emitted). Do not wire this into the runner.
+    if (!resolutionSuppressed && cfg.onPermissionResult) {
+      const sdkResult = threw ? { kind: 'user-not-available' } : (decision ?? { kind: 'no-result' });
+      cfg.onPermissionResult({ requestId, result: sdkResult });
+    }
+
+    // The runtime's `permission.completed.result.kind` broadcast. The mapping from an SDK RPC result to
+    // this broadcast kind is established by a pinned source ONLY for approve-once and reject, from the
+    // SDK's own v1.0.14 E2E test (nodejs/test/e2e/multi-client.e2e.test.ts): approve-once → "approved",
+    // reject → "denied-interactively-by-user". Those are the defaults here. For a THROWN/rejected handler
+    // NO broadcast kind is established by any cited source, so the fake emits NO permission.completed for
+    // it — and because the qualification path cannot observe the internal RPC result, a thrown handler is
+    // INCONCLUSIVE in qualification (never fail-closed). A test may still SCRIPT any allowlist kind via
+    // `opts.permissionCompletedKind` to exercise the classifier directly. The broadcast is also
+    // unobservable when the handler hung (timeout, FACT 6), the event channel is broken
+    // (suppressExecEvents), or this scenario models a missing resolution (suppressCompletion /
+    // suppressProtectedCompletion).
+    const scripted = typeof opts.permissionCompletedKind === 'string' ? opts.permissionCompletedKind : undefined;
+    // Only approve/reject have a pinned-E2E broadcast mapping; a throw has none.
+    const e2eDefault = approved
+      ? PERMISSION_COMPLETED_KIND.APPROVED
+      : rejected
+        ? PERMISSION_COMPLETED_KIND.DENIED_INTERACTIVELY_BY_USER
+        : undefined;
+    const resolvedKind = scripted ?? e2eDefault;
+    if (!resolutionSuppressed && resolvedKind !== undefined) {
+      emit('permission.completed', permissionCompletedEventData({ requestId, kind: resolvedKind }));
+    }
     if (!opts.suppressExecEvents && opts.emitStartAfterDecision) emit('tool.execution_start', { toolCallId: execId, toolName: req.toolName, turnId: 't1' });
     if (dispatch) {
       applyEffect(cfg.workspace, req);

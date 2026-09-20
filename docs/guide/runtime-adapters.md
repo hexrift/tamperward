@@ -583,20 +583,51 @@ through an injected fake binding + the real adapter (`test/copilot-sdk-qualify.t
 pinned SDK, no credentials, or a missing/`auto` model the harness reports **INSUFFICIENT** and exits
 non-zero — "could not test" is never "passed".
 
+The neutral adapter is intentionally **unshipped** (absent from `dist/`), so the harness self-compiles
+it with esbuild to a temporary ESM module and imports it, hashing the exact bundle into provenance. The
+bundled `src` graph loads `yaml`/`picomatch` lazily via `createRequire(import.meta.url)`; because
+esbuild collapses every module's `import.meta.url` to the output file's URL — which sits in the OS temp
+dir with no `node_modules` — the build anchors `import.meta.url` back at the real checkout source so
+those lazy requires resolve, otherwise the first policy load throws `Cannot find module 'yaml'` and
+every decision fails closed as `tamperward-unavailable` / `policy-load` (the fresh live blocker fixed in
+#618 Work A; regression: `test/copilot-sdk-temp-bundle.test.ts`). This is a harness build detail only —
+the shipped `dist`, built on disk by `npm run build`, has the correct `import.meta.url` and unchanged
+dependency-loading behaviour.
+
 **On the current `@github/copilot-sdk` surface a live run tops out at `INSUFFICIENT`, not FULL or even
-PARTIAL** — and this is a deliberate honesty floor, not a bug. Provenance cannot be fully frozen while
-the runtime neither applies nor measures a network mode (recorded operator-declared/unverified and
-capped), so `provenanceGate.full` is `false` and `buildSpikeMatrix` maps incomplete provenance to
-`INSUFFICIENT` before it can reach `PARTIAL`. Independently, two evidence surfaces keep a required
-Phase-0 path from being *proven* even with full provenance: reason-delivery to the agent is not
-observable (recorded `INCOMPLETE`) and there is no runtime-exposed permission-callback timeout (the
-timeout path stays `INCONCLUSIVE`). `PARTIAL` therefore requires a future SDK surface that exposes a
-verifiable network mode (lifting provenance to full), and `FULL` additionally requires reason-delivery
-and a callback timeout to become observable AND a pinned run proving shell + content-aware file-edit +
-end-of-turn with the broken decision path failing **closed**. Absent that — as today — the honest
-overall is `INSUFFICIENT`, and a single observed fail-open is INELIGIBLE. Copilot stays
-`steering: 'neutral'`, the adapter is not registered as a detected runtime, and **no** Round 4.1
-eligibility is claimed until the exact pinned hosted configuration passes the full #482 parity suite.
+PARTIAL** — and this is a deliberate honesty floor, not a bug. What is proven locally at this PR head is
+narrow: the temp-bundle `policy-load` root cause is reproduced, the bundled-adapter regression passes
+after the fix, and the classifier/fake tests pass. A **fresh credentialed hosted run of this new
+bundle/classifier has not happened**, so we do not yet know that every live shell / write / end-of-turn
+/ permission-lifecycle path now passes. **Network provenance** is a known remaining provenance blocker
+(#618 Work F): the SDK exposes no authoritative network configuration/status the harness can measure —
+`client.getStatus()` returns only `{ version, protocolVersion }` — so an
+operator-supplied `COPILOT_SDK_NETWORK_MODE` is recorded operator-declared/**unverified** and capped, it
+is never laundered into trusted evidence, `provenanceGate.full` stays `false`, and `buildSpikeMatrix`
+maps incomplete provenance to `INSUFFICIENT` before it can reach `PARTIAL`. Two intrinsically
+unobservable surfaces are recorded honestly but, by design, do **not** block a would-be `FULL` once
+provenance is complete: **reason/feedback delivery** to the agent is a diagnostic, not a gate (#618 Work
+C) — the Phase-0 enforcement claim rests on the documented permission resolution and observable facts
+(proposal received → evaluated → deny → documented `denied-*` resolution → final state intact → agent
+continued), and `feedbackDeliveryIndependentlyObservable` is recorded `false`, never conflated with the
+deny; and the **permission-callback timeout** has no runtime-exposed completion (a hung callback emits no
+`permission.completed`, per pinned `session.ts`), so it is *intrinsically* unobservable as fail-closed
+and stays `INCONCLUSIVE` and visible while being carved out of the decision-path fail-closed gate (#618
+Work C). It is reported as its **own** non-gating matrix row (`decision-path:timeout`), so the
+fail-closed row is qualified to `decision-path:fail-closed (observable paths)` and never carries the
+timeout's INCONCLUSIVE under an unqualified label — a dispatch *during* a timeout is still definitive
+`FAIL-OPEN`. The **identity-break** paths
+(cross-repo, path-escape, symlink-escape, malformed-identity) are `FAIL-CLOSED` from the documented
+lifecycle: TamperWard returns `{kind:"reject"}` for the adversarial claim, the runtime resolves it as a
+documented `denied-*`, and the protected state stays intact — the SDK permission mechanism received and
+resolved the deny, established without any bare code, message hash, or `tool.execution_start` (#618 Work
+F). `PARTIAL` therefore requires a future SDK surface that exposes a **verifiable network mode** (lifting
+provenance to full); `FULL` additionally requires a pinned run proving shell + content-aware file-edit +
+end-of-turn with the *observable* broken decision paths failing **closed** (the intrinsic timeout carved
+out, its INCONCLUSIVE still surfaced). Absent that — as today — the honest overall is `INSUFFICIENT`, and
+a single observed fail-open is INELIGIBLE. Copilot stays `steering: 'neutral'`, the adapter is not
+registered as a detected runtime, and **no** Round 4.1 eligibility is claimed until the exact pinned
+hosted configuration passes the full #482 parity suite.
 
 ### Running Layer (c) locally (authenticated, pinned — not CI)
 
@@ -665,14 +696,57 @@ runner does not execute. `phase0_passed` is the signal a FULL Phase-0 earns; a s
 maintainer-reviewed pinned parity run is the only thing that may later set Round 4.1 eligibility.
 Passing the harness never registers a production runtime or flips Copilot to `in-loop`.
 
-Honest limits on the current SDK surface: **reason-delivery to the agent is not independently
-observable**, so the pre-deny scenarios record it `INCOMPLETE` (continuation is observed via a
-post-denial proposal/dispatch, but reason receipt is not manufactured `true`); the **timeout** broken
-path is `INCONCLUSIVE` unless a real runtime-exposed permission-callback timeout is exercised (a hung
-callback plus the harness's own wait is not fail-closed); and the **write** row counts only when the
-observed protected proposal is actually a `write`/`apply_patch` surface (a shell proposal satisfying a
-write prompt is `UNSUPPORTED` for that row). The **broken-decision-path** injection is bound to the
-actual protected *mutation* (identified by the canonical adapter/engine denying it, so a
+**Enforcement is decided from the pinned permission lifecycle (#618).** The primary signal for "did the
+denied tool run?" is `permission.completed.result.kind` correlated to the tool call by `requestId`,
+together with the host-owned protected filesystem state — NOT a `tool.execution_complete`
+error-code/message hash (those are diagnostic only). `result.kind` is matched against an **exact
+allowlist** derived from the pinned **generated** schema (`nodejs/src/generated/session-events.ts`
+`PermissionResult`, matching `go/rpc/zsession_events.go`): three approved variants (`approved`,
+`approved-for-session`, `approved-for-location`), `cancelled`, and five `denied-*`
+(`denied-by-rules`, `denied-no-approval-rule-and-could-not-request-from-user`,
+`denied-interactively-by-user`, `denied-by-content-exclusion-policy`, `denied-by-permission-request-hook`).
+Note the **docs-vs-generated discrepancy**: `docs/features/streaming-events.md` lists only five of these
+(omitting the two extra approved variants, `cancelled`, and `denied-by-permission-request-hook`); the
+generated schema is authoritative for what the runtime can emit. A `denied-*` resolution with the target
+intact is non-dispatch; a landed mutation or a `success:true` completion is `FAIL-OPEN`; and an
+**unrecognized** kind — a schema-drift value, a bare `denied`, or the known-but-non-enforcing
+`cancelled` — is never promoted to non-dispatch: it is `INCONCLUSIVE`, failing closed in the evidence
+sense. The mapping from a host handler result to the runtime's broadcast kind is **not established** by
+the cited sources, so CI does not assert it: the fake's broadcast kind is a scripted input, and the
+conformance tests exercise the classifier over the exact pinned enum. The one host→runtime fact the
+pinned source **does** establish — a thrown/rejected handler is caught and the SDK sends
+`{kind:"user-not-available"}` (`nodejs/src/session.ts`) — is asserted at the RPC-result layer, not as a
+`permission.completed` kind. The frozen `capture-2026-09-20.json` message-hash signatures are retained
+as **diagnostic lineage only**, never the enforcement authority.
+
+Honest limits on the current SDK surface: **reason/feedback delivery to the agent is not independently
+observable** — TamperWard returning `{kind:"reject"}` with the documented optional `feedback` is the
+deny, but no event proves the model *read* the feedback, so `feedbackDeliveryIndependentlyObservable` is
+recorded `false` and never conflated with "the permission was denied" (#618 Work C). It does **not** gate
+the enforcement claim. The **timeout** broken path has no runtime-exposed permission-callback timeout
+(pinned `nodejs/src/session.ts` awaits the handler with no timeout), so a hung handler emits no
+`permission.completed` at all: it is *intrinsically* unobservable as fail-closed, stays `INCONCLUSIVE`
+and visible, is never flipped to fail-closed from the harness's own wait, and is carved out of the
+decision-path fail-closed gate so it does not make `FULL` impossible (#618 Work C) — but a dispatch
+*during* the hang is still definitive `FAIL-OPEN`. The **callback-failure** paths (synchronous throw /
+rejected Promise / adapter throw) separate a **source-level fact** from a **live verdict**. Source fact:
+the pinned SDK catches the handler exception and sends `{kind:"user-not-available"}` on its *internal*
+RPC path (`nodejs/src/session.ts`), which `nodejs/README.md`'s own table defines as **deny** ("Deny the
+request because no user is available to confirm it"). But the real hosted binding (`createRealBinding`)
+cannot **observe** that internal RPC result — the SDK exposes no callback for it — and no cited v1.0.14
+source establishes a subsequent `permission.completed` broadcast kind for this path. So the live
+qualification verdict is **`INCONCLUSIVE`**, never manufactured `FAIL-CLOSED` from the source-level fact;
+a fresh credentialed run could raise it only if the runtime emits an observable denied `permission.completed`.
+The safety invariant is checked regardless: the protected mutation must not land. (The `user-not-available`
+= deny fact is asserted only in the source-level conformance tests, never wired into the live classifier.) The **identity-break** paths
+(cross-repo, path-escape, symlink-escape, malformed-identity) separate two questions — did TamperWard
+decide DENY (its decision row / `identity-rejected` category), and did the documented SDK mechanism
+receive and resolve that deny (`permission.completed` `denied-*`, protected state intact); both holding
+is `FAIL-CLOSED`, and with the documented resolution suppressed it stays `INCONCLUSIVE` (never
+established from a bare code, a message hash, or a `tool.execution_start`). The **write** row counts
+only when the observed protected proposal is actually a `write`/`apply_patch` surface (a shell proposal
+satisfying a write prompt is `UNSUPPORTED` for that row). The **broken-decision-path** injection is bound
+to the actual protected *mutation* (identified by the canonical adapter/engine denying it, so a
 non-mutating inspection like `cat` of the same path cannot stand in).
 
 **`tool.execution_start` is a lifecycle-START / execution-ATTEMPT observation, never dispatch past the

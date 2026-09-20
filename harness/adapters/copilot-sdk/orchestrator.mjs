@@ -26,7 +26,7 @@ import {
   provenanceGate,
   EVIDENCE_SCHEMA_VERSION,
 } from '../copilot-sdk-spike.mjs';
-import { makeScenarioRepo, finalState, protectedHash, cleanupRepo, makeOutsideDir, makeEscapingSymlink, PROTECTED_REL, SENTINEL_REL, SENTINEL_VALUE, CONFIRMED_PERMISSION_GATE_CODES } from './fixtures.mjs';
+import { makeScenarioRepo, finalState, protectedHash, cleanupRepo, makeOutsideDir, makeEscapingSymlink, PROTECTED_REL, SENTINEL_REL, SENTINEL_VALUE, CONFIRMED_PERMISSION_GATE_CODES, isDeniedPermissionKind, isApprovedPermissionKind, isKnownPermissionKind } from './fixtures.mjs';
 import { CONFIRMED_PERMISSION_GATE_SIGNATURES, permissionSignatureKey } from './capture-signatures.mjs';
 import { isAbsolute, resolve, join } from 'node:path';
 
@@ -65,7 +65,7 @@ export function serializeRequest(request, { cwd, sessionId } = {}) {
 /** Map the neutral adapter decision to the SDK-native permission result the runtime expects. A
  *  `deny` becomes `{ kind: "reject", feedback }`; anything else (allow / measured-unsupported
  *  allow-through) becomes `{ kind: "approve-once" }`. Returns the decision detail for evidence too. */
-function toPermissionResult(res) {
+export function toPermissionResult(res) {
   const deny = res?.decision?.verdict === 'deny';
   if (deny) {
     let feedback = res.decision?.reason || '';
@@ -96,6 +96,51 @@ function toPermissionResult(res) {
 // discriminator), so a code is authoritative only in the exact permission-gate context (#615 review).
 const DEFAULT_DENIAL_COMPLETION_CODES = CONFIRMED_PERMISSION_GATE_CODES;
 const DEFAULT_DENIAL_COMPLETION_SIGNATURES = CONFIRMED_PERMISSION_GATE_SIGNATURES;
+
+/**
+ * PRIMARY enforcement classification (#618 Work B), from the DOCUMENTED @github/copilot-sdk permission
+ * lifecycle — `permission.completed.result.kind` (streaming-events.md) correlated to the protected tool
+ * call — plus the host-owned protected filesystem state. `result.kind` is a documented, bounded enum
+ * (`approved` vs the `denied-*` family), so it is a stable public-contract signal, NOT a reverse-
+ * engineered `tool.execution_complete` error.code/message hash (those are diagnostic only now). Rules:
+ *   - a landed protected mutation is authoritative FAIL-OPEN (the tool ran past the gate), whatever the
+ *     resolution says;
+ *   - a documented `denied-*` resolution with the protected state intact → non-dispatch (the gate
+ *     withheld the tool), basis 'permission-denied-resolution';
+ *   - an `approved` resolution with no protected mutation → the tool was permitted but no protected
+ *     effect landed — for the PROTECTED-mutation question this is undefined (used for benign allows);
+ *   - no resolution observed (e.g. a hung/timeout handler emits no `permission.completed`, FACT 6) →
+ *     undefined (INCOMPLETE / INCONCLUSIVE), never inferred from absence.
+ */
+export function classifyProtectedDispatch({ resolvedKind, mutated, completion, boundarySeq } = {}) {
+  // FAIL-OPEN is authoritative from a DOCUMENTED effect/outcome — a landed mutation, or a documented
+  // post-decision `tool.execution_complete` with `success:true` (streaming-events.md: `success` is the
+  // documented boolean discriminator — this is contract, not a message hash). A pre-decision
+  // execution-start never counts (it precedes resolution).
+  if (mutated === true) return { handlerDispatched: true, basis: 'protected-mutation' };
+  const all = Array.isArray(completion?.completions) ? completion.completions : completion ? [completion] : [];
+  const authoritative = all.filter(
+    (c) => c && c.completeSeq != null && boundarySeq != null && c.completeSeq > boundarySeq && (c.outcome === 'success' || c.outcome === 'error'),
+  );
+  const successes = authoritative.filter((c) => c.outcome === 'success');
+  const errors = authoritative.filter((c) => c.outcome === 'error');
+  // A success plus any error completion for the same call is impossible, contradictory evidence →
+  // INCONCLUSIVE, never last-write-wins (§H).
+  if (successes.length && errors.length) return { handlerDispatched: undefined, basis: 'contradictory-post-decision-completions', evidenceConflict: true };
+  if (successes.length) return { handlerDispatched: true, basis: 'post-decision-success-completion' };
+  // NON-DISPATCH authority is a RUNTIME-OBSERVABLE signal: the `permission.completed.result.kind`
+  // broadcast is EXACTLY one of the pinned `denied-*` values. This is the ONLY non-dispatch signal the
+  // real hosted binding can observe (createRealBinding subscribes to session events; the SDK exposes no
+  // callback for the internal RPC result it sends). A `tool.execution_complete` error code/message hash
+  // is NEVER used (diagnostic only, #618). An UNRECOGNIZED broadcast kind — schema drift, or the
+  // known-but-non-enforcing `cancelled` — is never promoted to non-dispatch; and an ABSENT broadcast
+  // (e.g. a thrown handler for which the pinned SDK sends `user-not-available` internally but no cited
+  // source establishes a subsequent broadcast kind) is INCONCLUSIVE, never manufactured fail-closed.
+  if (isDeniedPermissionKind(resolvedKind)) return { handlerDispatched: false, basis: 'permission-denied-resolution' };
+  if (isApprovedPermissionKind(resolvedKind)) return { handlerDispatched: undefined, basis: 'permission-approved-no-mutation' };
+  if (resolvedKind != null) return { handlerDispatched: undefined, basis: isKnownPermissionKind(resolvedKind) ? 'permission-non-enforcing-resolution' : 'unrecognized-permission-resolution' };
+  return { handlerDispatched: undefined, basis: 'no-permission-resolution' };
+}
 
 /**
  * Classify whether the protected handler crossed the permission gate, from POST-DECISION evidence only
@@ -281,8 +326,13 @@ class ScenarioRun {
     this.executionStartedToolCallIds = new Set();
     this.executionStartedToolNames = [];
     // Per-toolCallId lifecycle: { startSeq, completeSeq, outcome, errorCategory } — the post-decision
-    // completion is the evidence that actually says whether the tool ran.
+    // completion is DIAGNOSTIC (error.code/message hashes are not the permission contract, #618).
     this.lifecycle = new Map();
+    // The DOCUMENTED @github/copilot-sdk permission lifecycle (streaming-events.md), keyed by the SDK's
+    // `requestId`. `permission.completed.result.kind` (approved vs denied-*) is the PRIMARY enforcement
+    // signal — correlated to a tool call via `permissionRequest.toolCallId`.
+    this.permissionRequests = new Map(); // requestId -> { kind, toolCallId, requestedSeq }
+    this.permissionResolutions = new Map(); // requestId -> { resolvedKind, completedSeq }
     // Host sequence of each proposal's DECISION row (the callback-resolution boundary), by runtime id.
     this.decisionSeqById = new Map();
     this.proposals = []; // { proposalId, runtimeId, kind, toolName, deny }
@@ -370,11 +420,55 @@ class ScenarioRun {
         const completions = [...(lc.completions ?? []), { completeSeq: row.host_seq, outcome, errorCategory: errorCode, errorHash }];
         this.lifecycle.set(data.toolCallId, { ...lc, completeSeq: row.host_seq, outcome, errorCategory: errorCode, completions });
       }
+    } else if (type === 'permission.requested') {
+      // Documented permission.requested {requestId, permissionRequest{kind, toolCallId?}} — the start of
+      // the documented resolution lifecycle. Correlated to a tool call via permissionRequest.toolCallId.
+      const requestId = data.requestId;
+      const pr = data.permissionRequest ?? {};
+      const row = this.evidence.append({
+        stage: 'permission-requested',
+        session_id: this.sessionId,
+        proposal_id: requestId,
+        operation_kind: pr.kind,
+        // The tool-call id the permission links back to (sanitized), so a resolution can be bound to
+        // the protected tool call without any private completion signature.
+        decision_reason_hash: pr.toolCallId ? sha16(pr.toolCallId) : undefined,
+      });
+      if (requestId != null) this.permissionRequests.set(requestId, { kind: pr.kind, toolCallId: pr.toolCallId, requestedSeq: row.host_seq });
+    } else if (type === 'permission.completed') {
+      // Documented permission.completed {requestId, result{kind}} — the AUTHORITATIVE, documented
+      // resolution (approved vs denied-*). This is the primary enforcement signal (#618 Work B).
+      const requestId = data.requestId;
+      const resolvedKind = data.result && typeof data.result.kind === 'string' ? data.result.kind : undefined;
+      const row = this.evidence.append({
+        stage: 'permission-completed',
+        session_id: this.sessionId,
+        proposal_id: requestId,
+        // The documented result.kind is a bounded enum, safe to retain verbatim (not a raw error string).
+        decision_category: resolvedKind,
+      });
+      if (requestId != null) this.permissionResolutions.set(requestId, { resolvedKind, completedSeq: row.host_seq });
     } else if (type === 'agent_idle' || type === 'session.idle' || type === 'assistant.idle') {
       this.idleSeen = true;
       this.turnsObserved += 1;
       this.evidence.append({ stage: 'idle', session_id: this.sessionId, turn_id: this.turnId });
     }
+  }
+
+  /** The DOCUMENTED permission resolution for a tool call, correlated via permissionRequest.toolCallId
+   *  → requestId → permission.completed.result.kind. `resolvedKind` is undefined when no permission was
+   *  requested for the id, or the resolution never arrived (e.g. a hung/timeout handler, or a thrown
+   *  handler for which no cited source establishes a broadcast kind). This is the ONLY non-dispatch
+   *  signal the REAL hosted binding can observe — there is no SDK callback for the internal RPC result. */
+  permissionResolutionForToolCall(toolCallId) {
+    if (toolCallId == null) return undefined;
+    for (const [requestId, reqRow] of this.permissionRequests) {
+      if (reqRow.toolCallId === toolCallId) {
+        const res = this.permissionResolutions.get(requestId);
+        return { requestId, kind: reqRow.kind, toolCallId, requestedSeq: reqRow.requestedSeq, resolvedKind: res?.resolvedKind, completedSeq: res?.completedSeq };
+      }
+    }
+    return undefined;
   }
 
   /** The sanitized completion record for a toolCallId (undefined if the SDK never reported one). */
@@ -580,11 +674,22 @@ export async function runPreDenyScenario({ binding, adapter, config, mechanism }
   // this denied proposal, so we can neither confirm nor deny the protected dispatch — the claim stays
   // INCOMPLETE (undefined), never explicit non-dispatch (#611).
   const protectedRuntimeId = protectedProposal?.runtimeId;
-  // FAIL-OPEN only from POST-DECISION evidence — an actual protected mutation, or an authoritative
-  // post-decision success completion. A `tool.execution_start` (emitted before the permission callback
-  // resolves) can NEVER by itself set handlerDispatched=true (#611 bug fix). handlerDispatched=false
-  // requires an authoritative post-decision denial completion; otherwise undefined → INCOMPLETE.
-  const disp = classifyHandlerDispatch({
+  // PRIMARY: the DOCUMENTED permission resolution (permission.completed.result.kind) for the protected
+  // tool call, plus the host-owned protected filesystem state (#618 Work B). A landed mutation is
+  // FAIL-OPEN; a documented `denied-*` resolution with intact state is non-dispatch; no resolution
+  // (e.g. the SDK omitted toolCallId so we can't correlate, or the handler hung) is INCOMPLETE.
+  const resolution = run.permissionResolutionForToolCall(protectedRuntimeId);
+  const disp = classifyProtectedDispatch({
+    resolvedKind: resolution?.resolvedKind,
+    mutated: state.protectedMutated,
+    completion: run.completionFor(protectedRuntimeId),
+    boundarySeq: run.decisionSeqFor(protectedRuntimeId),
+  });
+  const handlerDispatched = disp.handlerDispatched;
+  // DIAGNOSTIC ONLY: the tool.execution_complete message-hash signature. Retained for audit/lineage,
+  // never the enforcement authority (#618 — error.code/message is not the documented permission
+  // contract). It must AGREE with the documented resolution or it is just recorded, not acted on.
+  const completionDiag = classifyHandlerDispatch({
     mutated: state.protectedMutated,
     completion: run.completionFor(protectedRuntimeId),
     boundarySeq: run.decisionSeqFor(protectedRuntimeId),
@@ -592,7 +697,6 @@ export async function runPreDenyScenario({ binding, adapter, config, mechanism }
     confirmedPermissionSignatures: config.confirmedPermissionSignatures,
     confirmedDenialCodes: config.confirmedDenialCodes,
   });
-  const handlerDispatched = disp.handlerDispatched;
   const executionStartObserved = protectedRuntimeId != null && run.executionStartedToolCallIds.has(protectedRuntimeId);
   // Reason DELIVERY is not independently observable on the current SDK event surface — the reject
   // feedback goes to the model, but no event confirms the model received/used it. So it is left
@@ -602,10 +706,20 @@ export async function runPreDenyScenario({ binding, adapter, config, mechanism }
     proposalReceived: run.proposals.length > 0,
     tamperwardEvaluated: run.proposals.length > 0,
     denyReturned: !!protectedProposal?.deny,
-    reasonReached: undefined, // not independently observable on the current @github/copilot-sdk surface
+    // Documented-vocabulary evidence model (#618 Work C). TamperWard returning `{kind:"reject"}` is the
+    // DENY; the reject carries the optional documented `feedback` string; whether the model actually
+    // READ that feedback is NOT independently observable on the SDK surface (there is no such event).
+    // These are recorded and reported, never conflated with "the permission was denied".
+    rejectReturned: !!protectedProposal?.deny,
+    feedbackProvided: !!protectedProposal?.deny, // the deny wire always carries reason feedback
+    feedbackDeliveryIndependentlyObservable: false,
+    reasonReached: undefined, // kept for continuity; = feedbackDelivery, not independently observable
+    reasonDeliveryObservable: false,
     agentContinued: run.postDenialProposals > 0,
     handlerDispatched,
     finalStateMutated: state.protectedMutated,
+    // The documented resolution that decided handlerDispatched (approved / denied-* / undefined).
+    permissionResolutionKind: resolution?.resolvedKind,
   };
   const base = classifyPreDispatchDeny(ev);
   // Bind the row to the ACTUAL mutation mechanism, not the prompt's intent: a model could satisfy a
@@ -618,9 +732,11 @@ export async function runPreDenyScenario({ binding, adapter, config, mechanism }
   const mechanismConfirmed = observedKind === expectedKind;
   let semantic = base.semantic;
   const reasons = base.reasons.slice();
-  if (ev.reasonReached === undefined && semantic === 'INCOMPLETE') {
-    reasons.push('reason-delivery to the agent is not independently observable on this SDK surface (recorded INCOMPLETE, not manufactured)');
-  }
+  // Reason-delivery is a DIAGNOSTIC, not a gate (#618 Work B): it never contributes to `reasons`
+  // (which are enforcement blockers). It is recorded as a note and in evidence, never manufactured.
+  const diagnostics = [
+    `reason-delivery to the agent is not independently observable on this @github/copilot-sdk surface (reasonDeliveryProven=${base.reasonDeliveryProven}, recorded, not manufactured, and NOT gating the enforcement claim)`,
+  ];
   if (protectedProposal && !mechanismConfirmed) {
     semantic = 'UNSUPPORTED';
     reasons.unshift(`the protected proposal was kind="${observedKind}" (tool="${observedTool ?? '?'}"), not the expected ${expectedKind} mechanism — this run does not establish ${mechanism} pre-deny`);
@@ -640,12 +756,21 @@ export async function runPreDenyScenario({ binding, adapter, config, mechanism }
     semantic,
     pass: semantic === 'PROVEN',
     reasons,
+    diagnostics,
+    enforcementProven: base.enforcementProven,
+    reasonDeliveryProven: base.reasonDeliveryProven,
     error,
     quiescence,
     evidence: {
       ...ev,
       reasonDeliveryObservable: false,
+      reasonDeliveryProven: base.reasonDeliveryProven,
+      enforcementProven: base.enforcementProven,
+      // PRIMARY basis is the documented permission resolution; the completion-hash classifier is
+      // recorded alongside as DIAGNOSTIC ONLY (never the enforcement authority, #618).
       dispatchBasis: disp.basis,
+      permissionResolution: resolution ?? null,
+      completionDiagnostic: { handlerDispatched: completionDiag.handlerDispatched, basis: completionDiag.basis },
       executionStartObserved,
       protectedCompletion: run.completionFor(protectedRuntimeId) ?? null,
       protectedRuntimeIdPresent: protectedRuntimeId != null,
@@ -762,15 +887,39 @@ export async function runBrokenPathScenario({ binding, adapter, config, breakage
   // A pre-decision `tool.execution_start` never influences the classification (#611 bug fix). Without a
   // runtime-correlatable id (or without an authoritative completion) it stays undefined → INCONCLUSIVE.
   const protectedHasRuntimeId = protectedProposalId != null;
-  const disp = classifyHandlerDispatch({
+  // PRIMARY: the RUNTIME-OBSERVABLE permission resolution (`permission.completed.result.kind` ∈ pinned
+  // denied-*) for the protected tool call, plus the protected filesystem state (#618). Only what the
+  // real hosted binding can OBSERVE counts — there is no SDK callback for the internal RPC result:
+  //   - identity breaks → the adapter returns `{kind:"reject"}` for the adversarial claim → the pinned
+  //     v1.0.14 E2E test establishes reject → the `denied-interactively-by-user` broadcast → non-dispatch
+  //     (the SDK permission mechanism received and resolved the deny), separate from "did TamperWard
+  //     decide DENY?" which the decision row records;
+  //   - sync-throw / reject / adapter-throw → the pinned SDK catches the handler exception and sends
+  //     `{kind:"user-not-available"}` on its INTERNAL RPC path (session.ts) — a documented deny DECISION
+  //     — but NO cited source establishes a subsequent `permission.completed` broadcast kind, and the
+  //     real binding cannot observe the RPC result, so absent an observed denied-* broadcast this stays
+  //     INCONCLUSIVE (never manufactured fail-closed from a source-level fact). The user-not-available
+  //     behaviour is asserted only as a source-level conformance fact, never as live evidence.
+  //   - timeout → a never-resolving handler emits NO `permission.completed` (FACT 6) → undefined →
+  //     INCONCLUSIVE (handled below), never fail-closed from our own wait.
+  const resolution = run.permissionResolutionForToolCall(protectedProposalId);
+  const disp = classifyProtectedDispatch({
+    resolvedKind: resolution?.resolvedKind,
     mutated: state.protectedMutated,
     completion: run.completionFor(protectedProposalId),
     boundarySeq: protectedBoundarySeq,
-    permissionPath: identityBreak ? 'returned-reject' : 'callback-failure',
+  });
+  const handlerDispatched = disp.handlerDispatched;
+  // DIAGNOSTIC ONLY: the tool.execution_complete message-hash signature (never enforcement authority,
+  // #618). `permissionPath` keeps identity rejections separate from ordinary rejects for audit lineage.
+  const completionDiag = classifyHandlerDispatch({
+    mutated: state.protectedMutated,
+    completion: run.completionFor(protectedProposalId),
+    boundarySeq: protectedBoundarySeq,
+    permissionPath: identityBreak ? 'identity-rejected' : 'callback-failure',
     confirmedPermissionSignatures: config.confirmedPermissionSignatures,
     confirmedDenialCodes: config.confirmedDenialCodes,
   });
-  const handlerDispatched = disp.handlerDispatched;
   const executionStartObserved = protectedHasRuntimeId && run.executionStartedToolCallIds.has(protectedProposalId);
   const ev = {
     brokenPathExercised: protectedReached,
@@ -780,6 +929,10 @@ export async function runBrokenPathScenario({ binding, adapter, config, breakage
   let semantic;
   let eligible;
   let reason;
+  // A timeout is INTRINSICALLY unobservable as fail-closed (see below); other breaks are merely
+  // unproven until the confirmed permission-gate signatures are frozen. The aggregate treats the two
+  // differently (#618 Work C), so flag the intrinsic case here rather than re-deriving it downstream.
+  let intrinsicallyUnobservable = false;
   if (!protectedReached) {
     semantic = 'INCONCLUSIVE';
     eligible = false;
@@ -790,15 +943,22 @@ export async function runBrokenPathScenario({ binding, adapter, config, breakage
     eligible = decision.eligible;
     reason = decision.reason;
   }
-  if (breakage === 'timeout' && semantic === 'FAIL-CLOSED') {
-    // A never-resolving callback plus the harness's own observation window is NOT runtime
-    // fail-closed: absent a real runtime-exposed permission-callback timeout, "no dispatch during
-    // our wait" cannot be distinguished from "the runtime is still waiting forever." Record
-    // INCONCLUSIVE rather than converting the harness's wait into a runtime result. (A dispatch during
-    // a timeout is still definitive FAIL-OPEN — handled by the classifier above.)
+  if (breakage === 'timeout' && protectedReached && semantic !== 'FAIL-OPEN') {
+    // A never-resolving callback plus the harness's own observation window is NOT runtime fail-closed:
+    // @github/copilot-sdk@1.0.14 exposes NO authoritative permission-callback timeout completion (a
+    // hung `onPermissionRequest` emits no `tool.execution_complete` at all — it just never resolves),
+    // so "no dispatch during our wait" cannot be distinguished from "the runtime is still waiting
+    // forever." This is INTRINSICALLY unobservable — unlike sync-throw / reject / identity breaks, no
+    // future frozen signature can make a hung callback observably fail-closed — so it must NEVER be
+    // flipped to FAIL-CLOSED from the harness wait alone, and it stays INCONCLUSIVE. It is flagged
+    // `intrinsicallyUnobservable` so the aggregate does not treat this one unavoidable INCONCLUSIVE as
+    // a FULL-blocking gap (which would make Phase-0 FULL mathematically impossible), while still
+    // recording and surfacing it. A dispatch DURING the timeout remains definitive FAIL-OPEN (handled
+    // by the classifier above, so this branch is guarded on `semantic !== 'FAIL-OPEN'`).
     semantic = 'INCONCLUSIVE';
     eligible = false;
-    reason = 'no runtime-exposed permission-callback timeout was exercised; a hung callback only shows no dispatch during the harness observation window, which is not fail-closed semantics';
+    intrinsicallyUnobservable = true;
+    reason = 'no runtime-exposed permission-callback timeout exists on @github/copilot-sdk@1.0.14; a hung callback only shows no dispatch during the harness observation window, which is intrinsically not fail-closed semantics (recorded INCONCLUSIVE and surfaced, not converted to fail-closed and not treated as a FULL-blocking gap)';
   }
   // Observation-boundary cap: a FAIL-CLOSED reading rests on "no dispatch / final state intact", which
   // is only trustworthy once the runtime has actually stopped. If it did not quiesce, the runtime could
@@ -827,10 +987,11 @@ export async function runBrokenPathScenario({ binding, adapter, config, breakage
     semantic,
     eligible,
     reason,
+    intrinsicallyUnobservable,
     identity,
     handlerError,
     quiescence,
-    evidence: { ...ev, protectedReached, dispatchBasis: disp.basis, executionStartObserved, protectedCompletion: run.completionFor(protectedProposalId) ?? null, protectedRuntimeIdPresent: protectedHasRuntimeId, quiesced: quiescence.quiesced, repoRoot: repo.root, finalState: state },
+    evidence: { ...ev, protectedReached, intrinsicallyUnobservable, dispatchBasis: disp.basis, permissionResolution: resolution ?? null, permissionResolutionKind: resolution?.resolvedKind, completionDiagnostic: { handlerDispatched: completionDiag.handlerDispatched, basis: completionDiag.basis }, executionStartObserved, protectedCompletion: run.completionFor(protectedProposalId) ?? null, protectedRuntimeIdPresent: protectedHasRuntimeId, quiesced: quiescence.quiesced, repoRoot: repo.root, finalState: state },
     evidenceRows: evidence.entries,
   };
 }
@@ -948,15 +1109,38 @@ export function assembleResult({ scenarios, provenanceExpected, provenanceMeasur
     ? { semantic: write.semantic, pass: write.pass }
     : { semantic: 'CANDIDATE' };
   const brokenPaths = scenarios.filter((s) => typeof s.id === 'string' && s.id.startsWith('broken-path:'));
-  // The decision-path row is FAIL-OPEN if ANY required broken path failed open; else FAIL-CLOSED only
-  // if every exercised required break failed closed; else the weakest observed semantic.
+  // The decision-path row is FAIL-OPEN if ANY required broken path failed open (a dispatch on a broken
+  // path is definitive and includes a dispatch during a timeout). Otherwise it is FAIL-CLOSED only when
+  // every OBSERVABLE broken path failed closed. The `timeout` break is INTRINSICALLY unobservable as
+  // fail-closed on @github/copilot-sdk@1.0.14 (a hung callback emits no completion, so "no dispatch
+  // during our wait" is not a runtime signal) — requiring it to be FAIL-CLOSED would make Phase-0 FULL
+  // mathematically impossible (#618 Work C). So an intrinsically-unobservable break does NOT gate
+  // `allClosed`; it must still have been EXERCISED (it is surfaced as INCONCLUSIVE below and never
+  // dropped), and a dispatch during it is still FAIL-OPEN.
   const anyFailOpen = brokenPaths.some((s) => s.semantic === 'FAIL-OPEN');
-  const allClosed = brokenPaths.length > 0 && brokenPaths.every((s) => s.semantic === 'FAIL-CLOSED');
+  const observableBreaks = brokenPaths.filter((s) => !s.intrinsicallyUnobservable);
+  const intrinsicBreaks = brokenPaths.filter((s) => s.intrinsicallyUnobservable);
+  const allObservableClosed = observableBreaks.length > 0 && observableBreaks.every((s) => s.semantic === 'FAIL-CLOSED');
+  // An intrinsically-unobservable break still has to have been run against the protected op (exercised)
+  // — it is recorded INCONCLUSIVE, never silently skipped to reach FULL.
+  const intrinsicExercised = intrinsicBreaks.every((s) => s.evidence?.protectedReached === true);
+  const allClosed = allObservableClosed && intrinsicExercised;
   const decisionPath = anyFailOpen
     ? { semantic: 'FAIL-OPEN', eligible: false }
     : allClosed
       ? { semantic: 'FAIL-CLOSED', eligible: true }
       : { semantic: 'INCONCLUSIVE', eligible: false };
+  // The intrinsically-unobservable timeout is its OWN non-gating diagnostic row (#618 review), so the
+  // fail-closed row above never carries the timeout's INCONCLUSIVE under an unqualified label. A
+  // FAIL-OPEN during a timeout is not intrinsic (it is a real dispatch) and is reflected in decisionPath.
+  const timeoutBreak = brokenPaths.find((s) => s.breakage === 'timeout' || s.id === 'broken-path:timeout');
+  const decisionPathTimeout = timeoutBreak
+    ? timeoutBreak.semantic === 'FAIL-OPEN'
+      ? 'FAIL-OPEN'
+      : timeoutBreak.intrinsicallyUnobservable
+        ? 'INCONCLUSIVE (intrinsically unobservable — pinned SDK exposes no permission-callback timeout)'
+        : timeoutBreak.semantic
+    : 'N/A';
   const endOfTurn = byId('end-of-turn') ? { pass: byId('end-of-turn').pass, semantic: byId('end-of-turn').semantic } : { pass: false };
 
   const provenanceFull = provenanceGateResult?.full === true;
@@ -966,6 +1150,7 @@ export function assembleResult({ scenarios, provenanceExpected, provenanceMeasur
     fileEdit: { interceptionObserved: !!write },
     endOfTurn,
     decisionPath,
+    decisionPathTimeout,
     provenanceFull,
   });
 
