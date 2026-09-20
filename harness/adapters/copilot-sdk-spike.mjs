@@ -250,6 +250,12 @@ export function buildSpikeMatrix({ shell, fileEditContent, fileEdit, endOfTurn, 
  * different runtime than the one that executed. (Combined with buildSpikeMatrix, the hosted route
  * can only ever be PARTIAL here anyway, because content pre-deny is unsupported.)
  */
+export function canonicalSdkVersionPin(value) {
+  const raw = String(value ?? '').trim();
+  const m = /^@github\/copilot-sdk@(.+)$/i.exec(raw);
+  return m ? `@github/copilot-sdk@${m[1]}` : raw;
+}
+
 export function provenanceGate({ expected = {}, measured = {} } = {}) {
   const reasons = [];
   // #611 freeze: pin the actual SDK package AND the hosted runtime the SDK delegates to (getStatus),
@@ -258,7 +264,11 @@ export function provenanceGate({ expected = {}, measured = {} } = {}) {
   for (const k of pins) {
     if (!expected[k]) reasons.push(`missing expected ${k}`);
     else if (!measured[k]) reasons.push(`unmeasured ${k} (not derived from what ran)`);
-    else if (measured[k] !== expected[k]) reasons.push(`${k}: measured (${measured[k]}) != expected pin (${expected[k]})`);
+    else {
+      const expectedValue = k === 'sdk_version' ? canonicalSdkVersionPin(expected[k]) : expected[k];
+      const measuredValue = k === 'sdk_version' ? canonicalSdkVersionPin(measured[k]) : measured[k];
+      if (measuredValue !== expectedValue) reasons.push(`${k}: measured (${measuredValue}) != expected pin (${expectedValue})`);
+    }
   }
   // network_mode is handled separately: the runtime binding neither applies nor measures it, so an
   // operator-declared value is UNVERIFIED and must not satisfy a FULL claim (mirrors the tool-surface
@@ -430,6 +440,7 @@ export function resolvedPackageIntegrity(spec, requireFn) {
  */
 export function measuredProvenance(sessionModel, hostConfig = {}, runtimeStatus = undefined) {
   const spec = process.env.COPILOT_SDK_SPEC || '@github/copilot-sdk';
+  const canonicalSpec = /^@github\/copilot-sdk$/i.test(spec) ? '@github/copilot-sdk' : spec;
   const sdkVersion = resolvedPackageVersion(spec);
   const sdkIntegrity = resolvedPackageIntegrity(spec);
   let twVersion;
@@ -449,7 +460,7 @@ export function measuredProvenance(sessionModel, hostConfig = {}, runtimeStatus 
   // GetStatusResponse.protocolVersion is a NUMBER in the current SDK — capture it as-is.
   const protocolVersion = runtimeStatus && (typeof runtimeStatus.protocolVersion === 'number' || typeof runtimeStatus.protocolVersion === 'string') ? runtimeStatus.protocolVersion : undefined;
   return {
-    sdk_version: sdkVersion ? `${spec}@${sdkVersion}` : undefined,
+    sdk_version: sdkVersion ? canonicalSdkVersionPin(`${canonicalSpec}@${sdkVersion}`) : undefined,
     sdk_integrity: sdkIntegrity,
     runtime_version: runtimeVersion,
     ...(protocolVersion !== undefined ? { protocol_version: protocolVersion } : {}),
