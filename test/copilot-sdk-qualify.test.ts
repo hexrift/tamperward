@@ -388,6 +388,29 @@ describe('#621 — content-aware pre-deny requires SEMANTIC enforcement, not a r
     expect(decisionRow).toBeTruthy();
     for (const secret of ['keeps one', 'keeps two', 'expect(']) expect(JSON.stringify(decisionRow)).not.toContain(secret);
   });
+
+  it('a landed protected write after a preliminary read is FAIL-OPEN — never downgraded to UNSUPPORTED (#621 review pt 6)', async () => {
+    // The live hosted flow reads before it writes; `benignProtectedEdit` makes TamperWard ALLOW the
+    // protected write (no deny), which then LANDS. The protected proposal must be identified by target
+    // correlation (not "which denied", which would fall back to the preliminary read), and FAIL-OPEN
+    // must dominate any mechanism/UNSUPPORTED reclassification.
+    const r = await runPreDenyScenario({ binding: createFakeBinding({ benignFirst: true, benignProtectedEdit: true }), adapter, config: CFG(), mechanism: 'write' });
+    expect(r.evidence.finalStateMutated).toBe(true);
+    expect(r.semantic).toBe('FAIL-OPEN');
+    expect(r.evidence.observedKind).toBe('write'); // the protected write, not the preliminary read
+    expect(r.evidence.mechanismConfirmed).toBe(true);
+  });
+
+  it('permissionEnforcementProven requires TamperWard’s own reject + a denied resolution (#621 review pt 3)', async () => {
+    // Case B (reconstruction fail-closed) IS a TamperWard reject honoured as non-dispatch → true.
+    const b = await runPreDenyScenario({ binding: createFakeBinding({ unreconstructableWrite: true }), adapter, config: CFG(), mechanism: 'write' });
+    expect(b.permissionEnforcementProven).toBe(true);
+    expect(b.evidence.rejectReturned).toBe(true);
+    expect(b.evidence.dispatchBasis).toBe('permission-denied-resolution');
+    // A landed write (no honoured non-dispatch) is never permission-enforcement-proven.
+    const open = await runPreDenyScenario({ binding: createFakeBinding({ benignProtectedEdit: true }), adapter, config: CFG(), mechanism: 'write' });
+    expect(open.permissionEnforcementProven).toBe(false);
+  });
 });
 
 describe('runBrokenPathScenario — a broken decision path must fail CLOSED', () => {
@@ -1216,6 +1239,13 @@ describe('#614 — execution_start is lifecycle-start, not dispatch; completion 
       expect(fc.category).toBe('fail-closed-unavailable');
     }
 
+    // An EVALUATE-stage failure means reconstruction DID complete (the adapter runs reconstruction then
+    // evaluate) — only the semantic evaluation is incomplete (#621 review point 4).
+    const evalFail = semanticEvaluation({ outcome: 'ok', unavailableReason: 'evaluate', decision: { verdict: 'deny', findings: [{ rule: 'tamperward-unavailable' }] } });
+    expect(evalFail.reconstructionCompleted).toBe(true);
+    expect(evalFail.evaluateReached).toBe(false);
+    expect(evalFail.contentEnforcementProven).toBe(false);
+
     // An allow (evaluated, no finding), an unsupported (no usable content), and a parse-failure are all
     // NOT content enforcement.
     expect(semanticEvaluation({ outcome: 'ok', decision: { verdict: 'allow', findings: [] } }).contentEnforcementProven).toBe(false);
@@ -1227,40 +1257,89 @@ describe('#614 — execution_start is lifecycle-start, not dispatch; completion 
     expect(semanticEvaluation({ outcome: 'parse-failure', unavailableReason: 'parse-failure', decision: { verdict: 'deny', findings: [{ rule: 'tamperward-unavailable' }] } }).contentEnforcementProven).toBe(false);
   });
 
-  it('#621 Work E reconstructionDiagnostic is bounded, content-free, and distinguishes diff shapes', () => {
+  it('#621 Work E reconstructionDiagnostic models the parser grammar, is bounded, sanitized, content-free', () => {
     const secret = "it('keeps two', () => { expect(2).toBe(2); });";
+    const target = 'src/keep.spec.ts';
+
     // A hunk-only body with no ---/+++ headers.
-    const hunkOnly = reconstructionDiagnostic({ path: 'src/keep.spec.ts', diff: `@@ -1,2 +1,1 @@\n ok\n-${secret}` }, 'reconstruction');
+    const hunkOnly = reconstructionDiagnostic({ path: target, diff: `@@ -1,2 +1,1 @@\n ok\n-${secret}` }, 'reconstruction');
     expect(hunkOnly.diffShape.category).toBe('headerless-hunk-only');
     expect(hunkOnly.failureCategory).toBe('diff:headerless-hunk-only');
-    expect(hunkOnly.diffPresent).toBe(true);
+    expect(hunkOnly.diffUsable).toBe(true);
     expect(hunkOnly.newFileContentsPresent).toBe(false);
     expect(JSON.stringify(hunkOnly)).not.toContain('keeps two');
 
     // A header whose path does not match the declared target → path-header-mismatch.
-    const mismatch = reconstructionDiagnostic({ path: 'src/keep.spec.ts', diff: '--- a/other/file.ts\n+++ b/other/file.ts\n@@ -1 +1 @@\n-a\n+b' }, 'reconstruction');
+    const mismatch = reconstructionDiagnostic({ path: target, diff: '--- a/other/file.ts\n+++ b/other/file.ts\n@@ -1 +1 @@\n-a\n+b' }, 'reconstruction');
     expect(mismatch.diffShape.category).toBe('path-header-mismatch');
     expect(mismatch.diffShape.headerMatchesTarget).toBe(false);
 
-    // Two files in one patch → multiple-file-diff (a shape the single-file binding rejects).
-    const multi = reconstructionDiagnostic({ path: 'src/keep.spec.ts', diff: 'diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\ndiff --git a/y b/y\n--- a/y\n+++ b/y\n@@ -1 +1 @@\n-c\n+d' }, 'reconstruction');
+    // Two DIFFERENT endpoint paths before the (single) hunk → multiple-file-diff.
+    const multi = reconstructionDiagnostic({ path: target, diff: '--- a/x\n+++ b/y\n@@ -1 +1 @@\n-a\n+b' }, 'reconstruction');
     expect(multi.diffShape.category).toBe('multiple-file-diff');
 
+    // PARSER FIDELITY: `---`/`+++` INSIDE a hunk body must NOT be read as headers (the parser only reads
+    // identity before the first `@@ ` hunk). A create diff whose added lines happen to start with `+++`
+    // is still a well-formed single-file create shape, not a phantom multi-file / mismatch.
+    const hunkBodyMarkers = reconstructionDiagnostic(
+      { path: target, diff: `--- a/${target}\n+++ b/${target}\n@@ -1,1 +1,2 @@\n a\n+++ this is content, not a header` },
+      'reconstruction',
+    );
+    expect(hunkBodyMarkers.diffShape.oldFileHeaderCount).toBe(1);
+    expect(hunkBodyMarkers.diffShape.newFileHeaderCount).toBe(1);
+    expect(hunkBodyMarkers.diffShape.category).toBe('full-unified-diff');
+
+    // PARSER FIDELITY: `new file mode` / `deleted file mode` are SUPPORTED metadata (accepted with a
+    // create/delete endpoint pair), never `unsupported-metadata`.
+    const createMode = reconstructionDiagnostic(
+      { path: target, diff: `diff --git a/${target} b/${target}\nnew file mode 100644\n--- /dev/null\n+++ b/${target}\n@@ -0,0 +1,1 @@\n+x` },
+      'reconstruction',
+    );
+    expect(createMode.diffShape.createModeMetadata).toBe(true);
+    expect(createMode.diffShape.unsupportedMetadata).toBe(false);
+    expect(createMode.diffShape.category).not.toBe('unsupported-metadata');
+    expect(createMode.diffShape.impliedOperation).toBe('create');
+
     // Rename metadata → unsupported-metadata.
-    const rename = reconstructionDiagnostic({ path: 'src/keep.spec.ts', diff: 'diff --git a/keep.spec.ts b/renamed.ts\nrename from keep.spec.ts\nrename to renamed.ts' }, 'reconstruction');
+    const rename = reconstructionDiagnostic({ path: target, diff: `diff --git a/${target} b/renamed.ts\nrename from ${target}\nrename to renamed.ts\n@@ -1 +1 @@\n-a\n+b` }, 'reconstruction');
     expect(rename.diffShape.category).toBe('unsupported-metadata');
 
-    // No content at all.
-    const none = reconstructionDiagnostic({ path: 'src/keep.spec.ts' }, 'reconstruction');
-    expect(none.failureCategory).toBe('no-usable-content');
-    expect(none.diffPresent).toBe(false);
+    // Duplicate endpoints → duplicate-endpoint (the parser rejects duplicates; not full-unified-diff).
+    const dup = reconstructionDiagnostic({ path: target, diff: `--- a/${target}\n--- a/${target}\n+++ b/${target}\n@@ -1 +1 @@\n-a\n+b` }, 'reconstruction');
+    expect(dup.diffShape.category).toBe('duplicate-endpoint');
 
-    // newFileContents byte counts are recorded but the content itself never appears in the fingerprint.
-    const contentsOnly = reconstructionDiagnostic({ path: 'src/keep.spec.ts', newFileContents: secret }, 'reconstruction');
+    // PRESENCE semantics match sdkFileEditChanges: empty newFileContents is PRESENT; whitespace-only diff
+    // is UNUSABLE.
+    const emptyContents = reconstructionDiagnostic({ path: target, newFileContents: '' }, 'reconstruction');
+    expect(emptyContents.newFileContentsPresent).toBe(true);
+    expect(emptyContents.failureCategory).toBe('new-file-contents-only');
+    const wsDiff = reconstructionDiagnostic({ path: target, diff: '   \n  ' }, 'reconstruction');
+    expect(wsDiff.diffUsable).toBe(false);
+    expect(wsDiff.failureCategory).toBe('no-usable-content');
+
+    // No content at all.
+    const none = reconstructionDiagnostic({ path: target }, 'reconstruction');
+    expect(none.failureCategory).toBe('no-usable-content');
+    expect(none.diffUsable).toBe(false);
+
+    // BOUNDED + SANITIZED: byte counts are recorded, the content never appears, and the raw target path
+    // is NOT persisted — only a hash + shape flags.
+    const contentsOnly = reconstructionDiagnostic({ path: '/abs/secret/path/keep.spec.ts', newFileContents: secret }, 'reconstruction');
     expect(contentsOnly.newFileContentsPresent).toBe(true);
     expect(contentsOnly.newFileContentsByteCount).toBe(Buffer.byteLength(secret, 'utf8'));
     expect(contentsOnly.failureCategory).toBe('new-file-contents-only');
-    expect(JSON.stringify(contentsOnly)).not.toContain('keeps two');
+    expect(contentsOnly.target.present).toBe(true);
+    expect(contentsOnly.target.absolute).toBe(true);
+    expect(typeof contentsOnly.target.hash).toBe('string');
+    const s = JSON.stringify(contentsOnly);
+    expect(s).not.toContain('keeps two');
+    expect(s).not.toContain('/abs/secret/path'); // raw path never persisted
+
+    // BOUNDED BY CONSTRUCTION: a huge diff does not produce an unbounded byte count — it is a flagged
+    // lower bound.
+    const huge = reconstructionDiagnostic({ path: target, diff: 'x'.repeat(5_000_000) }, 'reconstruction');
+    expect(huge.diffByteCountTruncated).toBe(true);
+    expect(huge.diffByteCount).toBeLessThan(5_000_000);
   });
 
   it('the fake models the PREVIOUSLY OBSERVED hosted ordering (execution-start before its decision) — a regression guard, not an SDK-contract claim', async () => {
