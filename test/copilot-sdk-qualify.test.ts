@@ -13,8 +13,10 @@ import { copilotSdkAdapter } from '../src/adapters/copilot-sdk/adapter';
 import { buildConfig, runQualification, runPreDenyScenario, runBrokenPathScenario, runEndOfTurnScenario, assembleResult, serializeRequest, promptHash, classifyHandlerDispatch, decisionCategory, normalizeCompletionEvent } from '../harness/adapters/copilot-sdk/orchestrator.mjs';
 // @ts-expect-error - the fixtures are a plain .mjs harness module, no d.ts
 import { makeScenarioRepo, cleanupRepo, sdkCompletionEventData, PERMISSION_DENIED_CODE, USER_NOT_AVAILABLE_CODE, CANDIDATE_PERMISSION_GATE_CODES, CONFIRMED_PERMISSION_GATE_CODES } from '../harness/adapters/copilot-sdk/fixtures.mjs';
+// @ts-expect-error - capture signatures are a plain .mjs harness module, no d.ts
+import { CONFIRMED_PERMISSION_GATE_SIGNATURES } from '../harness/adapters/copilot-sdk/capture-signatures.mjs';
 // @ts-expect-error - the spike is a plain .mjs harness module, no d.ts
-import { provenanceGate, sha16, resolvedPackageIntegrity, packageIntegrityHash, finalizeQualification, renderResult } from '../harness/adapters/copilot-sdk-spike.mjs';
+import { provenanceGate, sha16, resolvedPackageIntegrity, packageIntegrityHash, finalizeQualification, renderResult, canonicalSdkVersionPin } from '../harness/adapters/copilot-sdk-spike.mjs';
 // @ts-expect-error - the fake binding is a plain .mjs test-support module, no d.ts
 import { createFakeBinding } from './support/fake-copilot-binding.mjs';
 
@@ -23,7 +25,77 @@ const adapter = copilotSdkAdapter as unknown as { decide: (raw: string, phase: s
 // `confirmedDenialCodes` so they can exercise the fail-closed / non-dispatch classification LOGIC. This
 // is explicit: the shipped default (CONFIRMED_PERMISSION_GATE_CODES) is empty, so these tests prove the
 // logic, not that the codes match the live runtime — that is the credentialed rerun's job (#615 review).
-const CFG = (over: Record<string, unknown> = {}) => ({ model: 'gpt-5.4', keepArtifacts: false, expected: {}, errors: [], confirmedDenialCodes: [...CANDIDATE_PERMISSION_GATE_CODES], ...over });
+const TEST_PERMISSION_SIGNATURES = [
+  { path: 'returned-reject', code: PERMISSION_DENIED_CODE, messageHash: sha16(`tool failed: ${PERMISSION_DENIED_CODE}`) },
+  { path: 'callback-failure', code: USER_NOT_AVAILABLE_CODE, messageHash: sha16(`tool failed: ${USER_NOT_AVAILABLE_CODE}`) },
+];
+const CFG = (over: Record<string, unknown> = {}) => ({
+  model: 'gpt-5.4',
+  keepArtifacts: false,
+  expected: {},
+  errors: [],
+  confirmedDenialCodes: [...CANDIDATE_PERMISSION_GATE_CODES],
+  confirmedPermissionSignatures: TEST_PERMISSION_SIGNATURES,
+  ...over,
+});
+
+describe('#616 — live permission signatures and canonical SDK provenance', () => {
+  it('freezes the two credentialed live signatures, never a bare denied code', () => {
+    expect(CONFIRMED_PERMISSION_GATE_SIGNATURES).toEqual([
+      { path: 'returned-reject', code: 'denied', messageHash: '96ed60fc6898cdfa' },
+      { path: 'callback-failure', code: 'denied', messageHash: 'ebf2100b9c49ae12' },
+    ]);
+  });
+
+  it('requires path + code + message hash for live non-dispatch authority', () => {
+    const completion = {
+      completions: [{ completeSeq: 3, outcome: 'error', errorCategory: 'denied', errorHash: '96ed60fc6898cdfa' }],
+    };
+    expect(classifyHandlerDispatch({
+      mutated: false,
+      completion,
+      boundarySeq: 2,
+      permissionPath: 'returned-reject',
+      confirmedPermissionSignatures: CONFIRMED_PERMISSION_GATE_SIGNATURES,
+    })).toMatchObject({ handlerDispatched: false });
+
+    expect(classifyHandlerDispatch({
+      mutated: false,
+      completion,
+      boundarySeq: 2,
+      permissionPath: 'callback-failure',
+      confirmedPermissionSignatures: CONFIRMED_PERMISSION_GATE_SIGNATURES,
+    })).toMatchObject({ handlerDispatched: undefined });
+
+    expect(classifyHandlerDispatch({
+      mutated: false,
+      completion: { completions: [{ completeSeq: 3, outcome: 'error', errorCategory: 'denied', errorHash: 'wrong' }] },
+      boundarySeq: 2,
+      permissionPath: 'returned-reject',
+      confirmedPermissionSignatures: CONFIRMED_PERMISSION_GATE_SIGNATURES,
+    })).toMatchObject({ handlerDispatched: undefined });
+  });
+
+  it('canonicalizes the Copilot SDK package pin regardless of npm-spec casing', () => {
+    expect(canonicalSdkVersionPin('@GitHub/copilot-sdk@1.0.14')).toBe('@github/copilot-sdk@1.0.14');
+    expect(canonicalSdkVersionPin('@github/copilot-sdk@1.0.14')).toBe('@github/copilot-sdk@1.0.14');
+  });
+
+  it('provenance gate accepts equivalent canonical Copilot SDK package casing', () => {
+    const expected = {
+      sdk_version: '@GitHub/copilot-sdk@1.0.14',
+      runtime_version: 'copilot-runtime@1.0.85',
+      tamperward_version: 'tamperward@2.31.0',
+      host_config_sha256: 'abc',
+      network_mode: 'verified',
+      approval_mode: 'onPermissionRequest',
+      evidence_schema_version: 'copilot-sdk-spike/v1',
+      model: 'gpt-5.4',
+    };
+    const measured = { ...expected, sdk_version: '@github/copilot-sdk@1.0.14', tool_surface: 'bash' };
+    expect(provenanceGate({ expected, measured }).full).toBe(true);
+  });
+});
 
 describe('buildConfig — exact model is required, auto is forbidden', () => {
   it('errors when the model is missing', () => {
