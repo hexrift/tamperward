@@ -28,6 +28,7 @@ import {
 } from '../copilot-sdk-spike.mjs';
 import { makeScenarioRepo, finalState, protectedHash, cleanupRepo, makeOutsideDir, makeEscapingSymlink, PROTECTED_REL, SENTINEL_REL, SENTINEL_VALUE, CONFIRMED_PERMISSION_GATE_CODES } from './fixtures.mjs';
 import { CONFIRMED_PERMISSION_GATE_SIGNATURES, permissionSignatureKey } from './capture-signatures.mjs';
+import { isAbsolute, resolve, join } from 'node:path';
 
 const RESULT_SCHEMA_VERSION = 'copilot-sdk-qualification/v1';
 const RUNTIME_ID = 'github-copilot-sdk-hosted';
@@ -210,6 +211,23 @@ export function normalizeCompletionEvent(data = {}) {
   return { outcome: undefined, errorCode: undefined, schemaVariant: 'legacy/unexpected' };
 }
 
+/** Structural finding→target binding (#616 item D): a sweep finding binds to the protected target when
+ *  its file path (repo-relative or absolute) canonically resolves to repo.protectedAbs. This reads the
+ *  sweep's STRUCTURED finding, never a regex over the rendered denial text — the rendered-text
+ *  dependency is exactly what left the live capture unable to bind (findingBindsTarget=false) despite a
+ *  real block on the changed target. */
+function findingBindsProtected(finding, repo) {
+  const file = finding && typeof finding.file === 'string' ? finding.file : undefined;
+  if (!file || !repo) return false;
+  if (file === repo.protectedRel) return true;
+  try {
+    const abs = isAbsolute(file) ? file : join(repo.root, file);
+    return resolve(abs) === resolve(repo.protectedAbs);
+  } catch {
+    return false;
+  }
+}
+
 /** The repo-relative finding path/rule from a deny result, retained (sanitized) for audit — never the
  *  human-readable reason text. */
 function findingSummaryOf(res) {
@@ -284,6 +302,7 @@ class ScenarioRun {
       targetChangedAtStop: undefined,
       findingBindsTarget: undefined,
       findingFile: undefined,
+      findingRule: undefined,
       landedWeakeningAtStop: undefined,
     };
     // Continuation ordering: once a proposal has been DENIED, any later proposal is observed evidence
@@ -398,6 +417,7 @@ class ScenarioRun {
       operation_kind: request?.kind,
       tamperward_decision: mapped.deny ? 'deny' : mapped.outcome === 'unsupported' ? 'unsupported-allow' : 'allow',
       decision_category: category,
+      unavailable_reason: typeof res?.unavailableReason === 'string' ? res.unavailableReason : undefined,
       finding_rule: finding.rule,
       finding_file: finding.file,
       decision_reason_hash: sha16(res?.decision?.reason ?? res?.detail ?? ''),
@@ -448,31 +468,20 @@ class ScenarioRun {
       // that target? — tracked separately (#611 item G). A byte change alone is not a weakening, and a
       // block whose finding names another file does not bind to this target.
       const targetChanged = hashAtStop !== this.repo.startProtectedHash;
-      let reasonText = '';
-      try {
-        reasonText = JSON.parse(res?.wire || '{}').reason ?? '';
-      } catch {
-        reasonText = res?.decision?.reason ?? '';
-      }
-      // formatDenial renders each finding's location as `(<repo-relative-path>)` or
-      // `(<repo-relative-path>:<line>)`. Bind on that EXACT location token — a bare `includes` of the
-      // path would also match a different file whose path merely contains the target as a substring or
-      // suffix (e.g. `other/src/keep.spec.ts`). Anchoring on the enclosing parens + optional `:line`
-      // requires the finding to be for the target file itself.
-      const relEsc = this.repo.protectedRel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const findingBindsTarget = block && typeof reasonText === 'string' && new RegExp(`\\(${relEsc}(?::\\d+)?\\)`).test(reasonText);
-      // Retain the sanitized sweep finding path (the location token), never the reason text.
-      // The body class excludes BOTH parens (`[^()\s]`): a repo-relative path never contains a
-      // literal `(`, so this captures the same token, but it also means a run of `(` cannot be
-      // consumed by the body. Without that, the unanchored `.match` retries at every `(` and each
-      // greedy body backtracks against the failing `\)` — the O(n²) polynomial CodeQL flags on
-      // input like `(!(!(!…`. Then strip an optional trailing `:line` with a plain anchored replace
-      // instead of a second pattern alternative (a lazy `+?` plus `(?::\d+)?` would overlap and
-      // backtrack quadratically).
-      const m = typeof reasonText === 'string' ? reasonText.match(/\(([^()\s]+)\)/) : null;
+      // STRUCTURAL binding (#616 item D): read the sweep's structured findings and bind on a finding
+      // whose file path IS the protected target — never a regex over the rendered denial text. A block
+      // for an unrelated finding therefore does not bind (its findings name another file), and a target
+      // byte-change with no protected-target finding stays unbound.
+      const findings = Array.isArray(res?.decision?.findings) ? res.decision.findings : [];
+      const boundFinding = findings.find((f) => findingBindsProtected(f, this.repo));
+      const findingBindsTarget = block && boundFinding !== undefined;
+      // Retain the bound finding's structural rule/path (sanitized) for audit; when the block did not
+      // bind to the target, fall back to the first finding purely for diagnostics.
+      const reportedFinding = boundFinding ?? findings[0];
       this.agentStop.targetChangedAtStop = targetChanged;
       this.agentStop.findingBindsTarget = findingBindsTarget;
-      this.agentStop.findingFile = m ? m[1].replace(/:\d+$/, '') : undefined;
+      this.agentStop.findingFile = reportedFinding && typeof reportedFinding.file === 'string' ? reportedFinding.file : undefined;
+      this.agentStop.findingRule = reportedFinding && typeof reportedFinding.rule === 'string' ? reportedFinding.rule : undefined;
       this.agentStop.landedWeakeningAtStop = targetChanged && findingBindsTarget;
       this.evidence.append({
         stage: 'agent-stop-snapshot',
@@ -483,6 +492,7 @@ class ScenarioRun {
         target_changed_at_stop: targetChanged,
         finding_binds_target: findingBindsTarget,
         finding_file: this.agentStop.findingFile,
+        finding_rule: this.agentStop.findingRule,
         handler_completed: this.agentStop.landedWeakeningAtStop,
       });
     }
@@ -916,6 +926,7 @@ export async function runEndOfTurnScenario({ binding, adapter, config }) {
       targetChangedAtStop,
       findingBindsTarget,
       findingFile: run.agentStop.findingFile,
+      findingRule: run.agentStop.findingRule,
       protectedHashAtStop: run.agentStop.protectedHashAtStop,
       landedWeakening: state.protectedMutated,
       quiesced: quiescence.quiesced,

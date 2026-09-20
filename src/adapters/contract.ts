@@ -139,7 +139,23 @@ export interface SteeringResult {
   wire?: string;
   /** Diagnostic detail for a failure outcome (never echoes the inspected command/env). */
   detail?: string;
+  /** A SANITIZED, bounded category for WHY a fail-closed `tamperward-unavailable` decision occurred, so
+   *  a diagnosing caller can tell a parse / identity / policy-load / repo-context / reconstruction /
+   *  evaluate failure apart WITHOUT the raw `detail` (which may echo paths or error text). Set only on
+   *  fail-closed results; absent on allow/deny-by-policy/unsupported (#616 item C). */
+  unavailableReason?: UnavailableReason;
 }
+
+/** The bounded, sanitized cause categories for a fail-closed `tamperward-unavailable` decision (#616). */
+export type UnavailableReason =
+  | 'parse-failure'
+  | 'identity-rejected'
+  | 'repo-context'
+  | 'policy-load'
+  | 'baseline'
+  | 'reconstruction'
+  | 'evaluate'
+  | 'other';
 
 /** The result of validating a runtime's identity claim against the runner's trusted root. */
 export interface IdentityValidation {

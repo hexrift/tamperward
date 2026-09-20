@@ -633,6 +633,7 @@ describe('CopilotSdkHostedAdapter.decide — failure states fail CLOSED (deny)',
     expect(r.outcome).toBe('parse-failure');
     expect(r.decision?.verdict).toBe('deny');
     expect(JSON.parse(r.wire as string).kind).toBe('reject');
+    expect(r.unavailableReason).toBe('parse-failure'); // #616 item C: sanitized structured cause
   });
 
   it('a cross-repo identity claim fails closed BEFORE evaluation', () => {
@@ -643,6 +644,7 @@ describe('CopilotSdkHostedAdapter.decide — failure states fail CLOSED (deny)',
       expect(r.decision?.verdict).toBe('deny');
       expect(r.detail).toMatch(/different repository/);
       expect(JSON.parse(r.wire as string).feedback).toMatch(/identity claim rejected/i);
+      expect(r.unavailableReason).toBe('identity-rejected'); // #616 item C
     } finally {
       rmSync(A, { recursive: true, force: true });
       rmSync(B, { recursive: true, force: true });
@@ -655,6 +657,7 @@ describe('CopilotSdkHostedAdapter.decide — failure states fail CLOSED (deny)',
       const r = copilotSdkAdapter.decide(shellReq('   ', 'rm x'), 'pre-action', A);
       expect(r.decision?.verdict).toBe('deny');
       expect(r.detail).toMatch(/malformed/);
+      expect(r.unavailableReason).toBe('identity-rejected'); // #616 item C
     } finally {
       rmSync(A, { recursive: true, force: true });
     }
@@ -665,6 +668,23 @@ describe('CopilotSdkHostedAdapter.decide — failure states fail CLOSED (deny)',
     try {
       const r = copilotSdkAdapter.decide(req(cwd, { kind: 'shell', toolName: 'shell' }), 'pre-action', cwd);
       expect(r.decision?.verdict).toBe('deny');
+      expect(r.unavailableReason).toBe('reconstruction'); // #616 item C: the reconstruction step failed
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('a normal ALLOW / policy DENY carries NO unavailableReason — the category marks fail-closed only (#616 item C)', () => {
+    const cwd = repoFixture();
+    try {
+      // An ordinary in-repo read is allowed and is NOT a fail-closed-unavailable.
+      const readAllow = copilotSdkAdapter.decide(req(cwd, { kind: 'read', toolName: 'view', fileName: 'src/a.spec.ts' }), 'pre-action', cwd);
+      expect(readAllow.decision?.verdict).toBe('allow');
+      expect(readAllow.unavailableReason).toBeUndefined();
+      // A policy block (weakening a protected test) is a deny, but not "unavailable".
+      const policyDeny = copilotSdkAdapter.decide(shellReq(cwd, 'rm src/a.spec.ts'), 'pre-action', cwd);
+      expect(policyDeny.decision?.verdict).toBe('deny');
+      expect(policyDeny.unavailableReason).toBeUndefined();
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }

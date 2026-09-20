@@ -70,6 +70,10 @@ export function evidenceEntry(fields = {}) {
     // Structured, sanitized decision category (never classify on human-readable reason text):
     // allow | unsupported | parse-failure | policy-block | identity-rejected | fail-closed-unavailable.
     decision_category: undefined,
+    // Sanitized, bounded cause for a fail-closed `tamperward-unavailable` decision (parse-failure /
+    // identity-rejected / repo-context / policy-load / baseline / reconstruction / evaluate / other),
+    // so a live diagnosis can tell WHY a read/write failed closed without the raw detail (#616 item C).
+    unavailable_reason: undefined,
     finding_rule: undefined,
     finding_file: undefined,
     decision_reason_hash: undefined,

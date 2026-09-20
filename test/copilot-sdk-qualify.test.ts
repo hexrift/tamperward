@@ -95,6 +95,19 @@ describe('#616 — live permission signatures and canonical SDK provenance', () 
     const measured = { ...expected, sdk_version: '@github/copilot-sdk@1.0.14', tool_surface: 'bash' };
     expect(provenanceGate({ expected, measured }).full).toBe(true);
   });
+
+  it('records a sanitized unavailable_reason on a fail-closed decision, so a live diagnosis knows WHY (#616 item C)', async () => {
+    // A cross-repo identity claim fails closed at the real adapter; the decision evidence row must carry
+    // the bounded cause category (identity-rejected), not just an opaque tamperward-unavailable.
+    const r = await runBrokenPathScenario({ binding: createFakeBinding({}), adapter, config: CFG(), breakage: 'cross-repo' });
+    const denyRow = r.evidenceRows.find((e: { stage?: string; tamperward_decision?: string }) => e.stage === 'decision' && e.tamperward_decision === 'deny');
+    expect(denyRow).toBeTruthy();
+    expect(denyRow.decision_category).toBe('identity-rejected');
+    expect(denyRow.unavailable_reason).toBe('identity-rejected');
+    // A plain allow decision never carries a cause category.
+    const allowRow = r.evidenceRows.find((e: { stage?: string; tamperward_decision?: string }) => e.stage === 'decision' && e.tamperward_decision === 'allow');
+    if (allowRow) expect(allowRow.unavailable_reason).toBeUndefined();
+  });
 });
 
 describe('buildConfig — exact model is required, auto is forbidden', () => {
@@ -349,8 +362,8 @@ describe('runEndOfTurnScenario — block + observed continuation', () => {
     const blockNamingOtherFile = {
       decide: (_raw: string, phase: string) =>
         phase === 'end-of-turn'
-          ? { outcome: 'ok', decision: { verdict: 'deny', reason: 'weakened src/other.ts' }, wire: JSON.stringify({ decision: 'block', reason: 'weakened src/other.ts' }) }
-          : { outcome: 'allow', decision: { verdict: 'allow' } },
+          ? { outcome: 'ok', decision: { verdict: 'deny', findings: [{ rule: 'test-deletion', severity: 'block', file: 'src/other.ts' }], reason: 'weakened src/other.ts' }, wire: JSON.stringify({ decision: 'block', reason: 'weakened src/other.ts' }) }
+          : { outcome: 'allow', decision: { verdict: 'allow', findings: [] } },
     };
     const r = await runEndOfTurnScenario({ binding: createFakeBinding({ benignProtectedEdit: true, continueOnBlock: true }), adapter: blockNamingOtherFile, config: CFG() });
     expect(r.evidence.landedWeakening).toBe(true); // the file DID change at the end...
@@ -375,31 +388,50 @@ describe('runEndOfTurnScenario — block + observed continuation', () => {
   });
 
   it('a block naming a DIFFERENT file with the same BASENAME does not bind to the target (exact repo-relative path, not basename)', async () => {
-    // protectedRel is src/keep.spec.ts; the stub blocks naming other/keep.spec.ts. The bare basename
-    // "keep.spec.ts" appears in the reason, but the exact path does not, so the finding is NOT bound.
+    // protectedRel is src/keep.spec.ts; the stub blocks with a STRUCTURED finding for other/keep.spec.ts.
+    // The basename matches but the repo-relative path does not, so structural binding must NOT bind it.
     const blockOtherDir = {
       decide: (_raw: string, phase: string) =>
         phase === 'end-of-turn'
-          ? { outcome: 'ok', decision: { verdict: 'deny', reason: 'weakened (other/keep.spec.ts:2)' }, wire: JSON.stringify({ decision: 'block', reason: 'weakened (other/keep.spec.ts:2)' }) }
-          : { outcome: 'allow', decision: { verdict: 'allow' } },
+          ? { outcome: 'ok', decision: { verdict: 'deny', findings: [{ rule: 'test-deletion', severity: 'block', file: 'other/keep.spec.ts', line: 2 }], reason: 'weakened (other/keep.spec.ts:2)' }, wire: JSON.stringify({ decision: 'block', reason: 'weakened (other/keep.spec.ts:2)' }) }
+          : { outcome: 'allow', decision: { verdict: 'allow', findings: [] } },
     };
     const r = await runEndOfTurnScenario({ binding: createFakeBinding({ benignProtectedEdit: true, continueOnBlock: true }), adapter: blockOtherDir, config: CFG() });
     expect(r.evidence.findingBindsTarget).toBe(false);
     expect(r.semantic).not.toBe('PROVEN');
   });
 
-  it('a block naming a path that CONTAINS the target as a suffix does not bind (exact location token, not substring)', async () => {
-    // protectedRel is src/keep.spec.ts; the stub blocks naming other/src/keep.spec.ts, which contains
-    // the target as a suffix. A bare `includes` would match; the anchored location token must not.
+  it('a block naming a path that CONTAINS the target as a suffix does not bind (exact resolved path, not substring)', async () => {
+    // protectedRel is src/keep.spec.ts; the stub blocks with a STRUCTURED finding for
+    // other/src/keep.spec.ts, which contains the target as a suffix. A bare `includes`/suffix compare
+    // would match; the resolved-path structural compare must not.
     const blockSuffixPath = {
       decide: (_raw: string, phase: string) =>
         phase === 'end-of-turn'
-          ? { outcome: 'ok', decision: { verdict: 'deny', reason: 'weakened (other/src/keep.spec.ts:2)' }, wire: JSON.stringify({ decision: 'block', reason: 'weakened (other/src/keep.spec.ts:2)' }) }
-          : { outcome: 'allow', decision: { verdict: 'allow' } },
+          ? { outcome: 'ok', decision: { verdict: 'deny', findings: [{ rule: 'test-deletion', severity: 'block', file: 'other/src/keep.spec.ts', line: 2 }], reason: 'weakened (other/src/keep.spec.ts:2)' }, wire: JSON.stringify({ decision: 'block', reason: 'weakened (other/src/keep.spec.ts:2)' }) }
+          : { outcome: 'allow', decision: { verdict: 'allow', findings: [] } },
     };
     const r = await runEndOfTurnScenario({ binding: createFakeBinding({ benignProtectedEdit: true, continueOnBlock: true }), adapter: blockSuffixPath, config: CFG() });
     expect(r.evidence.findingBindsTarget).toBe(false);
     expect(r.semantic).not.toBe('PROVEN');
+  });
+
+  it('binds STRUCTURALLY to the protected target from the sweep finding, not the rendered reason text (#616 item D)', async () => {
+    // The rendered reason carries NO `(path)` location token — the old regex-over-reason binding would
+    // have failed here (exactly the live-capture symptom: findingBindsTarget=false despite a real block
+    // on the changed target). Structural binding reads the finding's `file` and binds regardless.
+    const blockStructuralTarget = {
+      decide: (_raw: string, phase: string) =>
+        phase === 'end-of-turn'
+          ? { outcome: 'ok', decision: { verdict: 'deny', findings: [{ rule: 'test-deletion', severity: 'block', file: 'src/keep.spec.ts', line: 2 }], reason: 'a protected test was weakened' }, wire: JSON.stringify({ decision: 'block', reason: 'a protected test was weakened' }) }
+          : { outcome: 'allow', decision: { verdict: 'allow', findings: [] } },
+    };
+    const r = await runEndOfTurnScenario({ binding: createFakeBinding({ continueOnBlock: true }), adapter: blockStructuralTarget, config: CFG() });
+    expect(r.evidence.targetChangedAtStop).toBe(true);
+    expect(r.evidence.findingBindsTarget).toBe(true); // bound from finding.file, no reason-text parse
+    expect(r.evidence.findingFile).toBe('src/keep.spec.ts');
+    expect(r.evidence.findingRule).toBe('test-deletion');
+    expect(r.semantic).toBe('PROVEN');
   });
 });
 
