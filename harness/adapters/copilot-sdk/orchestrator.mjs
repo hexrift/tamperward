@@ -67,8 +67,11 @@ export function containedTargetExists(fileName, base, root, { readCap = DIAG_REA
       let st;
       try {
         st = lstatSync(cur); // NO symlink follow — a component symlink is classified, never traversed/probed
-      } catch {
-        return false; // a missing component means the target is absent (the parser derives a create)
+      } catch (e) {
+        // ONLY a missing-path error means the target is absent (the parser derives a create). A
+        // permission / I/O error is `unreadable`, not `absent` — the parser fails before op-vs-state, so
+        // the diagnostic must make no state claim (#621 re-review 7 point 2).
+        return e && (e.code === 'ENOENT' || e.code === 'ENOTDIR') ? false : undefined;
       }
       if (st.isSymbolicLink()) return undefined; // parser classifies a symlink separately; the diagnostic never follows it
       const last = i === parts.length - 1;
@@ -197,16 +200,21 @@ export function shellRequestMutatesProtected(request, isProtectedPath, protected
   }
   if (segs.length > 0) return sawAmbiguous ? { value: undefined, basis: 'insufficient' } : { value: false, basis: 'structured-segment' };
 
-  // `commandSegments` ABSENT (optional in v1.0.14). Do NOT collapse ambiguity: attribute only when the
-  // command mutates AND every path it could touch (possiblePaths, matched exactly) resolves to the
-  // protected target, so the mutation can only be on it.
-  const anyMutating = [...readOnlyByIdent.values()].some((ro) => ro === false) || hasWriteRedir;
+  // `commandSegments` ABSENT (optional in v1.0.14). Apply the SAME destructive-target rule as the
+  // segmented path (#621 re-review 7 point 1): `readOnly:false` + all-possiblePaths-protected is NOT
+  // sufficient (curl --upload-file protected only READS it). A strong no-segment bind requires the
+  // command shape to prove the protected path is the WRITE/DELETE target: an explicitly parsed redirect
+  // target that resolves to protected, or a known positional-target destroyer whose sole path is protected.
+  const redirectMatch = hasWriteRedir ? /(?:^|[^0-9])>>?\s*["']?([^\s"'|;&<>]+)/.exec(cmd) : null;
+  if (redirectMatch && spellingIsProtected(redirectMatch[1])) return { value: true, basis: 'unambiguous-single-command' };
   const protectedPossible = possiblePaths.some(spellingIsProtected);
+  const anyMutating = [...readOnlyByIdent.values()].some((ro) => ro === false) || hasWriteRedir;
   if (!protectedPossible) return { value: false, basis: 'not-protected' };
   if (!anyMutating) return { value: false, basis: 'no-mutation' };
+  const anyDestructiveVerb = [...readOnlyByIdent.entries()].some(([ident, ro]) => ro === false && SHELL_PATH_TARGET_DESTRUCTIVE.has(ident));
   const allPathsProtected = possiblePaths.length > 0 && possiblePaths.every(spellingIsProtected);
-  if (allPathsProtected) return { value: true, basis: 'unambiguous-single-command' };
-  return { value: undefined, basis: 'insufficient' }; // cannot bind the mutation to the protected path
+  if (anyDestructiveVerb && allPathsProtected) return { value: true, basis: 'unambiguous-single-command' };
+  return { value: undefined, basis: 'insufficient' }; // side-effecting + names protected, but role not provable → not strong
 }
 
 /** Strong shell-correlation bases that can support a PROVEN shell qualification (a confident bind). */
