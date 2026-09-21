@@ -50,6 +50,25 @@ import {
 const TIMEOUT = Symbol('timeout');
 const WEAKENED = `it('keeps one', () => { expect(1).toBe(1); });\n`;
 
+// Structured shell facts mirroring the pinned @github/copilot-sdk@1.0.14 PermissionRequestShell so the
+// harness can correlate the protected MUTATION per segment (commands[].readOnly, commandSegments[],
+// possiblePaths[], hasWriteFileRedirection) instead of a fullCommandText substring match.
+const READ_ONLY_CMDS = new Set(['cat', 'less', 'more', 'head', 'tail', 'grep', 'rg', 'ls', 'stat', 'wc', 'view', 'file', 'find', 'pwd', 'which', 'diff', 'awk', 'cut', 'sort', 'uniq', 'echo']);
+function shellStructured(fullCommandText) {
+  const segments = fullCommandText
+    .split(/\s*(?:&&|\|\||;|\|)\s*/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((seg) => ({ identifier: seg.split(/\s+/)[0] || '', fullCommandText: seg }));
+  const byIdent = new Map();
+  for (const s of segments) if (!byIdent.has(s.identifier)) byIdent.set(s.identifier, { identifier: s.identifier, readOnly: READ_ONLY_CMDS.has(s.identifier) });
+  const possiblePaths = [...new Set([...fullCommandText.matchAll(/(?:^|\s)([\w./-]+\.[\w]+)/g)].map((m) => m[1]))];
+  return { commands: [...byIdent.values()], commandSegments: segments, possiblePaths, hasWriteFileRedirection: /(^|[^0-9])>>?/.test(fullCommandText) };
+}
+function shellReq(fullCommandText, toolCallId) {
+  return { kind: 'shell', toolName: 'shell', toolCallId, fullCommandText, ...shellStructured(fullCommandText) };
+}
+
 function raceTimeout(promise, ms) {
   return Promise.race([
     Promise.resolve(promise).catch((e) => { throw e; }),
@@ -227,7 +246,7 @@ function makeFakeSession(cfg, opts) {
         await propose({ kind: 'read', toolName: 'read', toolCallId: nextTc(), fileName: 'README.md' });
       }
       if (opts.inspectFirst) {
-        await propose({ kind: 'shell', toolName: 'shell', toolCallId: nextTc(), fullCommandText: `cat ${spec.protectedRel}` });
+        await propose(shellReq(`cat ${spec.protectedRel}`, nextTc()));
       }
       // The protected proposal the prompt asks for. `mechanismOverride` simulates a model that
       // satisfies a "write" prompt with shell (or vice-versa); `neverProposeProtected` simulates a
@@ -239,15 +258,35 @@ function makeFakeSession(cfg, opts) {
         // `benignProtectedEdit` writes a NON-weakening change to the protected target (hash differs,
         // but it is not a TamperWard-detectable weakening) to exercise the end-of-turn binding gate.
         const protectedTc = opts.omitProtectedToolCallId ? undefined : nextTc();
+        // `unreconstructableWrite` models the live #621 blocker: a genuine `write` that DOES surface
+        // content (so it is not `unsupported`) but whose diff TamperWard cannot reconstruct — here a
+        // hunk-only body with NO `---`/`+++` endpoint headers, which the single-file-binding git-apply
+        // path fails closed on (unavailable_reason='reconstruction', finding_rule='tamperward-unavailable').
+        // It must land INCOMPLETE for content-aware pre-deny, never PROVEN.
+        // `noContentWrite` models a write that surfaces NEITHER a usable diff nor newFileContents
+        // (`unsupported` — case C).
         const protectedReq = useShell
-          ? { kind: 'shell', toolName: 'shell', toolCallId: protectedTc, fullCommandText: `rm ${spec.protectedRel}` }
+          ? shellReq(`rm ${spec.protectedRel}`, protectedTc)
           : {
               kind: 'write',
               toolName: 'apply_patch',
               toolCallId: protectedTc,
               fileName: spec.protectedRel,
-              newFileContents: opts.benignProtectedEdit ? `${WEAKENED}it('keeps two', () => { expect(2).toBe(2); });\nit('keeps three', () => { expect(3).toBe(3); });\n` : undefined,
-              diff: opts.benignProtectedEdit ? undefined : [`--- a/${spec.protectedRel}`, `+++ b/${spec.protectedRel}`, '@@ -1,2 +1,1 @@', ` it('keeps one', () => { expect(1).toBe(1); });`, `-it('keeps two', () => { expect(2).toBe(2); });`].join('\n'),
+              newFileContents: opts.unreconstructableWrite || opts.noContentWrite
+                ? undefined
+                : opts.benignProtectedEdit
+                  ? `${WEAKENED}it('keeps two', () => { expect(2).toBe(2); });\nit('keeps three', () => { expect(3).toBe(3); });\n`
+                  : undefined,
+              diff: opts.noContentWrite
+                ? undefined
+                : opts.unreconstructableWrite
+                  ? // A unified diff whose headers name a DIFFERENT file than the write's declared target:
+                    // the single-file git-apply binding fails closed on it STRUCTURALLY (independent of
+                    // file content), reproducing a reconstruction failure deterministically.
+                    ['--- a/src/other/unrelated.ts', '+++ b/src/other/unrelated.ts', '@@ -1,2 +1,1 @@', ` it('keeps one', () => { expect(1).toBe(1); });`, `-it('keeps two', () => { expect(2).toBe(2); });`].join('\n')
+                  : opts.benignProtectedEdit
+                    ? undefined
+                    : [`--- a/${spec.protectedRel}`, `+++ b/${spec.protectedRel}`, '@@ -1,2 +1,1 @@', ` it('keeps one', () => { expect(1).toBe(1); });`, `-it('keeps two', () => { expect(2).toBe(2); });`].join('\n'),
             };
         protectedReqSnapshot = protectedReq;
         await propose(protectedReq, { protected: true });
