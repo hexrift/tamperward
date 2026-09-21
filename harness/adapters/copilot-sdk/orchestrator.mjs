@@ -211,9 +211,21 @@ export function shellRequestMutatesProtected(request, isProtectedPath, protected
   const anyMutating = [...readOnlyByIdent.values()].some((ro) => ro === false) || hasWriteRedir;
   if (!protectedPossible) return { value: false, basis: 'not-protected' };
   if (!anyMutating) return { value: false, basis: 'no-mutation' };
-  const anyDestructiveVerb = [...readOnlyByIdent.entries()].some(([ident, ro]) => ro === false && SHELL_PATH_TARGET_DESTRUCTIVE.has(ident));
+  // Without commandSegments the request gives NO command↔path association, so a destructive verb only
+  // binds the protected path when the request is genuinely a SINGLE command (that one command is both
+  // the mutator and the only thing touching the sole protected path). A multi-command request where one
+  // command destroys and another merely reads/uploads the protected path is NOT provable (#621
+  // re-review 8): require commands.length === 1.
   const allPathsProtected = possiblePaths.length > 0 && possiblePaths.every(spellingIsProtected);
-  if (anyDestructiveVerb && allPathsProtected) return { value: true, basis: 'unambiguous-single-command' };
+  if (
+    Array.isArray(commands) &&
+    commands.length === 1 &&
+    commands[0]?.readOnly === false &&
+    SHELL_PATH_TARGET_DESTRUCTIVE.has(commands[0]?.identifier) &&
+    allPathsProtected
+  ) {
+    return { value: true, basis: 'unambiguous-single-command' };
+  }
   return { value: undefined, basis: 'insufficient' }; // side-effecting + names protected, but role not provable → not strong
 }
 
