@@ -29,20 +29,26 @@ import {
 import { makeScenarioRepo, finalState, protectedHash, cleanupRepo, makeOutsideDir, makeEscapingSymlink, PROTECTED_REL, SENTINEL_REL, SENTINEL_VALUE, CONFIRMED_PERMISSION_GATE_CODES, isDeniedPermissionKind, isApprovedPermissionKind, isKnownPermissionKind } from './fixtures.mjs';
 import { CONFIRMED_PERMISSION_GATE_SIGNATURES, permissionSignatureKey } from './capture-signatures.mjs';
 import { reconstructionDiagnostic } from './reconstruction-diagnostics.mjs';
-import { isAbsolute, resolve, join, relative, dirname, basename } from 'node:path';
-import { existsSync, realpathSync, statSync } from 'node:fs';
+import { isAbsolute, resolve, join, relative } from 'node:path';
+import { lstatSync, accessSync, constants } from 'node:fs';
+
+// Mirrors src/disk.ts READ_CAP (64 MiB): a regular file larger than this is `oversize` to the parser
+// (inspectResolved), which fails the read before any operation-vs-state check — so the diagnostic must
+// NOT treat it as a normal existing target.
+const DIAG_READ_CAP = 64 * 1024 * 1024;
 
 /**
- * A CONTAINMENT-CHECKED, parser-equivalent target-state probe for the reconstruction diagnostic (#621
- * re-review 5 point 2). It returns whether the write target is an existing regular file, but ONLY for a
- * target proven to lie inside the trusted repository root by BOTH a lexical check and a realpath
- * (symlink-escape) check — mirroring src/adapters/copilot-sdk/changes.ts `canonicalContainedTarget`. An
- * out-of-repo / symlink-escaping / non-regular target returns `undefined` (no state claim, and — because
- * the lexical check runs BEFORE any `stat` — no external path is ever probed), so the sanitized evidence
- * never becomes a host-filesystem existence oracle. `true` = existing regular file, `false` = absent
- * in-root (a create), `undefined` = cannot be established safely.
+ * A CONTAINMENT-SAFE, parser-equivalent target-state probe for the reconstruction diagnostic (#621
+ * re-review 5+6). It walks the target's LEXICAL path components from the trusted root downward with
+ * `lstatSync` — exactly like the parser's `inspectResolved` (src/disk.ts), which never follows a
+ * symlink — so NO external path is ever probed: a symlink component returns `undefined` before the walk
+ * can descend into (or `stat`) its target. It reports state ONLY for a plain in-root REGULAR file that
+ * the parser would also read (not `oversize`, not `unreadable`); a symlink / directory / irregular /
+ * oversize / unreadable / out-of-root target returns `undefined` (no claim), and a cleanly-absent target
+ * returns `false` (the parser derives a create). `readCap` is injectable for tests.
+ * `true` = existing normal regular file, `false` = absent in-root, `undefined` = not safely establishable.
  */
-export function containedTargetExists(fileName, base, root) {
+export function containedTargetExists(fileName, base, root, { readCap = DIAG_READ_CAP } = {}) {
   if (typeof fileName !== 'string' || !fileName || typeof root !== 'string' || !root) return undefined;
   let abs;
   try {
@@ -54,26 +60,31 @@ export function containedTargetExists(fileName, base, root) {
   const lexRel = relative(root, abs);
   if (lexRel === '' || lexRel.startsWith('..') || isAbsolute(lexRel)) return undefined;
   try {
-    // Realpath the deepest EXISTING ancestor (all within root, since abs is lexically contained) and
-    // re-attach the not-yet-existing tail, then re-check containment to catch a symlink whose real
-    // target escapes.
-    let dir = abs;
-    const tail = [];
-    while (!existsSync(dir)) {
-      const parent = dirname(dir);
-      if (parent === dir) break;
-      tail.unshift(basename(dir));
-      dir = parent;
+    const parts = lexRel.split(/[\\/]+/).filter(Boolean);
+    let cur = root;
+    for (let i = 0; i < parts.length; i++) {
+      cur = join(cur, parts[i]);
+      let st;
+      try {
+        st = lstatSync(cur); // NO symlink follow — a component symlink is classified, never traversed/probed
+      } catch {
+        return false; // a missing component means the target is absent (the parser derives a create)
+      }
+      if (st.isSymbolicLink()) return undefined; // parser classifies a symlink separately; the diagnostic never follows it
+      const last = i === parts.length - 1;
+      if (last) {
+        if (!st.isFile()) return undefined; // directory / irregular → the parser fails before op-vs-state
+        if (st.size > readCap) return undefined; // oversize → the parser fails on read, not an operation mismatch
+        try {
+          accessSync(cur, constants.R_OK);
+        } catch {
+          return undefined; // unreadable → the parser fails on read, not an operation mismatch
+        }
+        return true;
+      }
+      if (!st.isDirectory()) return undefined; // a non-directory mid-path → malformed → omit
     }
-    const realDir = realpathSync(dir);
-    const realRoot = realpathSync(root);
-    const realAbs = tail.length ? join(realDir, ...tail) : realDir;
-    const realRel = relative(realRoot, realAbs);
-    if (realRel === '' || realRel.startsWith('..') || isAbsolute(realRel)) return undefined; // symlink escape
-    if (!existsSync(realAbs)) return false; // absent in-root → the parser derives a create
-    const st = statSync(realAbs, { throwIfNoEntry: false });
-    if (!st || !st.isFile()) return undefined; // directory / irregular → the parser fails earlier; do not call it an existing file
-    return true;
+    return false;
   } catch {
     return undefined;
   }
@@ -107,6 +118,13 @@ function relForDisplayTo(path, root) {
 
 const SHELL_MUTATION_VERB = /(^|[|&;]\s*|\bsudo\s+|\benv\s+\S+=\S+\s+)(rm|unlink|mv|cp|tee|truncate|dd|install|ln|chmod|chown|touch|mkdir|rmdir|shred|rsync)\b/;
 const SHELL_INPLACE_SED = /\bsed\b[^|&;]*\s-i\b/;
+// Commands whose POSITIONAL path argument IS the destructive write/delete target — the only shape where
+// a single protected path arg proves the protected file is the MUTATED object (#621 re-review 6 point 1).
+// `commands[].readOnly` only says the command has side effects; `possiblePaths[]` covers read OR write,
+// so a side-effecting command with the protected path as its only path (e.g. `curl --upload-file
+// protected …`) may only READ it. A destructive verb below, or an explicitly parsed redirect target, is
+// what actually binds the mutation to the path.
+const SHELL_PATH_TARGET_DESTRUCTIVE = new Set(['rm', 'unlink', 'shred', 'truncate', 'rmdir', 'tee']);
 
 /** FALLBACK heuristic used ONLY when the structured v1.0.14 shell fields are absent — a regex + path
  *  substring, which cannot attribute a mutation to a specific segment, so it is NOT called "structural". */
@@ -162,12 +180,13 @@ export function shellRequestMutatesProtected(request, isProtectedPath, protected
     const protectedInSeg = inSeg.filter(spellingIsProtected);
     const otherInSeg = inSeg.filter((p) => !spellingIsProtected(p));
     const nonReadOnly = readOnlyByIdent.get(s.identifier) === false;
-    // A destructive (non-read-only) segment whose ONLY path arguments name the protected target binds
-    // the mutation to it. A segment naming BOTH the protected path and another path (cp/mv src dst) does
-    // NOT — the v1.0.14 fields do not encode which path is the source vs the destination, so it is
-    // ambiguous, not a strong bind.
-    if (nonReadOnly && protectedInSeg.length > 0 && otherInSeg.length === 0) return { value: true, basis: 'structured-segment' };
-    if (nonReadOnly && protectedInSeg.length > 0 && otherInSeg.length > 0) sawAmbiguous = true;
+    const isPathTargetDestructive = SHELL_PATH_TARGET_DESTRUCTIVE.has(s.identifier);
+    // A strong bind requires the command SHAPE to prove the protected path is the destructive TARGET: a
+    // known positional-target destroyer (rm/unlink/…) whose only path args are the protected file. A
+    // side-effecting command that merely names the protected path (curl --upload-file protected, cp/mv
+    // protected other) does NOT bind — the v1.0.14 fields do not encode path role — so it is ambiguous.
+    if (nonReadOnly && isPathTargetDestructive && protectedInSeg.length > 0 && otherInSeg.length === 0) return { value: true, basis: 'structured-segment' };
+    if (nonReadOnly && protectedInSeg.length > 0) sawAmbiguous = true;
     // A write-file redirection whose TARGET token (the token after `>`/`>>`) resolves to the protected
     // path is a mutation of it. `echo protected > other` is NOT (the redirect target is `other`; the
     // protected path is only read).

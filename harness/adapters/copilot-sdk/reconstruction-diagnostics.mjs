@@ -44,6 +44,17 @@ import { createHash } from 'node:crypto';
 const SCAN_MAX_CHARS = 262_144; // 256 Ki chars of diff text is far more than any real hunk fingerprint needs
 const SCAN_MAX_LINES = 20_000;
 
+// The ACTIVE parser reconstruction budgets (src/adapters/copilot-sdk/changes.ts), read from the same
+// operator env with the same defaults, so the diagnostic can name a parser byte/line-budget rejection —
+// which happens BEFORE canonicalPatch grammar / git apply — instead of mislabeling it a structurally
+// complete `full-unified-diff` (#621 re-review 6 point 2).
+const reconBudget = (name, fallback) => {
+  const n = Number(process.env[name]);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+};
+const reconMaxBytes = () => reconBudget('TAMPERWARD_RECONSTRUCT_MAX_BYTES', 384 * 1024);
+const reconMaxLines = () => reconBudget('TAMPERWARD_RECONSTRUCT_MAX_LINES', 4000);
+
 const sha16 = (s) => createHash('sha256').update(typeof s === 'string' ? s : String(s)).digest('hex').slice(0, 16);
 
 /** The capped prefix of a string (at most SCAN_MAX_CHARS chars) plus whether it was truncated. Every
@@ -177,6 +188,16 @@ function analyzeDiffShape(diff, targetRel, targetExists) {
   }
 
   const scanTruncated = byteScan.truncated || lineScan.truncated;
+  // Parser byte/line-budget rejection (checked BEFORE canonicalPatch grammar / git). `diff.length`
+  // (chars) is a lower bound on `Buffer.byteLength`, so `> maxBytes` is a definite over-budget even
+  // without a full byte scan; when the scan was truncated and the length is under the cap, the byte
+  // status is unknown. Line count is likewise a lower bound (capped at SCAN_MAX_LINES). This path only
+  // runs when the diff has non-whitespace (so the parser's `rawDiff.trim()` reaches the byte check).
+  const maxBytes = reconMaxBytes();
+  const maxLines = reconMaxLines();
+  const overByteBudget = diff.length > maxBytes ? true : !byteScan.truncated ? byteScan.bytes > maxBytes : undefined;
+  const overLineBudget = lineScan.lines > maxLines ? true : !lineScan.truncated ? false : undefined;
+  const budgetUnknown = overByteBudget === undefined || overLineBudget === undefined;
   const duplicateEndpoint = oldHeaders > 1 || newHeaders > 1;
   const duplicateModeMetadata = createModeCount > 1 || deleteModeCount > 1;
   const bothEndpoints = oldHeaders >= 1 && newHeaders >= 1;
@@ -211,7 +232,9 @@ function analyzeDiffShape(diff, targetRel, targetExists) {
   // (#621 re-review point 1). Once the first hunk is seen, the header block (which precedes it) was
   // fully scanned, so header-based categories are reliable even if the hunk body is truncated.
   let category;
-  if (scanTruncated && !hasHunk) category = 'unknown-truncated';
+  if (overByteBudget === true) category = 'over-byte-budget'; // parser rejects on size before any parsing
+  else if (overLineBudget === true) category = 'over-line-budget'; // canonicalPatch rejects on line count before grammar
+  else if (scanTruncated && !hasHunk) category = 'unknown-truncated';
   else if (unsupportedMetadata) category = 'unsupported-metadata';
   else if (unrecognizedHeader) category = 'unrecognized-header';
   else if (duplicateModeMetadata) category = 'duplicate-metadata';
@@ -225,12 +248,17 @@ function analyzeDiffShape(diff, targetRel, targetExists) {
   else if (metadataOperationMismatch) category = 'metadata-operation-mismatch';
   else if (operationStateMismatch) category = 'operation-state-mismatch';
   else if (headerMatchesTarget === false) category = 'path-header-mismatch';
-  else category = 'full-unified-diff'; // structurally complete → the rejection is at git apply --check/apply
+  // Structurally complete → the rejection would be at git apply. But only CLAIM that when the parser
+  // budgets are confirmed within limits; if truncation left the byte/line budget status unknown, do not
+  // assert "therefore git rejected it" (#621 re-review 6 point 2).
+  else category = budgetUnknown ? 'budget-unknown' : 'full-unified-diff';
 
   return {
     present: true,
     usable: true,
     scanTruncated,
+    overByteBudget,
+    overLineBudget,
     sawSemanticHeader,
     metadataWithoutEndpoints,
     metadataOperationMismatch,

