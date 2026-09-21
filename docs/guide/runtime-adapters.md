@@ -809,11 +809,15 @@ still honour as non-dispatch, but it is **not** content-aware enforcement, so co
 `INCOMPLETE` (never `PROVEN`) — the two tracks (`semanticContentEnforcementProven` vs
 `permissionEnforcementProven`) are reported separately. A write that surfaces no usable content is
 `UNSUPPORTED`. When a write fails closed at reconstruction, the run also records a **bounded, sanitized,
-content-free** structural fingerprint of the surfaced write (target present, diff/newFileContents
-presence + byte/line counts, and a diff-shape enum — full-unified-diff / headerless-hunk-only /
-missing-endpoint-pair / path-header-mismatch / multiple-file-diff / unsupported-metadata) so a live
+content-free** structural fingerprint of the surfaced write (target **hash** + presence,
+diff/newFileContents presence + byte/line counts that are lower bounds flagged when truncated, and a
+diff-shape enum that models the parser's pre-git rejections — `over-byte-budget` / `over-line-budget` /
+`budget-unknown` / `unknown-truncated` / `unsupported-metadata` / `unrecognized-header` /
+`duplicate-metadata` / `duplicate-endpoint` / `multiple-file-diff` / `metadata-without-endpoints` /
+`metadata-operation-mismatch` / `operation-state-mismatch` / `dev-null-both-sides` /
+`missing-endpoint-pair` / `path-header-mismatch` / `headerless-hunk-only` / `full-unified-diff`) so a live
 diagnosis knows **why** the pinned SDK write could not be reconstructed without dumping the candidate
-patch or file source into the artifact. **Quiescence is part of the
+patch, file source, or raw request path into the artifact. **Quiescence is part of the
 observation boundary**: `disconnect()` aborts then disconnects and *reports* whether it succeeded (a
 structured `{ quiesced, error? }`, recorded as host evidence); the event subscription stays live
 across abort + disconnect and is torn down only afterwards, so a protected tool that races into
