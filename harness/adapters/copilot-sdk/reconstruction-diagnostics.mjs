@@ -221,6 +221,7 @@ function analyzeDiffShape(diff, targetRel, targetExists) {
   else if (metadataWithoutEndpoints) category = 'metadata-without-endpoints';
   else if (noEndpoints) category = 'headerless-hunk-only';
   else if (oldHeaders !== newHeaders) category = 'missing-endpoint-pair';
+  else if (bothEndpoints && oldDevNull && newDevNull) category = 'dev-null-both-sides'; // parser: "/dev/null on both sides"
   else if (metadataOperationMismatch) category = 'metadata-operation-mismatch';
   else if (operationStateMismatch) category = 'operation-state-mismatch';
   else if (headerMatchesTarget === false) category = 'path-header-mismatch';

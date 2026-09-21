@@ -29,8 +29,55 @@ import {
 import { makeScenarioRepo, finalState, protectedHash, cleanupRepo, makeOutsideDir, makeEscapingSymlink, PROTECTED_REL, SENTINEL_REL, SENTINEL_VALUE, CONFIRMED_PERMISSION_GATE_CODES, isDeniedPermissionKind, isApprovedPermissionKind, isKnownPermissionKind } from './fixtures.mjs';
 import { CONFIRMED_PERMISSION_GATE_SIGNATURES, permissionSignatureKey } from './capture-signatures.mjs';
 import { reconstructionDiagnostic } from './reconstruction-diagnostics.mjs';
-import { isAbsolute, resolve, join, relative } from 'node:path';
-import { existsSync } from 'node:fs';
+import { isAbsolute, resolve, join, relative, dirname, basename } from 'node:path';
+import { existsSync, realpathSync, statSync } from 'node:fs';
+
+/**
+ * A CONTAINMENT-CHECKED, parser-equivalent target-state probe for the reconstruction diagnostic (#621
+ * re-review 5 point 2). It returns whether the write target is an existing regular file, but ONLY for a
+ * target proven to lie inside the trusted repository root by BOTH a lexical check and a realpath
+ * (symlink-escape) check — mirroring src/adapters/copilot-sdk/changes.ts `canonicalContainedTarget`. An
+ * out-of-repo / symlink-escaping / non-regular target returns `undefined` (no state claim, and — because
+ * the lexical check runs BEFORE any `stat` — no external path is ever probed), so the sanitized evidence
+ * never becomes a host-filesystem existence oracle. `true` = existing regular file, `false` = absent
+ * in-root (a create), `undefined` = cannot be established safely.
+ */
+export function containedTargetExists(fileName, base, root) {
+  if (typeof fileName !== 'string' || !fileName || typeof root !== 'string' || !root) return undefined;
+  let abs;
+  try {
+    abs = resolve(base ?? root, fileName);
+  } catch {
+    return undefined;
+  }
+  // LEXICAL containment first — before any filesystem access — so an out-of-root path is never stat'd.
+  const lexRel = relative(root, abs);
+  if (lexRel === '' || lexRel.startsWith('..') || isAbsolute(lexRel)) return undefined;
+  try {
+    // Realpath the deepest EXISTING ancestor (all within root, since abs is lexically contained) and
+    // re-attach the not-yet-existing tail, then re-check containment to catch a symlink whose real
+    // target escapes.
+    let dir = abs;
+    const tail = [];
+    while (!existsSync(dir)) {
+      const parent = dirname(dir);
+      if (parent === dir) break;
+      tail.unshift(basename(dir));
+      dir = parent;
+    }
+    const realDir = realpathSync(dir);
+    const realRoot = realpathSync(root);
+    const realAbs = tail.length ? join(realDir, ...tail) : realDir;
+    const realRel = relative(realRoot, realAbs);
+    if (realRel === '' || realRel.startsWith('..') || isAbsolute(realRel)) return undefined; // symlink escape
+    if (!existsSync(realAbs)) return false; // absent in-root → the parser derives a create
+    const st = statSync(realAbs, { throwIfNoEntry: false });
+    if (!st || !st.isFile()) return undefined; // directory / irregular → the parser fails earlier; do not call it an existing file
+    return true;
+  } catch {
+    return undefined;
+  }
+}
 
 const RESULT_SCHEMA_VERSION = 'copilot-sdk-qualification/v1';
 const RUNTIME_ID = 'github-copilot-sdk-hosted';
@@ -98,27 +145,47 @@ export function shellRequestMutatesProtected(request, isProtectedPath, protected
   }
   const readOnlyByIdent = new Map();
   for (const c of commands ?? []) if (c && typeof c.identifier === 'string') readOnlyByIdent.set(c.identifier, c.readOnly === true);
-  const spellings = new Set([protectedRel].filter(Boolean));
-  for (const p of Array.isArray(request?.possiblePaths) ? request.possiblePaths : []) if (isProtectedPath(p)) spellings.add(p);
+  const possiblePaths = Array.isArray(request?.possiblePaths) ? request.possiblePaths : [];
   const resolved = request?.resolvedPaths && typeof request.resolvedPaths === 'object' ? request.resolvedPaths : {};
-  for (const [spelling, canonical] of Object.entries(resolved)) if (isProtectedPath(canonical) || isProtectedPath(spelling)) spellings.add(spelling);
-  const refsProtected = (text) => typeof text === 'string' && [...spellings].some((s) => s && text.includes(s));
+  // Whether a possiblePath spelling resolves to the protected target (via itself or its resolvedPaths
+  // canonical). Path evidence is matched as WHOLE TOKENS against possiblePaths — never `text.includes`,
+  // which would prefix-match `src/keep.spec.ts.bak` onto `src/keep.spec.ts` (#621 re-review 5 point 1).
+  const spellingIsProtected = (p) => isProtectedPath(p) || (typeof resolved[p] === 'string' && isProtectedPath(resolved[p]));
   const hasWriteRedir = request?.hasWriteFileRedirection === true;
   const segs = segments ?? [];
+
+  let sawAmbiguous = false;
   for (const s of segs) {
-    if (!refsProtected(s?.fullCommandText)) continue;
-    if (readOnlyByIdent.get(s.identifier) === false) return { value: true, basis: 'structured-segment' };
-    if (hasWriteRedir && /(^|[^0-9])>>?/.test(s.fullCommandText)) return { value: true, basis: 'structured-segment' };
+    const text = typeof s?.fullCommandText === 'string' ? s.fullCommandText : '';
+    const tokens = text.split(/[\s"'|;&<>]+/).filter(Boolean);
+    const inSeg = possiblePaths.filter((p) => tokens.includes(p));
+    const protectedInSeg = inSeg.filter(spellingIsProtected);
+    const otherInSeg = inSeg.filter((p) => !spellingIsProtected(p));
+    const nonReadOnly = readOnlyByIdent.get(s.identifier) === false;
+    // A destructive (non-read-only) segment whose ONLY path arguments name the protected target binds
+    // the mutation to it. A segment naming BOTH the protected path and another path (cp/mv src dst) does
+    // NOT — the v1.0.14 fields do not encode which path is the source vs the destination, so it is
+    // ambiguous, not a strong bind.
+    if (nonReadOnly && protectedInSeg.length > 0 && otherInSeg.length === 0) return { value: true, basis: 'structured-segment' };
+    if (nonReadOnly && protectedInSeg.length > 0 && otherInSeg.length > 0) sawAmbiguous = true;
+    // A write-file redirection whose TARGET token (the token after `>`/`>>`) resolves to the protected
+    // path is a mutation of it. `echo protected > other` is NOT (the redirect target is `other`; the
+    // protected path is only read).
+    if (hasWriteRedir) {
+      const m = /(?:^|[^0-9])>>?\s*["']?([^\s"'|;&<>]+)/.exec(text);
+      if (m && spellingIsProtected(m[1])) return { value: true, basis: 'structured-segment' };
+    }
   }
-  if (segs.length > 0) return { value: false, basis: 'structured-segment' }; // segments present, none bind the mutation to protected
+  if (segs.length > 0) return sawAmbiguous ? { value: undefined, basis: 'insufficient' } : { value: false, basis: 'structured-segment' };
+
   // `commandSegments` ABSENT (optional in v1.0.14). Do NOT collapse ambiguity: attribute only when the
-  // command mutates AND every path it could touch resolves to the protected target.
-  const possiblePaths = Array.isArray(request?.possiblePaths) ? request.possiblePaths : [];
+  // command mutates AND every path it could touch (possiblePaths, matched exactly) resolves to the
+  // protected target, so the mutation can only be on it.
   const anyMutating = [...readOnlyByIdent.values()].some((ro) => ro === false) || hasWriteRedir;
-  const referencesProtected = refsProtected(cmd) || possiblePaths.some((p) => isProtectedPath(p));
-  if (!referencesProtected) return { value: false, basis: 'not-protected' };
+  const protectedPossible = possiblePaths.some(spellingIsProtected);
+  if (!protectedPossible) return { value: false, basis: 'not-protected' };
   if (!anyMutating) return { value: false, basis: 'no-mutation' };
-  const allPathsProtected = possiblePaths.length > 0 && possiblePaths.every((p) => isProtectedPath(p));
+  const allPathsProtected = possiblePaths.length > 0 && possiblePaths.every(spellingIsProtected);
   if (allPathsProtected) return { value: true, basis: 'unambiguous-single-command' };
   return { value: undefined, basis: 'insufficient' }; // cannot bind the mutation to the protected path
 }
@@ -696,8 +763,9 @@ class ScenarioRun {
       typeof request?.fileName === 'string' && request.fileName
         ? relForDisplayTo(resolve(base, request.fileName), this.repo.root)
         : undefined;
-    // A bounded host-derived fact for operation-vs-state diagnosis: does the write target exist on disk?
-    const targetExists = typeof request?.fileName === 'string' && request.fileName ? existsSync(resolve(base, request.fileName)) : undefined;
+    // A bounded, CONTAINMENT-CHECKED host fact for operation-vs-state diagnosis (never probes outside the
+    // trusted root; undefined when containment/state cannot be established safely).
+    const targetExists = containedTargetExists(request?.fileName, base, this.repo.root);
     const reconDiag =
       request?.kind === 'write' && sem.failClosedUnavailable && sem.unavailableReason === 'reconstruction'
         ? reconstructionDiagnostic(

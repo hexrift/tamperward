@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { copilotSdkAdapter } from '../src/adapters/copilot-sdk/adapter';
 // @ts-expect-error - the orchestrator is a plain .mjs harness module, no d.ts
-import { buildConfig, runQualification, runPreDenyScenario, runBrokenPathScenario, runEndOfTurnScenario, assembleResult, serializeRequest, promptHash, classifyHandlerDispatch, decisionCategory, normalizeCompletionEvent, semanticEvaluation, shellRequestMutatesProtected } from '../harness/adapters/copilot-sdk/orchestrator.mjs';
+import { buildConfig, runQualification, runPreDenyScenario, runBrokenPathScenario, runEndOfTurnScenario, assembleResult, serializeRequest, promptHash, classifyHandlerDispatch, decisionCategory, normalizeCompletionEvent, semanticEvaluation, shellRequestMutatesProtected, containedTargetExists } from '../harness/adapters/copilot-sdk/orchestrator.mjs';
 // @ts-expect-error - the reconstruction diagnostics are a plain .mjs harness module, no d.ts
 import { reconstructionDiagnostic } from '../harness/adapters/copilot-sdk/reconstruction-diagnostics.mjs';
 // @ts-expect-error - the fixtures are a plain .mjs harness module, no d.ts
@@ -1464,6 +1464,28 @@ describe('#614 — execution_start is lifecycle-start, not dispatch; completion 
     // Without a targetExists fact, no operation-state claim is made.
     const modifyUnknownState = reconstructionDiagnostic({ path: target, diff: `--- a/${target}\n+++ b/${target}\n@@ -1 +1 @@\n-a\n+b` }, 'reconstruction');
     expect(modifyUnknownState.diffShape.operationStateMismatch).toBe(false);
+
+    // /dev/null ON BOTH SIDES (#621 re-review 5 pt 3): a parser reject, not full-unified-diff.
+    const devNullBoth = reconstructionDiagnostic({ path: target, diff: `--- /dev/null\n+++ /dev/null\n@@ -0,0 +0,0 @@\n+x` }, 'reconstruction');
+    expect(devNullBoth.diffShape.category).toBe('dev-null-both-sides');
+  });
+
+  it('#621 re-review 5 pt 2 — containedTargetExists never probes outside the trusted repository root', () => {
+    const repo = makeScenarioRepo({ prefix: 'tw-sdk-contain-' }) as { root: string; protectedRel: string };
+    try {
+      // In-root existing file → true; in-root absent → false (a create).
+      expect(containedTargetExists(repo.protectedRel, repo.root, repo.root)).toBe(true);
+      expect(containedTargetExists('src/does-not-exist.ts', repo.root, repo.root)).toBe(false);
+      // OUT-OF-ROOT (absolute, or a `../` escape) → undefined, and no external path is stat'd.
+      expect(containedTargetExists('/etc/hosts', repo.root, repo.root)).toBeUndefined();
+      expect(containedTargetExists('../../../../etc/passwd', repo.root, repo.root)).toBeUndefined();
+      // A directory (not a regular file) → undefined, never reported as an existing file.
+      expect(containedTargetExists('src', repo.root, repo.root)).toBeUndefined();
+      // No fileName → undefined.
+      expect(containedTargetExists(undefined, repo.root, repo.root)).toBeUndefined();
+    } finally {
+      cleanupRepo(repo, false);
+    }
   });
 
   it('#621 re-review — shellRequestMutatesProtected returns an explicit strength/basis, never collapsing ambiguity', () => {
@@ -1509,6 +1531,18 @@ describe('#614 — execution_start is lifecycle-start, not dispatch; completion 
     r = shellRequestMutatesProtected({ kind: 'shell', fullCommandText: `rm ${protectedRel}` }, isProtected, protectedRel);
     expect(r.value).toBe(true);
     expect(r.basis).toBe('heuristic');
+
+    // #621 re-review 5 pt 1 — a side effect that MENTIONS/reads the protected path but mutates ANOTHER
+    // file is not a proven protected mutation:
+    // - cp/mv protected other → protected is the SOURCE; role not encoded → ambiguous, not strong.
+    expect(shellRequestMutatesProtected(withSegs(`cp ${protectedRel} other.txt`, [{ identifier: 'cp', readOnly: false }]), isProtected, protectedRel).value).not.toBe(true);
+    expect(shellRequestMutatesProtected(withSegs(`mv ${protectedRel} other.txt`, [{ identifier: 'mv', readOnly: false }]), isProtected, protectedRel).value).not.toBe(true);
+    // - echo protected > other → protected is read; the redirect target is `other`.
+    expect(shellRequestMutatesProtected(withSegs(`echo ${protectedRel} > other.txt`, [{ identifier: 'echo', readOnly: true }], { hasWriteFileRedirection: true }), isProtected, protectedRel).value).not.toBe(true);
+    // - rm protected.bak → a DIFFERENT path; a prefix of the protected spelling must not bind.
+    expect(shellRequestMutatesProtected(withSegs(`rm ${protectedRel}.bak`, [{ identifier: 'rm', readOnly: false }]), isProtected, protectedRel).value).toBe(false);
+    // A redirect whose TARGET is the protected path IS a mutation of it.
+    expect(shellRequestMutatesProtected(withSegs(`echo x > ${protectedRel}`, [{ identifier: 'echo', readOnly: true }], { hasWriteFileRedirection: true }), isProtected, protectedRel).value).toBe(true);
   });
 
   it('the fake models the PREVIOUSLY OBSERVED hosted ordering (execution-start before its decision) — a regression guard, not an SDK-contract claim', async () => {
