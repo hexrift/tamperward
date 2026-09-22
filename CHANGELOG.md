@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.31.1] — 2026-09-22
+
+### Fixed
+
+- **`research run` command adapter: replacement values are opaque** (#525, #626). The
+  `{prompt}`, `{task}`, `{cwd}`, `{base}`, `{arm}` and `{model}` placeholders are now
+  substituted in a single pass over the original argv template, so a prompt or task id that
+  itself contains a literal `{task}`, `{cwd}` or `{model}` reaches the agent unchanged instead
+  of being rewritten by a later placeholder. The token pattern is derived from the placeholder
+  table, so a new placeholder is added in one place.
+
 ## [2.31.0] — 2026-09-18
 
 ### Added

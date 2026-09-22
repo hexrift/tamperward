@@ -92,7 +92,12 @@ const PLACEHOLDERS: Record<string, (task: AdapterTask) => string> = {
   '{model}': (t) => t.model ?? '',
 };
 
-const PLACEHOLDER_PATTERN = /\{prompt\}|\{task\}|\{cwd\}|\{base\}|\{arm\}|\{model\}/g;
+// Derived from PLACEHOLDERS so a new token is added in exactly one place. The keys are
+// `{name}` literals and braces are regex metacharacters, hence the escape.
+const PLACEHOLDER_PATTERN = new RegExp(
+  Object.keys(PLACEHOLDERS).map((token) => token.replace(/[{}]/g, '\\$&')).join('|'),
+  'g',
+);
 
 /**
  * Substitute only tokens present in the original template. Replacement values
