@@ -16,6 +16,7 @@ import { runWatch } from './watch';
 import { runOnboard, OnboardOpts } from './onboard';
 import { runResearchCommand, RESEARCH_SUBCOMMANDS } from './research';
 import { runStats, type StatsOpts } from './audit';
+import { runSignoffLabel, SignoffLabelOpts } from './signoff-label';
 
 function parseAllow(args: string[]): AllowOpts {
   const o: AllowOpts = {};
@@ -89,6 +90,17 @@ function parseStats(args: string[]): StatsOpts {
     else if (a === '--file') o.file = args[++i];
     else if (a === '--since') o.since = args[++i];
     else if (a === '--json') o.json = true;
+  }
+  return o;
+}
+
+function parseSignoffLabel(args: string[]): SignoffLabelOpts {
+  const o: SignoffLabelOpts = {};
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--rule') o.rule = args[++i];
+    else if (a === '--file') o.file = args[++i];
+    else if (a === '--head') o.head = args[++i];
   }
   return o;
 }
@@ -248,6 +260,12 @@ export function validateCliArgs(cmd: string, args: string[]): string | undefined
     return undefined;
   }
 
+  if (cmd === 'signoff-label') {
+    return validateFlatArgs(args, {
+      values: { '--rule': 'string', '--file': 'string', '--head': 'string' },
+    }).error;
+  }
+
   if (cmd === 'init') {
     return validateFlatArgs(args, {
       flags: ['--dry-run', '--force-workflow'],
@@ -341,7 +359,7 @@ export function validateCliArgs(cmd: string, args: string[]): string | undefined
       const delimiter = rest.indexOf('--');
       const prefix = delimiter < 0 ? rest : rest.slice(0, delimiter);
       const parsed = validateFlatArgs(prefix, {
-        flags: ['--json'],
+        flags: ['--break-lock', '--json'],
         values: {
           '--manifest': 'string',
           '--out': 'string',
@@ -412,8 +430,8 @@ Formats:
              [--budget S] [--json] [--keep] as-is AND with protected files restored
              [--require-ancestor] [--cwd D]  from the trusted base; a visible-green /
                                             pristine-red result is a MASKED FAILURE
-                                            (exit 1, or 0 under an out-of-band
-                                            verify@<head-sha> approval); cannot-verify
+                                            (exit 1, or 0 under a compact tw1:<digest>
+                                            or legacy verify@<full-sha> approval); cannot-verify
                                             fails closed (2)
   tamperward trace-verify [--base R]          advisory Linux verifier-input discovery:
              [--cmd C] [--budget S] [--runs N] trace a trusted/known-good base with
@@ -442,9 +460,11 @@ Formats:
   tamperward research run --manifest F      bring-your-own-model evaluation: for every
              --out D --adapter A [--pairs N]  task in the manifest, pin one source commit,
              [--model M] [--agent-budget S]   clone fresh state per arm, run the agent
-             [--json] [-- <agent cmd...>]     ungated and under the run envelope, then
-                                             observe both with verify + check. Records
+             [--break-lock] [--json]         ungated and under the run envelope, then
+             [-- <agent cmd...>]             observe both with verify + check. Records
                                              are resumable by full experiment identity.
+                                             --break-lock recovers a verified stale
+                                             output lock (see the research guide).
   tamperward research summarize --ledger D  aggregate measured pairs into model behaviour,
                                              independent outcome, TamperWard hits/misses
                                              and paired counts — no composite score
@@ -456,6 +476,8 @@ Formats:
                                              integrity signal, not proof of agent intent.
   tamperward allow <rule> --reason "..."    record a human sign-off (local audit ledger)
              [--file F] [--cwd D]
+  tamperward signoff-label --rule <rule> --head <sha> [--file F]
+                                            print a compact, exact-head-bound CI label
   tamperward onboard [--yes] [--cwd D]      guided first-run setup: preflight, the
              [--base R] [--repo O/R]        init plan with a confirmation before any
              [--branch B] [--verify-command C] write, canonical init, explicit verifier
@@ -523,6 +545,8 @@ export function main(argv: string[]): number | Promise<number> {
       return runAgentCommand('sweep', rest);
     case 'allow':
       return runAllow(parseAllow(rest));
+    case 'signoff-label':
+      return runSignoffLabel(parseSignoffLabel(rest));
     case 'init':
       return runInit(parseInit(rest));
     case 'doctor':

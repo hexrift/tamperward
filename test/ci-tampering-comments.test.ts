@@ -29,7 +29,7 @@ const wf = (before: string, after: string): Change => ({
 
 describe('ci-tampering ignores YAML comments', () => {
   it.each([
-    ['      # is a PR label `tamperward:allow:<rule>`, which only someone with write access can', '      # is a PR label `tamperward:allow:<rule>@<sha>`'],
+    ['      # is a PR label `tamperward:allow:<rule>`, which only someone with write access can', '      # is a compact PR label `tw1:<digest>` (or legacy `tamperward:allow:<rule>@<head-sha>`), which only someone with triage'],
     ['# - run: npm test', '# (the test step moved below)'],
     ['  # npx tamperward check --diff', '  # see the gate job'],
   ])('a removed comment line is not a removed check: %s', (before, after) => {

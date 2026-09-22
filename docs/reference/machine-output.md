@@ -78,7 +78,7 @@ fail-closed exit before a verdict exists.
 | verdict | meaning | exit |
 | --- | --- | --- |
 | `VERIFIED` | Visible green **and** pristine green. | 0 |
-| `MASKED_FAILURE` | Visible green, pristine red — the masked failure. | 1 (0 under an out-of-band `verify@<head-sha>` approval) |
+| `MASKED_FAILURE` | Visible green, pristine red — the masked failure. | 1 (0 under a compact `tw1:<digest>` or legacy `verify@<full-sha>` approval) |
 | `SUITE_RED` | The visible suite itself failed. | 1 |
 | `BUDGET_EXCEEDED` | A stage ran out of time budget. | 2 |
 | `CANNOT_VERIFY` | Could not reach a verdict; `reason` says why. | 2 |

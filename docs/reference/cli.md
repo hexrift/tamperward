@@ -79,7 +79,7 @@ tamperward verify --base main
 
 Verdicts: `VERIFIED`, `MASKED_FAILURE`, `SUITE_RED`, `BUDGET_EXCEEDED`, `CANNOT_VERIFY`.
 Exit: **0** `VERIFIED` (or a `MASKED_FAILURE` cleared by an out-of-band
-`verify@<head-sha>` approval) · **1** `MASKED_FAILURE` / `SUITE_RED` · **2**
+compact `tw1:<digest>` or legacy `verify@<full-sha>` approval) · **1** `MASKED_FAILURE` / `SUITE_RED` · **2**
 `CANNOT_VERIFY`. Full envelope and reason enums: [Machine output](./machine-output.md).
 Background: [Pristine verification](../guide/getting-started.md#pristine-verification-tamperward-verify).
 
@@ -236,6 +236,20 @@ current blocking finding to sign off. In CI the sign-off is **out-of-band** — 
 applied by a reviewer, never a file committed on the branch under review. See
 [the sign-off model](../guide/enforcement.md#the-sign-off-model).
 
+## Sign-off labels: `signoff-label`
+
+Print a compact GitHub label bound to the exact rule, optional file, and full PR head SHA:
+
+```bash
+tamperward signoff-label --rule test-deletion --file test/calc.test.js --head "<pull-request-head-sha>"
+```
+
+The output is a `tw1:<digest>` label that fits GitHub's label-name limit. Use the PR's
+head SHA (for example, `gh pr view <number> --json headRefOid -q .headRefOid`), not the
+`GITHUB_SHA` merge commit from a pull-request workflow. It is valid only for the supplied
+full head SHA and exact rule/file; regenerate it after every push. Existing
+`tamperward:allow:<rule>@<head-sha>` labels remain compatible where the label transport can hold them.
+
 ## The persistent hook service: `hook-service` (opt-in)
 
 One warm process per user and repository that evaluates hook/sweep requests over a private
@@ -294,10 +308,12 @@ tamperward research summarize --ledger ledger/
 
 | subcommand | flags |
 | --- | --- |
-| `research run` | `--manifest <file>` · `--out <dir>` · `--adapter <name>` (all three required) · `--pairs <N>` · `--model <M>` · `--agent-budget <seconds>` · `--json` · then `-- <agent command…>` |
+| `research run` | `--manifest <file>` · `--out <dir>` · `--adapter <name>` (all three required) · `--pairs <N>` · `--model <M>` · `--agent-budget <seconds>` · `--break-lock` · `--json` · then `-- <agent command…>` |
 | `research summarize` | `--ledger <dir>` (required) |
 
-Records are resumable by full experiment identity. Flags and record schema:
+Records are resumable by full experiment identity. A run exclusively locks its
+`--out` directory; after verifying a crashed owner is gone, `--break-lock` is the
+explicit stale-lock recovery. Active or unreadable locks fail closed. Flags and record schema:
 [Research: evaluate a model](../guide/research.md#flags).
 
 ## See also

@@ -76,7 +76,7 @@ overwrites anything you wrote, and `--dry-run` shows the plan first:
 | --- | --- |
 | agent loop | Claude Code `PreToolUse` deny + `Stop` sweep, merged into `.claude/settings.json` |
 | pre-commit | husky when present, the plain git hook otherwise |
-| CI | a PR-gate workflow with two steps: `check --diff` over the PR range, cleared only by an out-of-band label bound to the head SHA, and `verify --require-ancestor` — pristine re-execution of your suite against the base, whose masked-failure verdict clears only by a `tamperward:allow:verify@<head-sha>` label. The verify step **needs a `verify:` block in `.tamperward.yml`** naming the suite command; without one it fails closed (exit 2) rather than passing quietly |
+| CI | a PR-gate workflow with two steps: `check --diff` over the PR range, cleared only by an out-of-band `tw1:<digest>` label generated with `tamperward signoff-label` (legacy full-SHA labels remain accepted), and `verify --require-ancestor` — pristine re-execution of your suite against the base, whose masked-failure verdict can use a token generated for `verify`. The verify step **needs a `verify:` block in `.tamperward.yml`** naming the suite command; without one it fails closed (exit 2) rather than passing quietly |
 | CODEOWNERS | an owner requirement on the workflow directory, the policy file and CODEOWNERS itself — the paths that decide whether the gate runs at all |
 | policy | a commented baseline `.tamperward.yml` — the defaults apply even without it |
 
@@ -293,7 +293,7 @@ Exit codes are part of the public surface:
 | command | 0 | 1 | 2 | 124 |
 | --- | --- | --- | --- | --- |
 | `check` | no blocking finding | at least one blocking finding | cannot evaluate: policy parse error, malformed `--diff` range, no view given, not a git repository, or an unresolvable revision — any failure the gate cannot recover from is one clean `tamperward: …` line on stderr at exit 2, never a stack trace at exit 1 | — |
-| `verify` | `VERIFIED`, or a `MASKED_FAILURE` cleared by an out-of-band `verify@<head-sha>` approval | `MASKED_FAILURE` or `SUITE_RED` | cannot verify — fails closed | — |
+| `verify` | `VERIFIED`, or a `MASKED_FAILURE` cleared by a compact `tw1:<digest>` or legacy `verify@<full-sha>` approval | `MASKED_FAILURE` or `SUITE_RED` | cannot verify — fails closed | — |
 | `trace-verify` | every requested trace run completed green | one or more traced verifier runs were non-zero/incomplete; report still emitted | unsupported platform, missing tooling, bad trusted base/policy/options, or tracing failure | — |
 | `doctor` | configured verify job(s) have sufficient static outer time for the trusted policy | — | missing/invalid workflow, no verify job, missing/malformed/insufficient timeout, or trusted policy cannot be loaded | — |
 | `run` | enforcement clean and the agent exited 0 (a non-zero agent exit is passed through) | any blocking finding or masked failure, including a non-quiescent process after timeout | cannot adjudicate: dirty start, policy error, verify cannot run | `AGENT_TIMEOUT`: `--agent-budget` expired and post-timeout enforcement was clean |
