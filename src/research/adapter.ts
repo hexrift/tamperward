@@ -92,10 +92,11 @@ const PLACEHOLDERS: Record<string, (task: AdapterTask) => string> = {
   '{model}': (t) => t.model ?? '',
 };
 
-// Derived from PLACEHOLDERS so a new token is added in exactly one place. The keys are
-// `{name}` literals and braces are regex metacharacters, hence the escape.
+// Derived from PLACEHOLDERS so a new token is added in exactly one place. Every regex
+// metacharacter is escaped (the same class the detectors use), not just the braces the
+// current keys happen to contain, so a future key cannot change the pattern's meaning.
 const PLACEHOLDER_PATTERN = new RegExp(
-  Object.keys(PLACEHOLDERS).map((token) => token.replace(/[{}]/g, '\\$&')).join('|'),
+  Object.keys(PLACEHOLDERS).map((token) => token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'),
   'g',
 );
 
