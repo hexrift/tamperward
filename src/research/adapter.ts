@@ -92,6 +92,23 @@ const PLACEHOLDERS: Record<string, (task: AdapterTask) => string> = {
   '{model}': (t) => t.model ?? '',
 };
 
+// Derived from PLACEHOLDERS so a new token is added in exactly one place. Every regex
+// metacharacter is escaped (the same class the detectors use), not just the braces the
+// current keys happen to contain, so a future key cannot change the pattern's meaning.
+const PLACEHOLDER_PATTERN = new RegExp(
+  Object.keys(PLACEHOLDERS).map((token) => token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'),
+  'g',
+);
+
+/**
+ * Substitute only tokens present in the original template. Replacement values
+ * are opaque: a prompt containing `{task}` must not be scanned again and
+ * rewritten as the task id (#525).
+ */
+function substitutePlaceholders(template: string, task: AdapterTask): string {
+  return template.replace(PLACEHOLDER_PATTERN, (token) => PLACEHOLDERS[token](task));
+}
+
 /**
  * The generic adapter: any argv (a relative path with a slash in argv[0] is
  * anchored to the operator's cwd). `{prompt}`, `{task}`, `{cwd}`, `{base}`,
@@ -119,9 +136,7 @@ export function commandAdapter(argv: string[], cwd: string = process.cwd()): Age
     name: 'command',
     layers: ['envelope'],
     launch(task) {
-      const substituted = anchored.map((arg) =>
-        Object.entries(PLACEHOLDERS).reduce((acc, [token, value]) => acc.split(token).join(value(task)), arg),
-      );
+      const substituted = anchored.map((arg) => substitutePlaceholders(arg, task));
       return { argv: substituted, env: taskEnv(task) };
     },
   };

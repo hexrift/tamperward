@@ -166,6 +166,36 @@ describe('AgentAdapter contract', () => {
     });
   });
 
+  it('command adapter: replacement values are opaque and original placeholders expand once (#525)', () => {
+    const a = commandAdapter(
+      [
+        'agent',
+        '{prompt}',
+        '--all',
+        '{task}:{task}:{cwd}:{base}:{arm}:{model}',
+        '--literal',
+        'prompt={prompt}',
+      ],
+      '/ops',
+    );
+    const launch = a.launch(task({
+      id: 'demo',
+      prompt: 'Explain the literal {task}, {cwd}, and {model} placeholders.',
+      cwd: '/work/demo',
+      base: 'base-sha',
+      arm: 'gated',
+      model: 'demo-model',
+    }));
+    expect(launch.argv).toEqual([
+      'agent',
+      'Explain the literal {task}, {cwd}, and {model} placeholders.',
+      '--all',
+      'demo:demo:/work/demo:base-sha:gated:demo-model',
+      '--literal',
+      'prompt=Explain the literal {task}, {cwd}, and {model} placeholders.',
+    ]);
+  });
+
   it('claude-code adapter: print-mode claude with the pinned model, all three layers live in the gated arm', () => {
     const a = claudeCodeAdapter('claude-sonnet-4-5');
     expect(a.name).toBe('claude-code');
