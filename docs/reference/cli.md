@@ -79,7 +79,7 @@ tamperward verify --base main
 
 Verdicts: `VERIFIED`, `MASKED_FAILURE`, `SUITE_RED`, `BUDGET_EXCEEDED`, `CANNOT_VERIFY`.
 Exit: **0** `VERIFIED` (or a `MASKED_FAILURE` cleared by an out-of-band
-`verify@<head-sha>` approval) · **1** `MASKED_FAILURE` / `SUITE_RED` · **2**
+compact `tw1:<digest>` or legacy `verify@<full-sha>` approval) · **1** `MASKED_FAILURE` / `SUITE_RED` · **2**
 `CANNOT_VERIFY`. Full envelope and reason enums: [Machine output](./machine-output.md).
 Background: [Pristine verification](../guide/getting-started.md#pristine-verification-tamperward-verify).
 
@@ -235,6 +235,20 @@ Exit **2** when there is no rule, no `--reason`, it is not a git repo, or there 
 current blocking finding to sign off. In CI the sign-off is **out-of-band** — a PR label
 applied by a reviewer, never a file committed on the branch under review. See
 [the sign-off model](../guide/enforcement.md#the-sign-off-model).
+
+## Sign-off labels: `signoff-label`
+
+Print a compact GitHub label bound to the exact rule, optional file, and full PR head SHA:
+
+```bash
+tamperward signoff-label --rule test-deletion --file test/calc.test.js --head "<pull-request-head-sha>"
+```
+
+The output is a `tw1:<digest>` label that fits GitHub's label-name limit. Use the PR's
+head SHA (for example, `gh pr view <number> --json headRefOid -q .headRefOid`), not the
+`GITHUB_SHA` merge commit from a pull-request workflow. It is valid only for the supplied
+full head SHA and exact rule/file; regenerate it after every push. Existing
+`tamperward:allow:<rule>@<head-sha>` labels remain compatible where the label transport can hold them.
 
 ## The persistent hook service: `hook-service` (opt-in)
 

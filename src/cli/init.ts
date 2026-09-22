@@ -196,9 +196,10 @@ const WORKFLOW_CONTENT = `name: tamperward
 
 # The CI authority for main: the same engine as the agent hook and pre-commit, run over
 # the PR's commit range. A block fails the check and clears ONLY via the out-of-band
-# label \`tamperward:allow:<rule>@<head-sha>\` applied by someone with triage access or higher —
-# never a file the PR itself can commit. The verify step reads the same labels:
-# \`tamperward:allow:verify@<head-sha>\` accepts a masked failure a reviewer has judged.
+# compact label \`tw1:<digest>\` (print one with \`tamperward signoff-label\`) applied by
+# someone with triage access or higher — never a file the PR itself can commit. Legacy
+# \`tamperward:allow:<rule>@<head-sha>\` labels remain accepted. The verify step reads
+# the same labels: a token for \`verify\` accepts a masked failure a reviewer has judged.
 #
 # labeled/unlabeled re-run the gate because the sign-off is read from the EVENT payload:
 # a label applied after a failure could otherwise never take effect, and REVOKING a
@@ -242,14 +243,15 @@ jobs:
         env:
           LABELS: \${{ toJSON(github.event.pull_request.labels.*.name) }}
         run: |
-          RULES="$(printf '%s' "$LABELS" | jq -r '.[] | select(startswith("tamperward:allow:")) | sub("^tamperward:allow:"; "")' | paste -sd, -)"
+          RULES="$(printf '%s' "$LABELS" | jq -r '.[] | if startswith("tamperward:allow:") then sub("^tamperward:allow:"; "") elif startswith("tw1:") then . else empty end' | paste -sd, -)"
           echo "rules=$RULES" >> "$GITHUB_OUTPUT"
       - name: Tamperward gate (diff-time)
         env:
           TAMPERWARD_OOB_SIGNOFF: \${{ steps.oob.outputs.rules }}
           # Binds each approval to the commit it was granted for: labels persist
           # across pushes, so an unbound one would clear every later finding on
-          # the same PR. Labels must read tamperward:allow:<rule>@<head-sha>.
+          # the same PR. Compact labels hash the exact rule/file/head tuple; legacy
+          # labels must read tamperward:allow:<rule>@<head-sha>.
           TAMPERWARD_OOB_HEAD: \${{ github.event.pull_request.head.sha }}
         run: tamperward check --diff "\${{ github.event.pull_request.base.sha }}...\${{ github.event.pull_request.head.sha }}"
       # Diff-time detection is spelling-dependent by nature; pristine
@@ -262,8 +264,9 @@ jobs:
       # without one this step fails closed (exit 2) rather than passing quietly.
       - name: Tamperward verify (pristine re-execution)
         env:
-          # The same channel as the gate. \`tamperward:allow:verify@<head-sha>\`
-          # accepts a MASKED_FAILURE — a reviewer has read the intentional test
+          # The same channel as the gate. A compact token generated for \`verify\`
+          # (or legacy \`tamperward:allow:verify@<head-sha>\`) accepts a MASKED_FAILURE —
+          # a reviewer has read the intentional test
           # change and agrees the original suite no longer applies. It clears
           # nothing else: a red visible suite, or a run that could not verify,
           # stays red whatever the labels say.

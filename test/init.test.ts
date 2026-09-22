@@ -419,6 +419,7 @@ describe('generated artifacts are valid', () => {
     expect(trig.pull_request.types).toEqual(['opened', 'synchronize', 'reopened', 'labeled', 'unlabeled']);
     const steps = wf.jobs.tamperward.steps;
     expect(JSON.stringify(steps)).toContain('TAMPERWARD_OOB_SIGNOFF');
+    expect(JSON.stringify(steps)).toContain('tw1:');
     expect(wf.permissions).toEqual({ contents: 'read' });
 
     // #331: verify.budget applies independently to visible + pristine. The

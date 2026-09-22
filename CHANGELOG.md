@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.33.0] — 2026-09-22
+
+### Added
+
+- **CI: compact exact-head sign-off labels** (#631). GitHub labels have a 50-character
+  name limit, so the generated workflow now accepts `tw1:<digest>` tokens produced by
+  `tamperward signoff-label`. The SHA-256 token binds the exact rule, optional file, and
+  full 40- or 64-character head object id; malformed, foreign, abbreviated, and
+  unbound tokens remain rejected. Legacy `tamperward:allow:<rule>@<head-sha>` labels
+  remain compatible, and generated/checked-in workflows, docs, and regression tests use
+  the compact path.
+
 ## [2.32.0] — 2026-09-22
 
 ### Added

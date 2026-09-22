@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import {
   applyLocalSignoffs,
   applyOobSignoffs,
+  compactOobToken,
   oobToken,
   appendEntry,
   makeEntry,
@@ -128,5 +129,20 @@ describe('oobToken — the one matcher behind check --diff and verify', () => {
   });
   it('never matches a different name, whatever the sha', () => {
     expect(oobToken('verify', ['verify:x@1234567', 'test-skip@1234567'], HEAD)).toBeNull();
+  });
+  it('accepts a compact token only for the exact rule, file, and full head', () => {
+    const want = 'test-deletion:src/a.test.ts';
+    const token = compactOobToken(want, HEAD)!;
+    expect(token).toMatch(/^tw1:[A-Za-z0-9_-]{43}$/);
+    expect(token.length).toBeLessThanOrEqual(50);
+    expect(oobToken(want, [token], HEAD)).toBe(token);
+    expect(oobToken('test-deletion', [token], HEAD)).toBeNull();
+    expect(oobToken('test-deletion:src/b.test.ts', [token], HEAD)).toBeNull();
+    expect(oobToken(want, [token], `${HEAD.slice(0, -1)}9`)).toBeNull();
+    expect(oobToken(want, [token])).toBeNull();
+  });
+  it('rejects malformed compact tokens and abbreviated heads', () => {
+    expect(compactOobToken('verify', '1234567')).toBeNull();
+    expect(oobToken('verify', ['tw1:not-a-digest'], HEAD)).toBeNull();
   });
 });
