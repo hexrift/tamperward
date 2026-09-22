@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import Ajv2020 from 'ajv/dist/2020.js';
 import { execFileSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { hostname, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { validateCliArgs } from '../src/cli/main';
 import { runResearchCommand } from '../src/cli/research';
@@ -25,7 +25,7 @@ import {
 } from '../src/research/adapter';
 import { readManifest } from '../src/research/manifest';
 import { pairRecordFrom, type PairRecord, type TrajectoryRecord } from '../src/research/record';
-import { runResearch } from '../src/research/run';
+import { acquireResearchLock, runResearch } from '../src/research/run';
 import { summarizeLedger, summarizeRecords } from '../src/research/summarize';
 
 const ROOT = resolve(__dirname, '..');
@@ -506,6 +506,7 @@ describe('CLI grammar', () => {
     expect(validateCliArgs('research', [])).toMatch(/research requires a subcommand/);
     expect(validateCliArgs('research', ['init'])).toMatch(/unknown research subcommand "init"/);
     expect(validateCliArgs('research', ['run', '--manifest', 'm.json', '--out', 'l', '--adapter', 'command', '--', 'sh', '-c', 'true'])).toBeUndefined();
+    expect(validateCliArgs('research', ['run', '--manifest', 'm.json', '--out', 'l', '--adapter', 'command', '--break-lock', '--', 'sh', '-c', 'true'])).toBeUndefined();
     expect(validateCliArgs('research', ['run', '--manifest', 'm.json', '--out', 'l', '--adapter', 'claude-code', '--model', 'x', '--pairs', '3', '--agent-budget', '60', '--json'])).toBeUndefined();
     expect(validateCliArgs('research', ['run', '--out', 'l', '--adapter', 'command', '--', 'x'])).toMatch(/--manifest/);
     expect(validateCliArgs('research', ['run', '--manifest', 'm', '--adapter', 'command', '--', 'x'])).toMatch(/--out/);
@@ -515,6 +516,45 @@ describe('CLI grammar', () => {
     expect(validateCliArgs('research', ['summarize', '--ledger', 'l'])).toBeUndefined();
     expect(validateCliArgs('research', ['summarize'])).toMatch(/--ledger/);
     expect(validateCliArgs('research', ['summarize', '--ledger', 'l', 'extra'])).toMatch(/unexpected argument "extra"/);
+  });
+
+  it('serializes writers for one ledger and only breaks an explicitly stale lock', () => {
+    const dir = tmp();
+    const ledger = join(dir, 'ledger');
+    const first = acquireResearchLock(ledger);
+    expect(() => acquireResearchLock(ledger)).toThrow(/refusing concurrent writers/);
+    expect(() => acquireResearchLock(ledger, true)).toThrow(/refusing to break an active lock/);
+    first.release();
+
+    writeFileSync(join(ledger, 'run.lock'), JSON.stringify({
+      pid: 999_999_999,
+      host: hostname(),
+      started_at: '1970-01-01T00:00:00.000Z',
+      token: 'stale',
+    }) + '\n');
+    expect(() => acquireResearchLock(ledger)).toThrow(/already locked/);
+    const recovered = acquireResearchLock(ledger, true);
+    recovered.release();
+
+    writeFileSync(join(ledger, 'run.lock'), 'not json\n');
+    expect(() => acquireResearchLock(ledger, true)).toThrow(/unreadable lock/);
+    const otherLedger = acquireResearchLock(join(dir, 'other-ledger'));
+    otherLedger.release();
+  });
+
+  it('research run refuses a held ledger before launching the agent', () => {
+    const dir = tmp();
+    const agent = fakeAgent(dir);
+    const manifest = writeManifest(dir, [{ id: 'a', repo: taskRepo(), prompt: 'p', verify: { command: SUITE } }]);
+    const ledger = join(dir, 'ledger');
+    const held = acquireResearchLock(ledger);
+    const r = capture(() => runResearch({
+      manifest, out: ledger, adapter: 'command', agentArgv: [agent.script], platformCheck: { id: 'platform', state: 'OK', detail: 'test' },
+    }));
+    expect(r.code).toBe(2);
+    expect(r.err).toMatch(/refusing concurrent writers/);
+    expect(existsSync(agent.log)).toBe(false);
+    held.release();
   });
 
   it('fails closed with one line for an unknown adapter, a command adapter without argv, or an unreadable manifest', () => {
