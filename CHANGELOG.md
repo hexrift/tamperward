@@ -12,6 +12,29 @@
   remain compatible, and generated/checked-in workflows, docs, and regression tests use
   the compact path.
 
+## [2.32.0] — 2026-09-22
+
+### Added
+
+- **`research run` serializes writers for one ledger** (#546, #627). A run takes an exclusive
+  `run.lock` in its `--out` directory before cloning a workspace or launching an agent; a
+  concurrent run against the same ledger fails closed with exit `2` and one line on stderr
+  naming the holder. Active or unreadable locks are never replaced. The new **`--break-lock`**
+  flag is the explicit recovery for a crashed owner: it removes only a readable same-host lock
+  whose recorded process is gone, claims the stale file atomically so a lock taken in the
+  meantime is never deleted, and otherwise refuses.
+
+## [2.31.1] — 2026-09-22
+
+### Fixed
+
+- **`research run` command adapter: replacement values are opaque** (#525, #626). The
+  `{prompt}`, `{task}`, `{cwd}`, `{base}`, `{arm}` and `{model}` placeholders are now
+  substituted in a single pass over the original argv template, so a prompt or task id that
+  itself contains a literal `{task}`, `{cwd}` or `{model}` reaches the agent unchanged instead
+  of being rewritten by a later placeholder. The token pattern is derived from the placeholder
+  table, so a new placeholder is added in one place.
+
 ## [2.31.0] — 2026-09-18
 
 ### Added

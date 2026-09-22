@@ -18,6 +18,7 @@ export function parseResearchRun(args: string[]): ResearchRunOpts {
     else if (a === '--pairs') o.pairs = Number(args[++i]);
     else if (a === '--model') o.model = args[++i];
     else if (a === '--agent-budget') o.agentBudget = Number(args[++i]);
+    else if (a === '--break-lock') o.breakLock = true;
     else if (a === '--json') o.json = true;
   }
   return o;

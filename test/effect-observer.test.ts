@@ -21,7 +21,11 @@ import { FsEvent } from '../src/cli/watch';
 
 const dirs: string[] = [];
 afterEach(() => {
-  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+  // A health write or watcher callback still landing as a test ends can slip between
+  // rm's directory listing and its rmdir (ENOTEMPTY, the #372 class; seen again on
+  // Node 20 in CI). Recursive rm retries exactly that error with linear backoff, so
+  // a late write costs a retry instead of the test.
+  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
 });
 
 function repo(): string {
