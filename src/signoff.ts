@@ -37,6 +37,18 @@ export interface LedgerEntry {
 }
 
 const DEFAULT_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+const COMPACT_OOB_PREFIX = 'tw1:';
+const FULL_OBJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
+
+/** A compact, GitHub-label-safe approval bound to the exact rule/file and head. */
+export function compactOobToken(want: string, head: string): string | null {
+  const normalizedHead = head.trim().toLowerCase();
+  if (!want || !FULL_OBJECT_ID.test(normalizedHead)) return null;
+  const digest = createHash('sha256')
+    .update(`tamperward:oob:v1\0${want}\0${normalizedHead}`)
+    .digest('base64url');
+  return `${COMPACT_OOB_PREFIX}${digest}`;
+}
 
 /** A ledger line as an entry, or null when it lacks any field an entry needs to
  *  clear a finding: a line that names a fingerprint but no expiry or rule never
@@ -129,6 +141,11 @@ export function oobToken(want: string, oob: string[], head?: string): string | n
   for (const raw of oob) {
     const t = raw.trim();
     if (!t) continue;
+    if (t.startsWith(COMPACT_OOB_PREFIX)) {
+      const expected = head === undefined ? null : compactOobToken(want, head);
+      if (expected !== null && t === expected) return t;
+      continue;
+    }
     const at = t.lastIndexOf('@');
     if (at === -1) {
       if (!head && t === want) return t; // unbound: refused once a head is known

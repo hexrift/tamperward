@@ -239,11 +239,13 @@ node harness/perf/bench.mjs      # performance budgets (docs/PERF.md)
 ```
 
 Tamperward's own CI runs the engine it ships over every pull request — `check --diff`
-over the PR range, cleared only by an out-of-band label — and has, on more than one
+over the PR range, cleared only by an out-of-band exact-head label (generate one with
+`tamperward signoff-label`) — and has, on more than one
 occasion, blocked its own author's commits. Branch, then open a PR; `main` is
 protected and CI must be green. Changing a protected asset will block your own PR
 (working as intended); a reviewed, legitimate change is cleared by a maintainer
-applying a `tamperward:allow:<rule>` label, never by weakening the policy.
+applying a compact `tw1:<digest>` label (legacy full-SHA labels remain accepted), never
+by weakening the policy.
 
 The public surface is the CLI and its exit codes, the hook wire format, the
 `.tamperward.yml` schema, and the versioned machine-output schemas under `schemas/` —

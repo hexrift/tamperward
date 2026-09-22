@@ -16,6 +16,7 @@ import { runWatch } from './watch';
 import { runOnboard, OnboardOpts } from './onboard';
 import { runResearchCommand, RESEARCH_SUBCOMMANDS } from './research';
 import { runStats, type StatsOpts } from './audit';
+import { runSignoffLabel, SignoffLabelOpts } from './signoff-label';
 
 function parseAllow(args: string[]): AllowOpts {
   const o: AllowOpts = {};
@@ -89,6 +90,17 @@ function parseStats(args: string[]): StatsOpts {
     else if (a === '--file') o.file = args[++i];
     else if (a === '--since') o.since = args[++i];
     else if (a === '--json') o.json = true;
+  }
+  return o;
+}
+
+function parseSignoffLabel(args: string[]): SignoffLabelOpts {
+  const o: SignoffLabelOpts = {};
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--rule') o.rule = args[++i];
+    else if (a === '--file') o.file = args[++i];
+    else if (a === '--head') o.head = args[++i];
   }
   return o;
 }
@@ -246,6 +258,12 @@ export function validateCliArgs(cmd: string, args: string[]): string | undefined
     if (parsed.error) return parsed.error;
     if (parsed.positionals.length === 0) return 'allow requires a rule';
     return undefined;
+  }
+
+  if (cmd === 'signoff-label') {
+    return validateFlatArgs(args, {
+      values: { '--rule': 'string', '--file': 'string', '--head': 'string' },
+    }).error;
   }
 
   if (cmd === 'init') {
@@ -456,6 +474,8 @@ Formats:
                                              integrity signal, not proof of agent intent.
   tamperward allow <rule> --reason "..."    record a human sign-off (local audit ledger)
              [--file F] [--cwd D]
+  tamperward signoff-label --rule <rule> --head <sha> [--file F]
+                                            print a compact, exact-head-bound CI label
   tamperward onboard [--yes] [--cwd D]      guided first-run setup: preflight, the
              [--base R] [--repo O/R]        init plan with a confirmation before any
              [--branch B] [--verify-command C] write, canonical init, explicit verifier
@@ -523,6 +543,8 @@ export function main(argv: string[]): number | Promise<number> {
       return runAgentCommand('sweep', rest);
     case 'allow':
       return runAllow(parseAllow(rest));
+    case 'signoff-label':
+      return runSignoffLabel(parseSignoffLabel(rest));
     case 'init':
       return runInit(parseInit(rest));
     case 'doctor':

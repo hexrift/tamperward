@@ -135,6 +135,24 @@ describe('run observer CLI grammar (#335)', () => {
   });
 });
 
+describe('compact CI sign-off labels (#631)', () => {
+  const HEAD = '1234567890abcdef1234567890abcdef12345678';
+
+  it('prints a GitHub-label-safe exact-head token', () => {
+    const r = run(['signoff-label', '--rule', 'verify', '--head', HEAD]);
+    expect(r.code).toBe(0);
+    expect(r.out).toMatch(/^tw1:[A-Za-z0-9_-]{43}\n$/);
+    expect(r.err).toBe('');
+  });
+
+  it('rejects a short head before generating an approval', () => {
+    const r = run(['signoff-label', '--rule', 'verify', '--head', '1234567']);
+    expect(r.code).toBe(2);
+    expect(r.out).toBe('');
+    expect(r.err).toMatch(/full 40- or 64-character/);
+  });
+});
+
 describe('strict CLI argument boundary (#312)', () => {
   const malformed: Array<[string, string[], RegExp]> = [
     ['check unknown option', ['check', '--staged', '--typo'], /unknown option "--typo"/],

@@ -405,7 +405,7 @@ jobs:
 
       # SPEC §5.4: in CI a sign-off must be OUT OF BAND — never a file the same PR can
       # commit, because then the change being blocked could authorise itself. The channel
-      # is a PR label `tamperward:allow:<rule>@<head-sha>`, which only someone with triage
+      # is a compact PR label `tw1:<digest>` (or legacy `tamperward:allow:<rule>@<head-sha>`), which only someone with triage
       # access or higher can apply (label permission is approval permission), further gated by branch protection + CODEOWNERS. The `@<sha>`
       # binds the approval to the commit it was granted for: labels persist across
       # pushes, and this gate ran without TAMPERWARD_OOB_HEAD until 1.14.7 — so an
@@ -491,7 +491,7 @@ jobs:
         env:
           LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
         run: |
-          RULES="$(printf '%s' "$LABELS" | jq -r '.[] | select(startswith("tamperward:allow:")) | sub("^tamperward:allow:"; "")' | paste -sd, -)"
+          RULES="$(printf '%s' "$LABELS" | jq -r '.[] | if startswith("tamperward:allow:") then sub("^tamperward:allow:"; "") elif startswith("tw1:") then . else empty end' | paste -sd, -)"
           echo "rules=$RULES" >> "$GITHUB_OUTPUT"
           [ -n "$RULES" ] && echo "out-of-band approval present for: $RULES" || echo "no out-of-band approval on this PR"
 

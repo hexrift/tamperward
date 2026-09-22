@@ -236,6 +236,18 @@ current blocking finding to sign off. In CI the sign-off is **out-of-band** — 
 applied by a reviewer, never a file committed on the branch under review. See
 [the sign-off model](../guide/enforcement.md#the-sign-off-model).
 
+## Sign-off labels: `signoff-label`
+
+Print a compact GitHub label bound to the exact rule, optional file, and full PR head SHA:
+
+```bash
+tamperward signoff-label --rule test-deletion --file test/calc.test.js --head "$GITHUB_SHA"
+```
+
+The output is a `tw1:<digest>` label that fits GitHub's label-name limit. It is valid only
+for the supplied full head SHA and exact rule/file; malformed, foreign, or abbreviated
+heads are rejected. Existing `tamperward:allow:<rule>@<head-sha>` labels remain compatible.
+
 ## The persistent hook service: `hook-service` (opt-in)
 
 One warm process per user and repository that evaluates hook/sweep requests over a private
