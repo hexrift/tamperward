@@ -11,10 +11,10 @@
 //   CI     (`check --diff`, `verify`): honors ONLY an out-of-band signal (a reviewed-label/
 //          CODEOWNERS approval surfaced via env by the workflow), NEVER the committed ledger —
 //          anything in the repo is something the PR (and thus the agent) can author. For
-//          `verify` the token is `verify@<head-sha>` and it covers exactly one verdict,
-//          MASKED_FAILURE: a reviewer has read the intentional test change and agrees the
-//          original suite no longer applies. A red visible suite or a run that could not
-//          verify is not an approvable state and stays red.
+//          `verify` the token is `verify@<head-sha>` (or the compact `tw:<token>` form) and
+//          it covers exactly one verdict, MASKED_FAILURE: a reviewer has read the intentional
+//          test change and agrees the original suite no longer applies. A red visible suite or
+//          a run that could not verify is not an approvable state and stays red.
 //
 // The fingerprint binds to the triggering tamper, NOT the whole diff: an unrelated edit
 // elsewhere doesn't evaporate a sign-off, but a DIFFERENT tamper of the same rule+file isn't
@@ -55,6 +55,37 @@ export function fingerprint(rule: string, file: string | undefined, evidence: st
   return createHash('sha256').update(`${rule}\0${file ?? ''}\0${evidence}`).digest('hex').slice(0, 16);
 }
 export const fingerprintOf = (f: Finding): string => fingerprint(f.rule, f.file, f.evidence);
+
+const COMPACT_OOB_PREFIX = 'tw:';
+
+function fullHead(value: string): string {
+  const normalized = value.trim().toLowerCase();
+  if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(normalized)) {
+    throw new Error('out-of-band sign-off labels require a full 40- or 64-character hexadecimal head SHA');
+  }
+  return normalized;
+}
+
+/** GitHub-compatible, exact-scope CI label for a rule/file and full head SHA.
+ *
+ * GitHub label names cannot hold the human-readable `tamperward:allow:<rule>@<full-sha>`
+ * spelling for every rule. The compact label carries a full SHA-256 digest of the exact
+ * matcher scope and full object id instead. It is intentionally opaque: callers should
+ * obtain it from `tamperward signoff-label`, never by shortening the head SHA. */
+export function oobLabel(want: string, head: string): string {
+  const normalizedHead = fullHead(head);
+  const separator = want.indexOf(':');
+  const rule = separator < 0 ? want : want.slice(0, separator);
+  const file = separator < 0 ? '' : want.slice(separator + 1);
+  const digest = createHash('sha256')
+    .update(rule)
+    .update('\0')
+    .update(file)
+    .update('\0')
+    .update(normalizedHead)
+    .digest('base64url');
+  return `${COMPACT_OOB_PREFIX}${digest}`;
+}
 
 /** Where the LOCAL ledger lives. FAILS CLOSED on a path that escapes the repository:
  *  the loader already refuses `../x.jsonl` and absolute paths, and this guard holds
@@ -129,6 +160,18 @@ export function oobToken(want: string, oob: string[], head?: string): string | n
   for (const raw of oob) {
     const t = raw.trim();
     if (!t) continue;
+
+    if (t.startsWith(COMPACT_OOB_PREFIX)) {
+      if (!head) continue;
+      try {
+        if (t === oobLabel(want, head)) return t;
+      } catch {
+        // A malformed supplied head is not an approval. The caller's normal
+        // environment validation reports that state separately.
+      }
+      continue;
+    }
+
     const at = t.lastIndexOf('@');
     if (at === -1) {
       if (!head && t === want) return t; // unbound: refused once a head is known

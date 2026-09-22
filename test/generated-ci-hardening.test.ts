@@ -54,6 +54,9 @@ describe('generated CI supply-chain hardening', () => {
 
     expect(src).toContain(`actions/setup-node@${SETUP_NODE_SHA} # v6`);
     expect(src).toContain(`actions/checkout@${CHECKOUT_SHA} # v5`);
+    expect(src).toContain('tamperward signoff-label');
+    expect(src).toContain('startswith("tw:") or startswith("tamperward:allow:")');
+    expect(src).toContain('tamperward:allow:<rule>@<full-head-sha>');
   });
 
   it('installs the authority before checkout and leaves no repository credential for candidate steps', () => {

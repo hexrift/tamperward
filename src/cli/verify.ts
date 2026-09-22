@@ -27,11 +27,12 @@
 // MASKED_FAILURE is the one verdict a human may overrule, and only out of band:
 // the CI channel `check --diff` already honours (TAMPERWARD_OOB_SIGNOFF with
 // TAMPERWARD_OOB_HEAD, resolved by the workflow from a PR label someone with
-// write access applied) accepts a `verify@<head-sha>` token. That is the case
-// where the original suite is genuinely wrong for the change — a behaviour
-// change whose old expectations must fail — and a reviewer has read the test
-// edit and said so. SUITE_RED and cannot-verify are not approvable states: a
-// label cannot make a red suite green or turn "could not run" into "verified".
+// write access applied) accepts a `verify@<head-sha>` legacy token or a compact
+// `tw:<token>` label generated for the exact `verify` scope and full head SHA.
+// That is the case where the original suite is genuinely wrong for the change —
+// a behaviour change whose old expectations must fail — and a reviewer has read
+// the test edit and said so. SUITE_RED and cannot-verify are not approvable states:
+// a label cannot make a red suite green or turn "could not run" into "verified".
 // The committed ledger is never consulted; nothing in the tree under judgment
 // can clear its own verdict.
 //
@@ -1580,11 +1581,13 @@ export function runVerify(opts: VerifyOpts): number {
         renderStageDiagnostics(out, 'pristine', pristine);
       }
     }
-    if (signedOff)
+    if (signedOff) {
+      const approval = signedOff.startsWith('tw:') ? signedOff : `tamperward:allow:${signedOff}`;
       out(
-        `masked failure cleared by out-of-band approval (tamperward:allow:${signedOff}): a reviewer ` +
+        `masked failure cleared by out-of-band approval (${approval}): a reviewer ` +
           'accepted that the original suite no longer applies to this change. Exit 0.',
       );
+    }
     if (removedAdded > 0)
       out(
         `(${removedAdded} protected file(s) added since ${base.slice(0, 10)} were removed from the pristine run: ` +

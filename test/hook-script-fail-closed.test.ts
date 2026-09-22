@@ -216,7 +216,7 @@ describe('2 · every honest shape of the report is a sign-off now, with the reas
     expect(f[0].severity).toBe('block');
     expect(f[0].evidence).toMatch(CHANGED);
     expect(f[0].evidence).toContain('tamperward allow hook-tampering --file .husky/pre-commit');
-    expect(f[0].evidence).toContain('tamperward:allow:hook-tampering@<head-sha>');
+    expect(f[0].evidence).toContain('tamperward signoff-label hook-tampering --file .husky/pre-commit --head <full-sha>');
     expect(f[0].signoff.required).toBe(true);
   });
 

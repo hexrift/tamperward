@@ -73,7 +73,8 @@ copy being trusted. The generated PR-gate workflow runs two steps:
    merge-base so a branch cannot govern its own verdict. Cleared only by an out-of-band
    label bound to the head SHA.
 2. `tamperward verify --require-ancestor` — pristine re-execution of your suite against the
-   base. Its masked-failure verdict clears only by a `tamperward:allow:verify@<head-sha>`
+   base. Its masked-failure verdict clears only by a compact token generated for the
+   exact `verify` scope with `tamperward signoff-label verify --head <full-sha>`
    label. The verify step **needs a `verify:` block** in `.tamperward.yml` naming the suite
    command; without one it fails closed (exit 2) rather than passing quietly.
 

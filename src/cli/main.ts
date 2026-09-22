@@ -16,6 +16,7 @@ import { runWatch } from './watch';
 import { runOnboard, OnboardOpts } from './onboard';
 import { runResearchCommand, RESEARCH_SUBCOMMANDS } from './research';
 import { runStats, type StatsOpts } from './audit';
+import { runSignoffLabel, type SignoffLabelOpts } from './signoff-label';
 
 function parseAllow(args: string[]): AllowOpts {
   const o: AllowOpts = {};
@@ -89,6 +90,17 @@ function parseStats(args: string[]): StatsOpts {
     else if (a === '--file') o.file = args[++i];
     else if (a === '--since') o.since = args[++i];
     else if (a === '--json') o.json = true;
+  }
+  return o;
+}
+
+function parseSignoffLabel(args: string[]): SignoffLabelOpts {
+  const o: SignoffLabelOpts = {};
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--head') o.head = args[++i];
+    else if (a === '--file') o.file = args[++i];
+    else if (!a.startsWith('--') && !o.rule) o.rule = a;
   }
   return o;
 }
@@ -245,6 +257,17 @@ export function validateCliArgs(cmd: string, args: string[]): string | undefined
     });
     if (parsed.error) return parsed.error;
     if (parsed.positionals.length === 0) return 'allow requires a rule';
+    return undefined;
+  }
+
+  if (cmd === 'signoff-label') {
+    const parsed = validateFlatArgs(args, {
+      values: { '--head': 'string', '--file': 'string' },
+      positional: 'one',
+    });
+    if (parsed.error) return parsed.error;
+    if (parsed.positionals.length === 0) return 'signoff-label requires a rule';
+    if (!parsed.seen.has('--head')) return 'signoff-label requires --head';
     return undefined;
   }
 
@@ -412,8 +435,9 @@ Formats:
              [--budget S] [--json] [--keep] as-is AND with protected files restored
              [--require-ancestor] [--cwd D]  from the trusted base; a visible-green /
                                             pristine-red result is a MASKED FAILURE
-                                            (exit 1, or 0 under an out-of-band
-                                            verify@<head-sha> approval); cannot-verify
+                                            (exit 1, or 0 under a compact tw:<token>
+                                            or legacy verify@<full-sha> approval);
+                                            cannot-verify
                                             fails closed (2)
   tamperward trace-verify [--base R]          advisory Linux verifier-input discovery:
              [--cmd C] [--budget S] [--runs N] trace a trusted/known-good base with
@@ -456,6 +480,8 @@ Formats:
                                              integrity signal, not proof of agent intent.
   tamperward allow <rule> --reason "..."    record a human sign-off (local audit ledger)
              [--file F] [--cwd D]
+  tamperward signoff-label <rule> --head SHA  print the compact GitHub CI label for
+             [--file F]                         this exact rule/file and full commit SHA
   tamperward onboard [--yes] [--cwd D]      guided first-run setup: preflight, the
              [--base R] [--repo O/R]        init plan with a confirmation before any
              [--branch B] [--verify-command C] write, canonical init, explicit verifier
@@ -523,6 +549,8 @@ export function main(argv: string[]): number | Promise<number> {
       return runAgentCommand('sweep', rest);
     case 'allow':
       return runAllow(parseAllow(rest));
+    case 'signoff-label':
+      return runSignoffLabel(parseSignoffLabel(rest));
     case 'init':
       return runInit(parseInit(rest));
     case 'doctor':

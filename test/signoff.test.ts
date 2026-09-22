@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import {
   applyLocalSignoffs,
   applyOobSignoffs,
+  oobLabel,
   oobToken,
   appendEntry,
   makeEntry,
@@ -85,6 +86,15 @@ describe('CI layer — honors ONLY out-of-band, never the committed ledger', () 
     expect(applyOobSignoffs([f], []).cleared).toHaveLength(0);
     expect(applyOobSignoffs([f], ['some-other-rule']).cleared).toHaveLength(0);
   });
+
+  it('clears a finding with the compact label generated for its exact scope and head', () => {
+    const f = blockFinding();
+    const head = '1234567890abcdef1234567890abcdef12345678';
+    const label = oobLabel(`${f.rule}:${f.file}`, head);
+    const result = applyOobSignoffs([f], [label], head);
+    expect(result.cleared).toEqual([f]);
+    expect(result.findings).toHaveLength(0);
+  });
 });
 
 describe('AGENT layer — refuses a sign-off it could have authored (the guarantee)', () => {
@@ -125,6 +135,24 @@ describe('oobToken — the one matcher behind check --diff and verify', () => {
     expect(oobToken('verify', ['verify@1234567'], HEAD)).toBeNull();
     expect(oobToken('verify', [`verify@${HEAD.toUpperCase()}`], HEAD)).toBe(`verify@${HEAD.toUpperCase()}`);
     expect(oobToken('verify', ['verify@deadbeef0'], HEAD)).toBeNull();
+  });
+  it('accepts a compact GitHub label bound to the exact scope and full head', () => {
+    const label = oobLabel('verify', HEAD);
+    expect(label).toMatch(/^tw:[A-Za-z0-9_-]{43}$/);
+    expect(label.length).toBeLessThanOrEqual(50);
+    expect(oobToken('verify', [label], HEAD)).toBe(label);
+    expect(oobToken('verify', [label], `${HEAD.slice(0, -1)}9`)).toBeNull();
+    expect(oobToken('test-deletion', [label], HEAD)).toBeNull();
+    expect(oobToken('verify:tests/a.test.ts', [label], HEAD)).toBeNull();
+    expect(oobToken('verify:tests/a.test.ts', [oobLabel('verify:tests/a.test.ts', HEAD)], HEAD)).toBe(
+      oobLabel('verify:tests/a.test.ts', HEAD),
+    );
+  });
+
+  it('rejects malformed compact labels and cannot validate them without a head', () => {
+    const label = oobLabel('verify', HEAD);
+    expect(oobToken('verify', ['tw:not-a-token'], HEAD)).toBeNull();
+    expect(oobToken('verify', [label])).toBeNull();
   });
   it('never matches a different name, whatever the sha', () => {
     expect(oobToken('verify', ['verify:x@1234567', 'test-skip@1234567'], HEAD)).toBeNull();

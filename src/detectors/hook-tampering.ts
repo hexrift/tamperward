@@ -1003,7 +1003,7 @@ export const hookTampering: Detector = {
                 makeFinding(RULE, policy, {
                   file: c.path,
                   message: `A protected hook script was added that does not run the gate live: ${why}. A new gate script needs a sign-off unless the gate is live in it.`,
-                  evidence: `a hook script was added; sign off with \`tamperward allow hook-tampering --file ${c.path} --reason "..."\` locally or the \`tamperward:allow:hook-tampering@<head-sha>\` label in CI, or make the gate live in it`,
+                  evidence: `a hook script was added; sign off with \`tamperward allow hook-tampering --file ${c.path} --reason "..."\` locally or generate the compact CI label with \`tamperward signoff-label hook-tampering --file ${c.path} --head <full-sha>\`, or make the gate live in it`,
                   remediation: 'Run `tamperward check --staged` in the new hook, in a position where its failure fails the hook, or have a human sign off on a hook that does not.',
                 }),
               );
@@ -1043,7 +1043,7 @@ export const hookTampering: Detector = {
                 makeFinding(RULE, policy, {
                   file: c.path,
                   message: `A hand-written protected hook script was changed: ${detail.length ? detail.join('; ') : 'an edit other than a pin raise'}. Every edit to a gate script other than raising its pin needs a sign-off.`,
-                  evidence: `the gate script changed; sign off with \`tamperward allow hook-tampering --file ${c.path} --reason "..."\` locally or the \`tamperward:allow:hook-tampering@<head-sha>\` label in CI, or restore it`,
+                  evidence: `the gate script changed; sign off with \`tamperward allow hook-tampering --file ${c.path} --reason "..."\` locally or generate the compact CI label with \`tamperward signoff-label hook-tampering --file ${c.path} --head <full-sha>\`, or restore it`,
                   remediation:
                     'Restore the script, or have a human sign off. A line-by-line reading of a shell script cannot tell an honest restructuring from a neutered gate, so the gate script is held byte-for-byte: only raising its pin passes without a sign-off.',
                 }),

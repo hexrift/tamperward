@@ -55,7 +55,7 @@ Every other edit — a linter step added, `npx` → `pnpm exec`, an
 `if ! … ; then exit 1; fi` around the gate, a comment line — is reported with the reason
 *the gate script changed; sign off*, and cleared the same way as the first one:
 `tamperward allow hook-tampering --file <path>` locally, the
-`tamperward:allow:hook-tampering@<head-sha>` label in CI.
+compact `tw:<token>` label generated with `tamperward signoff-label hook-tampering --file <path> --head <full-sha>` in CI.
 
 That is deliberate too. Three adversarial passes over a shell-script liveness model,
 the last against a model rebuilt after the second, each found a dozen shapes a real

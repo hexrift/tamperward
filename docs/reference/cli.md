@@ -78,8 +78,8 @@ tamperward verify --base main
 | `--cwd <dir>` | Run as if from `<dir>`. |
 
 Verdicts: `VERIFIED`, `MASKED_FAILURE`, `SUITE_RED`, `BUDGET_EXCEEDED`, `CANNOT_VERIFY`.
-Exit: **0** `VERIFIED` (or a `MASKED_FAILURE` cleared by an out-of-band
-`verify@<head-sha>` approval) · **1** `MASKED_FAILURE` / `SUITE_RED` · **2**
+Exit: **0** `VERIFIED` (or a `MASKED_FAILURE` cleared by a compact `tw:<token>` or
+legacy `verify@<full-sha>` approval) · **1** `MASKED_FAILURE` / `SUITE_RED` · **2**
 `CANNOT_VERIFY`. Full envelope and reason enums: [Machine output](./machine-output.md).
 Background: [Pristine verification](../guide/getting-started.md#pristine-verification-tamperward-verify).
 

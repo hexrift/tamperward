@@ -76,7 +76,7 @@ overwrites anything you wrote, and `--dry-run` shows the plan first:
 | --- | --- |
 | agent loop | Claude Code `PreToolUse` deny + `Stop` sweep, merged into `.claude/settings.json` |
 | pre-commit | husky when present, the plain git hook otherwise |
-| CI | a PR-gate workflow with two steps: `check --diff` over the PR range, cleared only by an out-of-band label bound to the head SHA, and `verify --require-ancestor` — pristine re-execution of your suite against the base, whose masked-failure verdict clears only by a `tamperward:allow:verify@<head-sha>` label. The verify step **needs a `verify:` block in `.tamperward.yml`** naming the suite command; without one it fails closed (exit 2) rather than passing quietly |
+| CI | a PR-gate workflow with two steps: `check --diff` over the PR range, cleared only by a compact out-of-band label generated with `tamperward signoff-label` and bound to the exact head SHA, and `verify --require-ancestor` — pristine re-execution of your suite against the base, whose masked-failure verdict clears only by a token generated for `verify`. Legacy full-SHA labels remain accepted during migration. The verify step **needs a `verify:` block in `.tamperward.yml`** naming the suite command; without one it fails closed (exit 2) rather than passing quietly |
 | CODEOWNERS | an owner requirement on the workflow directory, the policy file and CODEOWNERS itself — the paths that decide whether the gate runs at all |
 | policy | a commented baseline `.tamperward.yml` — the defaults apply even without it |
 

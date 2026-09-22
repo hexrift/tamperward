@@ -9,6 +9,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { guardedMain, validateCliArgs } from '../src/cli/main';
+import { oobLabel } from '../src/signoff';
 import { rootless } from './rootless';
 
 const dirs: string[] = [];
@@ -50,6 +51,16 @@ function run(argv: string[]): { code: number; out: string; err: string } {
 const ONE_CLEAN_LINE = /^tamperward: [^\n]+\n$/;
 
 describe('D-6: crash paths exit 2 with one clean line', () => {
+  it('prints a compact GitHub sign-off label for the exact scope and head', () => {
+    const head = '1234567890abcdef1234567890abcdef12345678';
+    const r = run(['signoff-label', 'verify', '--head', head]);
+    expect(r.code).toBe(0);
+    expect(r.err).toBe('');
+    expect(r.out).toBe(`${oobLabel('verify', head)}\n`);
+    expect(validateCliArgs('signoff-label', ['verify', '--head', head])).toBeUndefined();
+    expect(validateCliArgs('signoff-label', ['verify'])).toMatch(/requires --head/);
+  });
+
   it('an unknown base revision in --diff', () => {
     const r = run(['check', '--diff', 'nope...HEAD', '--cwd', repo()]);
     expect(r.code).toBe(2);
