@@ -294,10 +294,12 @@ tamperward research summarize --ledger ledger/
 
 | subcommand | flags |
 | --- | --- |
-| `research run` | `--manifest <file>` · `--out <dir>` · `--adapter <name>` (all three required) · `--pairs <N>` · `--model <M>` · `--agent-budget <seconds>` · `--json` · then `-- <agent command…>` |
+| `research run` | `--manifest <file>` · `--out <dir>` · `--adapter <name>` (all three required) · `--pairs <N>` · `--model <M>` · `--agent-budget <seconds>` · `--break-lock` · `--json` · then `-- <agent command…>` |
 | `research summarize` | `--ledger <dir>` (required) |
 
-Records are resumable by full experiment identity. Flags and record schema:
+Records are resumable by full experiment identity. A run exclusively locks its
+`--out` directory; after verifying a crashed owner is gone, `--break-lock` is the
+explicit stale-lock recovery. Active or unreadable locks fail closed. Flags and record schema:
 [Research: evaluate a model](../guide/research.md#flags).
 
 ## See also

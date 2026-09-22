@@ -22,8 +22,10 @@
 // an interrupted run continues where it stopped. Records land under the
 // operator's own --out directory, never under harness/.
 
+import { randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, linkSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync, writeSync } from 'node:fs';
+import { hostname } from 'node:os';
 import { join, resolve } from 'node:path';
 import { runCheck } from '../cli/check';
 import { lifecyclePlatformCheck, type DoctorCheck } from '../cli/doctor';
@@ -78,6 +80,8 @@ export interface ResearchRunOpts {
   /** @internal Operator directory used to resolve a relative command adapter argv[0].
    *  The CLI leaves this unset and therefore uses process.cwd(). */
   operatorCwd?: string;
+  /** Explicitly recover a lock whose recorded owner is no longer alive. */
+  breakLock?: boolean;
 }
 
 const err = (s: string): void => void process.stderr.write(s + '\n');
@@ -89,6 +93,141 @@ function git(args: string[], cwd: string): string {
 
 function pairRecordPath(ledger: string, task: string, pair: number): string {
   return join(ledger, 'pairs', `${task}--${pair}.json`);
+}
+
+interface ResearchLockOwner {
+  pid: number;
+  host: string;
+  started_at: string;
+  token: string;
+}
+
+export interface ResearchLock {
+  release(): void;
+}
+
+function researchLockPath(ledger: string): string {
+  return join(ledger, 'run.lock');
+}
+
+function readLockOwner(path: string): ResearchLockOwner | null {
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'));
+    if (!isRecord(parsed) || typeof parsed.pid !== 'number' || !Number.isInteger(parsed.pid) || parsed.pid <= 0) return null;
+    if (typeof parsed.host !== 'string' || typeof parsed.started_at !== 'string' || typeof parsed.token !== 'string') return null;
+    return { pid: parsed.pid, host: parsed.host, started_at: parsed.started_at, token: parsed.token };
+  } catch {
+    return null;
+  }
+}
+
+function processAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code !== 'ESRCH';
+  }
+}
+
+function lockHolder(path: string): string {
+  const owner = readLockOwner(path);
+  return owner
+    ? `pid ${owner.pid} on ${owner.host}, started ${owner.started_at}`
+    : 'an unreadable lock file';
+}
+
+/**
+ * Serialize all writers for one research ledger. The lock is deliberately
+ * fail-closed: an active or malformed lock is never silently replaced.
+ * `--break-lock` is an explicit operator action and only removes a readable
+ * lock whose same-host owner is no longer alive.
+ */
+export function acquireResearchLock(ledger: string, breakStaleLock = false): ResearchLock {
+  mkdirSync(ledger, { recursive: true });
+  const path = researchLockPath(ledger);
+
+  if (breakStaleLock && existsSync(path)) {
+    // Inspect before touching anything: an active or unreadable lock is never moved.
+    const owner = readLockOwner(path);
+    if (!owner) {
+      throw new ResearchError(`research output ${ledger} has an unreadable lock at ${path}; verify no run is active, then remove it deliberately`);
+    }
+    if (owner.host !== hostname() || processAlive(owner.pid)) {
+      throw new ResearchError(
+        `research output ${ledger} is still locked by ${lockHolder(path)}; refusing to break an active lock (a reused pid looks alive: if that owner is certainly gone, remove ${path} deliberately)`,
+      );
+    }
+    // Claim the stale file atomically instead of unlinking whatever is at `path` now: a
+    // lock a new owner created since the inspection would otherwise be deleted and two
+    // runs would write one ledger. rename() moves exactly one file; the moved file is
+    // re-verified by token before it is discarded, and put back if it is not the one
+    // inspected.
+    const claimed = `${path}.stale-${process.pid}-${randomUUID()}`;
+    let moved = true;
+    try {
+      renameSync(path, claimed);
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw new ResearchError(`research output ${ledger} stale lock recovery failed for ${path}`);
+      }
+      // Already gone (released, or another --break-lock won): the exclusive create
+      // below arbitrates.
+      moved = false;
+    }
+    if (moved) {
+      const inspected = readLockOwner(claimed);
+      if (inspected && inspected.token === owner.token) {
+        unlinkSync(claimed);
+      } else {
+        try {
+          linkSync(claimed, path); // restore without clobbering a lock created meanwhile
+          unlinkSync(claimed);
+        } catch {
+          // `path` was re-taken in the window; the moved lock stays under its .stale-*
+          // name for the operator rather than being destroyed.
+        }
+        throw new ResearchError(`research output ${ledger}: the lock at ${path} changed while it was being broken; refusing (rerun --break-lock only once no run is active)`);
+      }
+    }
+  }
+
+  const owner: ResearchLockOwner = {
+    pid: process.pid,
+    host: hostname(),
+    started_at: new Date().toISOString(),
+    token: randomUUID(),
+  };
+  const text = JSON.stringify(owner) + '\n';
+  let fd = -1;
+  try {
+    fd = openSync(path, 'wx', 0o600);
+    writeSync(fd, text);
+    closeSync(fd);
+    fd = -1;
+  } catch (e) {
+    if (fd !== -1) closeSync(fd);
+    if ((e as NodeJS.ErrnoException).code === 'EEXIST') {
+      throw new ResearchError(
+        `research output ${ledger} is already locked by ${lockHolder(path)}; refusing concurrent writers. Verify the owner is not running, then remove ${path} deliberately or rerun with --break-lock`,
+      );
+    }
+    throw new ResearchError(`research output ${ledger} cannot create lock ${path}`);
+  }
+
+  let released = false;
+  return {
+    release(): void {
+      if (released) return;
+      released = true;
+      try {
+        if (readFileSync(path, 'utf8') === text) unlinkSync(path);
+      } catch {
+        // A deliberately removed lock must not turn a completed run into a
+        // different failure, and the token prevents deleting a replacement.
+      }
+    },
+  };
 }
 
 /** The identity a record must carry to count as THIS experiment's pair. */
@@ -511,95 +650,53 @@ export function runResearch(opts: ResearchRunOpts): number {
   }
 
   const ledger = resolve(opts.out);
-  const pairs = opts.pairs ?? 1;
-  mkdirSync(join(ledger, 'pairs'), { recursive: true });
-
-  for (const task of tasks) {
-    // Validate every resumable record for this task BEFORE starting any missing
-    // pair. Otherwise pair 1 could execute against today's source and only then
-    // discover that an existing pair 2 belongs to another source/experiment.
-    const existingRecords = new Map<number, PairRecord>();
-    let sourceBase: string | null = null;
-    try {
-      for (let pair = 1; pair <= pairs; pair++) {
-        const path = pairRecordPath(ledger, task.id, pair);
-        if (!existsSync(path)) continue;
-        const existing = resumableRecord(path, {
-          task: task.id,
-          pair,
-          manifest_sha256: manifestSha,
-          adapter: { name: adapter.name, layers: adapter.layers },
-          model: opts.model ?? null,
-          tamperward_version: TW_VERSION,
-          agent_argv: agentArgvIdentity,
-          agent_budget: opts.agentBudget ?? null,
-          verify_command: task.verify.command,
-          source_base: sourceBase,
-        });
-        sourceBase ??= existing.arms.ungated.base;
-        // The first record establishes the source commit; every later record
-        // must agree with it.
-        if (existing.arms.ungated.base !== sourceBase) {
-          throw new ResearchError(
-            `ledger record ${path} belongs to a different source commit (${existing.arms.ungated.base.slice(0, 12)}… != ${sourceBase.slice(0, 12)}…); use a new --out, or remove it deliberately`,
-          );
-        }
-        existingRecords.set(pair, existing);
-      }
-    } catch (e) {
-      if (e instanceof ResearchError) {
-        err(`tamperward research: ${e.message}`);
-        return 2;
-      }
-      throw e;
+  let lock: ResearchLock;
+  try {
+    lock = acquireResearchLock(ledger, opts.breakLock === true);
+  } catch (e) {
+    if (e instanceof ResearchError) {
+      err(`tamperward research: ${e.message}`);
+      return 2;
     }
+    throw e;
+  }
 
-    // The first existing or newly executed pair pins the source commit for this
-    // task. Every later arm/pair checks out that SHA, never the moving branch
-    // name/HEAD from the manifest.
-    for (let pair = 1; pair <= pairs; pair++) {
-      const path = pairRecordPath(ledger, task.id, pair);
-      const existing = existingRecords.get(pair);
-      if (existing) {
-        if (!opts.json) out(`tamperward research — task ${task.id} pair ${pair}: already recorded (${path}); skipping`);
-        continue;
-      }
+  try {
+    const pairs = opts.pairs ?? 1;
+    mkdirSync(join(ledger, 'pairs'), { recursive: true });
 
-      let record: PairRecord;
+    for (const task of tasks) {
+      // Validate every resumable record for this task BEFORE starting any missing
+      // pair. Otherwise pair 1 could execute against today's source and only then
+      // discover that an existing pair 2 belongs to another source/experiment.
+      const existingRecords = new Map<number, PairRecord>();
+      let sourceBase: string | null = null;
       try {
-        const arms: Partial<Record<ResearchArm, TrajectoryRecord>> = {};
-        for (const arm of RESEARCH_ARMS) {
-          if (!opts.json) out(`tamperward research — task ${task.id} pair ${pair}: ${arm} arm`);
-          arms[arm] = runTrajectory(ledger, task, pair, arm, adapter, opts, sourceBase ?? undefined);
-          if (arm === 'ungated') {
-            const resolvedSource = arms[arm]?.base;
-            if (!resolvedSource) throw new ResearchError(`task "${task.id}" pair ${pair}: ungated arm produced no source base`);
-            if (sourceBase !== null && resolvedSource !== sourceBase) {
-              throw new ResearchError(
-                `task "${task.id}" pair ${pair}: source base moved (${resolvedSource.slice(0, 12)}… != ${sourceBase.slice(0, 12)}…)`,
-              );
-            }
-            sourceBase ??= resolvedSource;
+        for (let pair = 1; pair <= pairs; pair++) {
+          const path = pairRecordPath(ledger, task.id, pair);
+          if (!existsSync(path)) continue;
+          const existing = resumableRecord(path, {
+            task: task.id,
+            pair,
+            manifest_sha256: manifestSha,
+            adapter: { name: adapter.name, layers: adapter.layers },
+            model: opts.model ?? null,
+            tamperward_version: TW_VERSION,
+            agent_argv: agentArgvIdentity,
+            agent_budget: opts.agentBudget ?? null,
+            verify_command: task.verify.command,
+            source_base: sourceBase,
+          });
+          sourceBase ??= existing.arms.ungated.base;
+          // The first record establishes the source commit; every later record
+          // must agree with it.
+          if (existing.arms.ungated.base !== sourceBase) {
+            throw new ResearchError(
+              `ledger record ${path} belongs to a different source commit (${existing.arms.ungated.base.slice(0, 12)}… != ${sourceBase.slice(0, 12)}…); use a new --out, or remove it deliberately`,
+            );
           }
+          existingRecords.set(pair, existing);
         }
-        const ungated = arms.ungated;
-        const gated = arms.gated;
-        if (!ungated || !gated) throw new ResearchError(`task "${task.id}" pair ${pair}: an arm produced no record`);
-        record = {
-          schema_version: MACHINE_SCHEMA_VERSION,
-          command: 'research',
-          document: 'pair',
-          task: task.id,
-          pair,
-          adapter: { name: adapter.name, layers: [...adapter.layers] },
-          model: opts.model ?? null,
-          tamperward_version: TW_VERSION,
-          agent_argv: [...agentArgvIdentity],
-          agent_budget: opts.agentBudget ?? null,
-          manifest_sha256: manifestSha,
-          verify_command: task.verify.command,
-          arms: { ungated, gated },
-        };
       } catch (e) {
         if (e instanceof ResearchError) {
           err(`tamperward research: ${e.message}`);
@@ -607,23 +704,80 @@ export function runResearch(opts: ResearchRunOpts): number {
         }
         throw e;
       }
-      const text = JSON.stringify(record);
-      writeRecordAtomically(path, text + '\n');
-      if (opts.json) {
-        out(text);
-      } else {
-        const g = record.arms.gated;
-        const u = record.arms.ungated;
-        out(
-          `tamperward research — task ${task.id} pair ${pair}: ` +
-          `ungated ${u.outcome.verify_verdict} (masked=${u.outcome.masked_failure}, surviving=${u.outcome.surviving_protected_mutations}); ` +
-          `gated ${g.outcome.verify_verdict} (masked=${g.outcome.masked_failure}, surviving=${g.outcome.surviving_protected_mutations}), ` +
-          `tamperward ${g.treatment?.verdict ?? 'n/a'} → ${g.treatment?.disposition ?? 'n/a'}` +
-          (u.measured && g.measured ? '' : `; UNMEASURABLE (${[u.unmeasurable, g.unmeasurable].filter(Boolean).join(' / ')})`) +
-          `; recorded ${path}`,
-        );
+
+      // The first existing or newly executed pair pins the source commit for this
+      // task. Every later arm/pair checks out that SHA, never the moving branch
+      // name/HEAD from the manifest.
+      for (let pair = 1; pair <= pairs; pair++) {
+        const path = pairRecordPath(ledger, task.id, pair);
+        const existing = existingRecords.get(pair);
+        if (existing) {
+          if (!opts.json) out(`tamperward research — task ${task.id} pair ${pair}: already recorded (${path}); skipping`);
+          continue;
+        }
+
+        let record: PairRecord;
+        try {
+          const arms: Partial<Record<ResearchArm, TrajectoryRecord>> = {};
+          for (const arm of RESEARCH_ARMS) {
+            if (!opts.json) out(`tamperward research — task ${task.id} pair ${pair}: ${arm} arm`);
+            arms[arm] = runTrajectory(ledger, task, pair, arm, adapter, opts, sourceBase ?? undefined);
+            if (arm === 'ungated') {
+              const resolvedSource = arms[arm]?.base;
+              if (!resolvedSource) throw new ResearchError(`task "${task.id}" pair ${pair}: ungated arm produced no source base`);
+              if (sourceBase !== null && resolvedSource !== sourceBase) {
+                throw new ResearchError(
+                  `task "${task.id}" pair ${pair}: source base moved (${resolvedSource.slice(0, 12)}… != ${sourceBase.slice(0, 12)}…)`,
+                );
+              }
+              sourceBase ??= resolvedSource;
+            }
+          }
+          const ungated = arms.ungated;
+          const gated = arms.gated;
+          if (!ungated || !gated) throw new ResearchError(`task "${task.id}" pair ${pair}: an arm produced no record`);
+          record = {
+            schema_version: MACHINE_SCHEMA_VERSION,
+            command: 'research',
+            document: 'pair',
+            task: task.id,
+            pair,
+            adapter: { name: adapter.name, layers: [...adapter.layers] },
+            model: opts.model ?? null,
+            tamperward_version: TW_VERSION,
+            agent_argv: [...agentArgvIdentity],
+            agent_budget: opts.agentBudget ?? null,
+            manifest_sha256: manifestSha,
+            verify_command: task.verify.command,
+            arms: { ungated, gated },
+          };
+        } catch (e) {
+          if (e instanceof ResearchError) {
+            err(`tamperward research: ${e.message}`);
+            return 2;
+          }
+          throw e;
+        }
+        const text = JSON.stringify(record);
+        writeRecordAtomically(path, text + '\n');
+        if (opts.json) {
+          out(text);
+        } else {
+          const g = record.arms.gated;
+          const u = record.arms.ungated;
+          out(
+            `tamperward research — task ${task.id} pair ${pair}: ` +
+            `ungated ${u.outcome.verify_verdict} (masked=${u.outcome.masked_failure}, surviving=${u.outcome.surviving_protected_mutations}); ` +
+            `gated ${g.outcome.verify_verdict} (masked=${g.outcome.masked_failure}, surviving=${g.outcome.surviving_protected_mutations}), ` +
+            `tamperward ${g.treatment?.verdict ?? 'n/a'} → ${g.treatment?.disposition ?? 'n/a'}` +
+            (u.measured && g.measured ? '' : `; UNMEASURABLE (${[u.unmeasurable, g.unmeasurable].filter(Boolean).join(' / ')})`) +
+            `; recorded ${path}`,
+          );
+        }
       }
     }
+    return 0;
+  } finally {
+    lock.release();
   }
-  return 0;
 }

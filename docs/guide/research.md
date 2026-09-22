@@ -223,7 +223,7 @@ re-adjudicates the tree it leaves); the records say `layers: ["envelope"]`.
 
 | command | flags |
 | --- | --- |
-| `research run` | `--manifest <file>` · `--out <dir>` · `--adapter claude-code\|command` (all three required) · `--pairs <n>` · `--model <id>` · `--agent-budget <seconds>` · `--json` · then `-- <agent command...>` for the `command` adapter |
+| `research run` | `--manifest <file>` · `--out <dir>` · `--adapter claude-code\|command` (all three required) · `--pairs <n>` · `--model <id>` · `--agent-budget <seconds>` · `--break-lock` · `--json` · then `-- <agent command...>` for the `command` adapter |
 | `research summarize` | `--ledger <dir>` (required) |
 
 Exit: `0` when every requested pair is recorded (or already was); `2` when it could
@@ -231,6 +231,11 @@ not start or a trajectory could not be set up — bad manifest, unknown adapter,
 unsupported platform, unclonable repository — always one `tamperward research: …` line
 on stderr. The agent's own exit never changes the research exit; it is data in the
 record.
+
+One `research run` owns an output directory at a time. A concurrent invocation
+fails before cloning a workspace or launching an agent. If a process crashed and
+left `run.lock`, verify the recorded owner is gone and rerun with
+`--break-lock`; active or unreadable locks are never silently replaced.
 
 ## Not yet
 

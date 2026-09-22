@@ -341,7 +341,7 @@ export function validateCliArgs(cmd: string, args: string[]): string | undefined
       const delimiter = rest.indexOf('--');
       const prefix = delimiter < 0 ? rest : rest.slice(0, delimiter);
       const parsed = validateFlatArgs(prefix, {
-        flags: ['--json'],
+        flags: ['--break-lock', '--json'],
         values: {
           '--manifest': 'string',
           '--out': 'string',
@@ -442,9 +442,11 @@ Formats:
   tamperward research run --manifest F      bring-your-own-model evaluation: for every
              --out D --adapter A [--pairs N]  task in the manifest, pin one source commit,
              [--model M] [--agent-budget S]   clone fresh state per arm, run the agent
-             [--json] [-- <agent cmd...>]     ungated and under the run envelope, then
-                                             observe both with verify + check. Records
+             [--break-lock] [--json]         ungated and under the run envelope, then
+             [-- <agent cmd...>]             observe both with verify + check. Records
                                              are resumable by full experiment identity.
+                                             --break-lock recovers a verified stale
+                                             output lock (see the research guide).
   tamperward research summarize --ledger D  aggregate measured pairs into model behaviour,
                                              independent outcome, TamperWard hits/misses
                                              and paired counts — no composite score
