@@ -73,8 +73,9 @@ copy being trusted. The generated PR-gate workflow runs two steps:
    merge-base so a branch cannot govern its own verdict. Cleared only by an out-of-band
    label bound to the head SHA.
 2. `tamperward verify --require-ancestor` — pristine re-execution of your suite against the
-   base. Its masked-failure verdict clears only by a `tamperward:allow:verify@<head-sha>`
-   label. The verify step **needs a `verify:` block** in `.tamperward.yml` naming the suite
+   base. Its masked-failure verdict clears only by a compact token generated for the exact
+   `verify` scope with `tamperward signoff-label --rule verify --head <full-sha>`; the label
+   must be regenerated after every push. The verify step **needs a `verify:` block** in `.tamperward.yml` naming the suite
    command; without one it fails closed (exit 2) rather than passing quietly.
 
 Under `GITHUB_ACTIONS=true`, `--format auto` selects the `github` renderer — an inline

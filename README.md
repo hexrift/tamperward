@@ -244,8 +244,8 @@ over the PR range, cleared only by an out-of-band exact-head label (generate one
 occasion, blocked its own author's commits. Branch, then open a PR; `main` is
 protected and CI must be green. Changing a protected asset will block your own PR
 (working as intended); a reviewed, legitimate change is cleared by a maintainer
-applying a compact `tw1:<digest>` label (legacy full-SHA labels remain accepted), never
-by weakening the policy.
+applying a compact `tw1:<digest>` label, never by weakening the policy. Legacy full-SHA
+tokens remain accepted by the parser for CI systems whose label transport can hold them.
 
 The public surface is the CLI and its exit codes, the hook wire format, the
 `.tamperward.yml` schema, and the versioned machine-output schemas under `schemas/` —

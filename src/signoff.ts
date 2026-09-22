@@ -11,8 +11,8 @@
 //   CI     (`check --diff`, `verify`): honors ONLY an out-of-band signal (a reviewed-label/
 //          CODEOWNERS approval surfaced via env by the workflow), NEVER the committed ledger —
 //          anything in the repo is something the PR (and thus the agent) can author. For
-//          `verify` the token is `verify@<head-sha>` and it covers exactly one verdict,
-//          MASKED_FAILURE: a reviewer has read the intentional test change and agrees the
+//          `verify` the token is `verify@<head-sha>` or compact `tw1:<digest>` and it covers
+//          exactly one verdict, MASKED_FAILURE: a reviewer has read the intentional test change and agrees the
 //          original suite no longer applies. A red visible suite or a run that could not
 //          verify is not an approvable state and stays red.
 //

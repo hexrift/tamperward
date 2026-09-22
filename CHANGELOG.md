@@ -9,7 +9,7 @@
   `tamperward signoff-label`. The SHA-256 token binds the exact rule, optional file, and
   full 40- or 64-character head object id; malformed, foreign, abbreviated, and
   unbound tokens remain rejected. Legacy `tamperward:allow:<rule>@<head-sha>` labels
-  remain compatible, and generated/check-in workflows, docs, and regression tests use
+  remain compatible, and generated/checked-in workflows, docs, and regression tests use
   the compact path.
 
 ## [2.31.0] — 2026-09-18

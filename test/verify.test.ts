@@ -10,6 +10,7 @@ import { join } from 'node:path';
 import { parseVerify, probeFilesystemCaseSensitivity, runVerify, type RunResult } from '../src/cli/verify';
 import { loadPolicy } from '../src/policy-load';
 import { policyWeakening } from '../src/detectors/policy-diff';
+import { compactOobToken } from '../src/signoff';
 import {
   CAPTURE_SUPERVISOR,
   DIAGNOSTIC_TAIL_BYTES,
@@ -343,6 +344,31 @@ describe('verify — out-of-band sign-off (MASKED_FAILURE only, head-bound)', ()
       expect(r.code).toBe(0);
       expect(r.json.verdict).toBe('MASKED_FAILURE'); // still reported as what it is
       expect(r.json.oob_signoff).toBe(`verify@${HEAD}`);
+    });
+  });
+
+  it('a compact verify label turns MASKED_FAILURE into exit 0 for the exact head', () => {
+    const cwd = repo();
+    masked(cwd);
+    const label = compactOobToken('verify', HEAD)!;
+    withOob(label, HEAD, () => {
+      const r = capture(() => run(cwd));
+      expect(r.code).toBe(0);
+      expect(r.json.verdict).toBe('MASKED_FAILURE');
+      expect(r.json.oob_signoff).toBe(label);
+    });
+  });
+
+  it('the compact verify label does not clear MASKED_FAILURE for another head', () => {
+    const cwd = repo();
+    masked(cwd);
+    const label = compactOobToken('verify', HEAD)!;
+    const otherHead = `${HEAD.slice(0, -1)}2`;
+    withOob(label, otherHead, () => {
+      const r = capture(() => run(cwd));
+      expect(r.code).toBe(1);
+      expect(r.json.verdict).toBe('MASKED_FAILURE');
+      expect(r.json.oob_signoff).toBeUndefined();
     });
   });
 

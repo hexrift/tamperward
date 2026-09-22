@@ -430,8 +430,8 @@ Formats:
              [--budget S] [--json] [--keep] as-is AND with protected files restored
              [--require-ancestor] [--cwd D]  from the trusted base; a visible-green /
                                             pristine-red result is a MASKED FAILURE
-                                            (exit 1, or 0 under an out-of-band
-                                            verify@<head-sha> approval); cannot-verify
+                                            (exit 1, or 0 under a compact tw1:<digest>
+                                            or legacy verify@<full-sha> approval); cannot-verify
                                             fails closed (2)
   tamperward trace-verify [--base R]          advisory Linux verifier-input discovery:
              [--cmd C] [--budget S] [--runs N] trace a trusted/known-good base with
