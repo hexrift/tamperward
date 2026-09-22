@@ -535,6 +535,7 @@ describe('CLI grammar', () => {
     expect(() => acquireResearchLock(ledger)).toThrow(/already locked/);
     const recovered = acquireResearchLock(ledger, true);
     recovered.release();
+    expect(readdirSync(ledger).filter((f) => f.startsWith('run.lock'))).toEqual([]);
 
     writeFileSync(join(ledger, 'run.lock'), 'not json\n');
     expect(() => acquireResearchLock(ledger, true)).toThrow(/unreadable lock/);
