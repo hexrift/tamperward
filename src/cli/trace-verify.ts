@@ -36,6 +36,8 @@ export interface TraceVerifyOpts {
 export interface TraceFileAccess {
   path: string;
   access: 'read' | 'exec';
+  /** A relative access whose cwd or directory-fd could not be reconstructed safely. */
+  unresolved?: true;
 }
 
 export interface TraceRepositoryInput {
@@ -59,6 +61,7 @@ export interface TraceSummary {
   external_inputs: TraceExternalInput[];
   uncovered_repository_inputs: string[];
   suggested_verify_inputs: string[];
+  unresolved_accesses: number;
 }
 
 export interface TraceVerifyReport extends TraceSummary {
@@ -94,29 +97,147 @@ function unescapeStraceString(s: string): string {
 }
 
 /**
- * Parse successful path-bearing file syscalls from strace output.
- *
- * This is intentionally conservative: failed probes (ENOENT, EACCES, etc.) are not
- * called inputs. A path the runner merely wondered about is different from one it
- * actually read/stat'ed/executed.
+ * Parse successful path-bearing file syscalls from strace output while preserving
+ * the path context strace exposes: cwd changes, directory-fd paths, fd duplication,
+ * and cwd/fd inheritance across fork/clone. Relative paths that cannot be resolved
+ * from that state are returned as unresolved evidence instead of being guessed against
+ * the repository root.
  */
-export function parseStraceFileAccess(raw: string): TraceFileAccess[] {
+type TraceProcessState = { cwd: string; fds: Map<number, string> };
+
+function copyTraceState(state: TraceProcessState): TraceProcessState {
+  return { cwd: state.cwd, fds: new Map(state.fds) };
+}
+
+function traceLineProcess(line: string): { pid: string; body: string } {
+  const bracketed = line.match(/^\s*\[pid\s+(\d+)\]\s+(.*)$/);
+  if (bracketed) return { pid: bracketed[1], body: bracketed[2] };
+  const numbered = line.match(/^\s*(\d+)\s+(.*)$/);
+  if (numbered && /\b(?:execve|open|chdir|clone|fork|stat|access|readlink)/.test(numbered[2])) {
+    return { pid: numbered[1], body: numbered[2] };
+  }
+  return { pid: '0', body: line.trim() };
+}
+
+function syscallResult(body: string): number | null {
+  const match = body.match(/\)\s+=\s+(-?\d+)\b/);
+  return match ? Number(match[1]) : null;
+}
+
+function resolveTracePath(
+  rawPath: string,
+  state: TraceProcessState,
+  dirfd: number | null,
+): string | null {
+  if (isAbsolute(rawPath)) return resolve(rawPath);
+  const base = dirfd === null || dirfd === -100 ? state.cwd : state.fds.get(dirfd);
+  if (!base) return null;
+  return resolve(base, rawPath);
+}
+
+function firstDirFd(args: string): number | null {
+  const first = args.match(/^\s*(AT_FDCWD|-?\d+)/)?.[1];
+  if (!first || first === 'AT_FDCWD') return null;
+  return Number(first);
+}
+
+function successfulFdResult(body: string): number | null {
+  const result = syscallResult(body);
+  return result !== null && result >= 0 ? result : null;
+}
+
+export function parseStraceFileAccess(raw: string, initialCwd = TRACE_ROOT): TraceFileAccess[] {
   const out: TraceFileAccess[] = [];
   const seen = new Set<string>();
-  for (const line of raw.split('\n')) {
-    if (!line.trim() || /\)\s+=\s+-1\b/.test(line)) continue;
-    const call = line.match(/\b(execveat|execve|openat2|openat|open|newfstatat|fstatat|statx|lstat|stat|access|readlinkat|readlink)\s*\(/);
-    if (!call) continue;
-    const afterCall = line.slice((call.index ?? 0) + call[0].length);
-    const quoted = afterCall.match(/"([^"\\]*(?:\\.[^"\\]*)*)"/);
-    if (!quoted) continue;
-    const path = unescapeStraceString(quoted[1]);
-    if (!path) continue;
-    const access: 'read' | 'exec' = call[1].startsWith('execve') ? 'exec' : 'read';
-    const key = `${access}\0${path}`;
-    if (seen.has(key)) continue;
+  const states = new Map<string, TraceProcessState>();
+  const unfinished = new Map<string, string>();
+  const stateFor = (pid: string): TraceProcessState => {
+    let state = states.get(pid);
+    if (!state) {
+      state = { cwd: initialCwd, fds: new Map() };
+      states.set(pid, state);
+    }
+    return state;
+  };
+  const add = (path: string, access: 'read' | 'exec', unresolved = false): void => {
+    const key = `${access}\0${unresolved ? 'unresolved:' : ''}${path}`;
+    if (seen.has(key)) return;
     seen.add(key);
-    out.push({ path, access });
+    out.push(unresolved ? { path, access, unresolved: true } : { path, access });
+  };
+
+  for (const rawLine of raw.split('\n')) {
+    if (!rawLine.trim()) continue;
+    const line = traceLineProcess(rawLine);
+    const resumed = line.body.match(/^<\.\.\.\s+(\w+)\s+resumed>(.*)$/);
+    let body = line.body;
+    if (resumed) {
+      const key = `${line.pid}:${resumed[1]}`;
+      const prefix = unfinished.get(key);
+      if (!prefix) continue;
+      unfinished.delete(key);
+      body = prefix + resumed[2];
+    }
+
+    const unfinishedAt = body.indexOf('<unfinished ...>');
+    if (unfinishedAt >= 0) {
+      const before = body.slice(0, unfinishedAt);
+      const call = before.match(/\b(execveat|execve|openat2|openat|open|newfstatat|fstatat|statx|lstat|stat|access|readlinkat|readlink|chdir|fchdir|close|dup2|dup3|dup|fcntl|clone3|clone|fork|vfork)\s*\(/);
+      if (call) unfinished.set(`${line.pid}:${call[1]}`, before);
+      continue;
+    }
+
+    const call = body.match(/\b(execveat|execve|openat2|openat|open|newfstatat|fstatat|statx|lstat|stat|access|readlinkat|readlink|chdir|fchdir|close|dup2|dup3|dup|fcntl|clone3|clone|fork|vfork)\s*\(/);
+    if (!call || /\)\s+=\s+-1\b/.test(body)) continue;
+    const name = call[1];
+    const args = body.slice((call.index ?? 0) + call[0].length);
+    const state = stateFor(line.pid);
+    const result = syscallResult(body);
+
+    if (name === 'chdir') {
+      const quoted = args.match(/\"([^\"\\\\]*(?:\\\\.[^\"\\\\]*)*)\"/);
+      if (quoted && result === 0) {
+        const next = resolveTracePath(unescapeStraceString(quoted[1]), state, null);
+        if (next) state.cwd = next;
+      }
+      continue;
+    }
+    if (name === 'fchdir') {
+      const fd = Number(args.match(/^\s*(-?\d+)/)?.[1]);
+      const next = state.fds.get(fd);
+      if (result === 0 && next) state.cwd = next;
+      continue;
+    }
+    if (name === 'close') {
+      const fd = Number(args.match(/^\s*(-?\d+)/)?.[1]);
+      if (result === 0) state.fds.delete(fd);
+      continue;
+    }
+    if (name === 'dup' || name === 'dup2' || name === 'dup3' || name === 'fcntl') {
+      const source = Number(args.match(/^\s*(-?\d+)/)?.[1]);
+      const destination = name === 'dup' ? result : name === 'fcntl' ? result : Number(args.match(/^\s*-?\d+\s*,\s*(-?\d+)/)?.[1]);
+      const sourcePath = state.fds.get(source);
+      if (result !== null && result >= 0 && destination !== undefined && destination !== null && sourcePath) state.fds.set(destination, sourcePath);
+      continue;
+    }
+    if (name === 'clone' || name === 'clone3' || name === 'fork' || name === 'vfork') {
+      if (result !== null && result > 0) states.set(String(result), copyTraceState(state));
+      continue;
+    }
+
+    const quoted = args.match(/\"([^\"\\\\]*(?:\\\\.[^\"\\\\]*)*)\"/);
+    if (!quoted) continue;
+    const rawPath = unescapeStraceString(quoted[1]);
+    if (!rawPath) continue;
+    const atCall = name === 'execveat' || name === 'openat2' || name === 'openat' || name === 'newfstatat' || name === 'fstatat' || name === 'statx' || name === 'readlinkat';
+    const dirfd = atCall ? firstDirFd(args) : null;
+    const resolved = resolveTracePath(rawPath, state, dirfd);
+    add(resolved ?? rawPath, name.startsWith('execve') ? 'exec' : 'read', resolved === null);
+
+    if (name === 'open' || name === 'openat' || name === 'openat2') {
+      const fd = successfulFdResult(body);
+      if (fd !== null && resolved) state.fds.set(fd, resolved);
+    }
   }
   return out;
 }
@@ -249,10 +370,15 @@ export function summarizeTraceRuns(opts: SummarizeOpts): TraceSummary {
   type Acc = { accesses: Set<'read' | 'exec'>; runs: Set<number> };
   const repo = new Map<string, Acc>();
   const external = new Map<string, Acc>();
+  let unresolved_accesses = 0;
 
   opts.runs.forEach((run, index) => {
     const perRun = new Set<string>();
     for (const item of run) {
+      if (item.unresolved) {
+        unresolved_accesses++;
+        continue;
+      }
       const rel = normalRepoPath(opts.root, item.path);
       const isTracked = rel !== null && opts.tracked.has(rel);
       const keyPath = rel !== null ? (opts.tracked.has(rel) ? rel : null) : resolve(opts.root, item.path);
@@ -305,6 +431,7 @@ export function summarizeTraceRuns(opts: SummarizeOpts): TraceSummary {
     // Exact paths are intentionally conservative. A maintainer may widen them to
     // reviewed globs, but TamperWard never invents a broader trust surface.
     suggested_verify_inputs: [...uncovered_repository_inputs],
+    unresolved_accesses,
   };
 }
 
@@ -373,7 +500,12 @@ function rewriteTraceRoot(
   actualRoot: string,
 ): TraceFileAccess[] {
   return accesses.map((item) => {
-    const abs = isAbsolute(item.path) ? resolve(item.path) : resolve(actualRoot, item.path);
+    if (item.unresolved) return item;
+    const placeholder = isAbsolute(item.path) ? resolve(item.path) : resolve(TRACE_ROOT, item.path);
+    const placeholderRel = inside(TRACE_ROOT, placeholder)
+      ? relative(TRACE_ROOT, placeholder)
+      : null;
+    const abs = placeholderRel === null ? placeholder : resolve(actualRoot, placeholderRel);
     if (!inside(actualRoot, abs)) return { ...item, path: abs };
     const rel = relative(actualRoot, abs).split(sep).join('/');
 
@@ -405,7 +537,7 @@ function straceOnce(
     const traced = spawnSync(
       'strace',
       [
-        '-ff',
+        '-f',
         '-qq',
         '-s',
         '4096',
@@ -430,7 +562,7 @@ function straceOnce(
       },
     );
     const logs = traced.error ? [] : traceFiles(prefix);
-    const accesses = logs.flatMap((path) => parseStraceFileAccess(readFileSync(path, 'utf8')));
+    const accesses = logs.flatMap((path) => parseStraceFileAccess(readFileSync(path, 'utf8'), TRACE_ROOT));
     const raw: RawTraceRun = {
       spawnError: traced.error ? traced.error.message : null,
       status: traced.status,
@@ -487,6 +619,7 @@ function renderText(report: TraceVerifyReport): void {
   out(`trusted base: ${report.base}`);
   out(`command: ${report.command}`);
   out(`runs: ${report.runs_completed}/${report.runs_requested}; exits: ${report.run_exits.join(', ')}`);
+  out(`unresolved accesses: ${report.unresolved_accesses}`);
   out();
 
   out('repository inputs observed:');
@@ -625,13 +758,16 @@ export function runTraceVerify(opts: TraceVerifyOpts = {}): number {
     runs_requested: runs,
     runs_completed: observed.length,
     run_exits: runExits,
-    trace_complete: runExits.every((code) => code === 0),
+    trace_complete: runExits.every((code) => code === 0) && summary.unresolved_accesses === 0,
     ...summary,
     notes: [
       'Observed reads are evidence from these runs, not proof that an unobserved path can never be read.',
       'Dynamic paths are those observed in fewer than all repeated traces.',
       'Suggestions are exact tracked paths only; TamperWard never edits .tamperward.yml or widens a glob automatically.',
       'Review every suggestion before adding it to verify.inputs.',
+      ...(summary.unresolved_accesses > 0
+        ? [`${summary.unresolved_accesses} relative file access(es) could not be resolved from trace cwd/fd state; discovery is incomplete.`]
+        : []),
     ],
   };
 
