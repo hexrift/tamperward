@@ -79,15 +79,15 @@ describe('trace-verify strace parsing (#324)', () => {
       '100 chdir("packages/widget") = 0',
       '100 openat(AT_FDCWD, "fixtures/settings.json", O_RDONLY) = 3',
       '100 openat(AT_FDCWD, "fixtures", O_RDONLY|O_DIRECTORY) = 4',
-      '100 openat(4, "settings.json", O_RDONLY) = 5',
+      '100 openat(4, "other.json", O_RDONLY) = 5',
       '100 clone(child_stack=NULL, flags=SIGCHLD) = 200',
       '200 openat(AT_FDCWD, "fixtures/child.json", O_RDONLY) = 6',
     ].join('\n');
 
     expect(parseStraceFileAccess(raw)).toEqual([
-      { path: '/__tamperward_trusted_base__/packages/widget/fixtures/other.json', access: 'read' },
-      { path: '/__tamperward_trusted_base__/packages/widget/fixtures', access: 'read' },
       { path: '/__tamperward_trusted_base__/packages/widget/fixtures/settings.json', access: 'read' },
+      { path: '/__tamperward_trusted_base__/packages/widget/fixtures', access: 'read' },
+      { path: '/__tamperward_trusted_base__/packages/widget/fixtures/other.json', access: 'read' },
       { path: '/__tamperward_trusted_base__/packages/widget/fixtures/child.json', access: 'read' },
     ]);
   });
