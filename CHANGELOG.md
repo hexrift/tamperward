@@ -2165,6 +2165,8 @@ the exact-head matrix and final security review pass and the change is merged.
 
 ## [2.16.2] — 2026-09-13
 
+> **Unpublished development entry; superseded by published 2.16.3.** The registry sequence is 2.16.1 → 2.16.3; the optimization described here was rolled back before publication.
+
 **Local run→verify dependency attestation removes one redundant complete tree read
 without weakening a hostile-code boundary.** Before this release, a clean
 `tamperward run` with an attested local dependency environment performed six complete
@@ -4135,6 +4137,8 @@ reproduction and nothing has been changed for it.
 - The generated CI workflow pins `NPM_CONFIG_REGISTRY`.
 
 ## [1.14.4] — 2026-09-02
+
+> **Unpublished development entry; superseded by published 1.14.5.** The registry sequence is 1.14.3 → 1.14.5.
 
 **Six fixes from an external audit. Two of them reopen the same wound 1.14.1,
 1.14.2 and 1.14.3 each closed one layer of: the verifier's inputs, and the git

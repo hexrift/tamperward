@@ -963,7 +963,10 @@ do" and §10 below, and no milestone here removes them.
 
 ---
 
-*v0.8 · reconciles the spec with 1.15.0: no new row — the seventeen-row table's
+*v0.11 · reconciles the spec with 2.26.0: `config-weakening` is row 21, and the current detector/enforcement taxonomy, audit-v1 measurement boundary and supported implementation surface are recorded.
+Prior: v0.10 · reconciles the spec with 2.25.0: `test-support` is row 20, narrowing the two block spec rules to actual specs while routing helper/setup/fixture files through their own warning rule.
+Prior: v0.9 · reconciles the spec with 2.23.x: the live architecture narrative, versioned machine-output schemas and current security-residual index are aligned without rewriting historical evidence.
+Prior: v0.8 · reconciles the spec with 1.15.0: no new row — the seventeen-row table's
 heading and counts, the canonical policy example (`test-content-removal`,
 `transient-protected-mutation`, the `snapshots` class), the shipped JSON-at-exit-0 hook
 contract and the immediate `stop_hook_active` allow, the generated workflow's

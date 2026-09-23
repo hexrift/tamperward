@@ -6,7 +6,7 @@ end-to-end; AUDIT = code path.
 
 **Status note:** the P0/P1/P2 identifiers below are historical audit identifiers,
 not the repository's current issue-priority queue. The current shipped line is
-TamperWard 2.14.x; use the next table to answer "what security residuals are open
+TamperWard 2.33.x; use the next table to answer "what security residuals are open
 now" without interpreting old rows whose disposition later became Closed.
 
 ## Current open residuals
