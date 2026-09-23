@@ -51,10 +51,18 @@ workflow:
    repeated runs and unrelated merges are clean no-ops that never touch the
    evidence branch;
 3. re-validates each new batch against the strict `audit-v1` schema;
-4. appends its events to `events/all.jsonl` (deduplicated by event id) and records
-   a ledger entry in `ingested/batches.jsonl` — `{batch_id, source_sha,
-   content_sha256, schema, ingested_at, event_count}`;
-5. regenerates the branch summaries.
+4. writes the batch's new events (deduplicated by event id) to their own
+   immutable partition file `events/<YYYY>/<MM>/<batch-id>.jsonl` and records a
+   ledger entry in `ingested/batches.jsonl` — `{batch_id, source_sha,
+   content_sha256, schema, ingested_at, event_count, partition, stored_events,
+   stored_sha256}`;
+5. updates only the id and session index shards those events hash into and folds
+   them into the branch summaries — no historical partition is read or rewritten.
+
+Limits: one event line is at most 16 KiB, one batch at most 16 MiB and 50,000
+events, one month at most 4,096 batch files; exceeding one fails the run at exit 2
+with the limit in the message. Dispatch the workflow with `rebuild: true` to
+regenerate the shards and summaries from every stored partition.
 
 Ingestion never rewrites history and never writes `main`: it only ever appends to
 the dedicated `tamperward-audit` branch. An operator can still ingest a one-off
