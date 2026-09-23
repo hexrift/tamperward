@@ -78,7 +78,7 @@ describe('every workflow action is pinned to a commit SHA (#423)', () => {
         if (m) versions.add(m[1]);
       }
     }
-    expect([...versions]).toEqual(['v5']);
+    expect([...versions]).toEqual(['v7']);
   });
 });
 
