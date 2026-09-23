@@ -540,8 +540,20 @@ export function runHookService(args: string[]): number | Promise<number> {
     );
     return 2;
   }
+  // `--dir` names the repository the operator means. Resolve it once, before any
+  // socket is touched: a path that does not exist is a usage error (one line at
+  // exit 2), never an unhandled exception from inside a socket callback.
+  let requestedRoot: string | undefined;
+  if (dir !== undefined) {
+    try {
+      requestedRoot = realpathSync(repoRoot(realpathSync(dir)));
+    } catch (e: unknown) {
+      process.stderr.write(`tamperward hook-service: cannot resolve --dir ${dir} (${e instanceof Error ? e.message : String(e)})\n`);
+      return 2;
+    }
+  }
   if (sub === 'start') {
-    startHookService({ root: dir ?? process.cwd(), paths })
+    startHookService({ root: requestedRoot ?? process.cwd(), paths })
       .then((svc) => {
         let closing = false;
         const shutdown = (): void => {
@@ -563,7 +575,7 @@ export function runHookService(args: string[]): number | Promise<number> {
     return -1;
   }
   if (sub === 'stop') {
-    return stopHookService(paths, dir).then((res) => {
+    return stopHookService(paths, requestedRoot).then((res) => {
       if (res.outcome === 'stopped') {
         process.stdout.write(`tamperward hook-service: stopped (pid ${res.pid}); ${paths.socket} removed\n`);
         return 0;
@@ -611,7 +623,6 @@ export function runHookService(args: string[]): number | Promise<number> {
       exitAfterFlush(0);
       return;
     }
-    const requestedRoot = dir === undefined ? undefined : realpathSync(repoRoot(dir));
     if (requestedRoot !== undefined && res.root !== requestedRoot) {
       process.stderr.write(
         `tamperward hook-service: a listener is bound to ${res.root}, not the requested repository ${requestedRoot}; it was not treated as the requested service; ${optIn}\n`,

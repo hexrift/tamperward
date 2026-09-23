@@ -16,7 +16,7 @@
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createConnection, createServer, type Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -286,6 +286,20 @@ describe('lifecycle', () => {
     const paths = privatePaths();
     await serve(root, paths);
     await expect(startHookService({ root, paths })).rejects.toThrow(/already running/);
+  });
+
+  it('stop --dir refuses a listener bound to another repository and leaves it serving', async () => {
+    const root = repo();
+    const other = repo();
+    const paths = privatePaths();
+    await serve(root, paths);
+    const res = await stopHookService(paths, realpathSync(other));
+    expect(res.outcome).toBe('mismatch');
+    expect(res.root).toBe(root); // the root the live listener reports
+    expect(res.detail).toMatch(/not the requested repository/);
+    expect(existsSync(paths.socket)).toBe(true); // nothing was stopped or unlinked
+    expect(socketRefusal(paths)).toBeNull();
+    expect(await requestVerdict('PreToolUse', '', { paths, cwd: root })).toEqual({ exitCode: 0, stdout: '' });
   });
 
   it('the CLI grammar knows hook-service start|stop|status', () => {

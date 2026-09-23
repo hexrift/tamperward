@@ -6,8 +6,8 @@
  * shell of the site behind. Pages is immutable once uploaded, so validate the
  * artifact before publishing it.
  */
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { join, relative, resolve } from 'node:path';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { dirname, join, relative, resolve } from 'node:path';
 
 const root = process.argv[2] ? resolve(process.cwd(), process.argv[2]) : resolve(process.cwd(), 'docs/.vitepress/dist');
 const errors = [];
@@ -31,6 +31,65 @@ if (!existsSync(root)) {
     // only flag a <main> that is present yet empty — an emptied content page.
     if (/<main\b[^>]*>/i.test(html) && !/<main\b[^>]*>[\s\S]*?\S[\s\S]*?<\/main>/i.test(html)) {
       errors.push('page has an empty <main>: ' + relative(root, path));
+    }
+  }
+  // #532: a heading edit can silently break navigation. VitePress keeps an em
+  // dash in a heading slug, so a hand-written `#security-result-0-...` fragment
+  // resolved nowhere while the page-level checks above passed. Every local link
+  // is resolved against the artifact: its target page must exist and, when it
+  // names a fragment, that fragment must be an element id on the target page.
+  // Links with a scheme (https:, mailto:, tel:) or a protocol-relative host are
+  // external and are never mistaken for local files.
+  const idsByPage = new Map();
+  const idsOf = (path) => {
+    if (!idsByPage.has(path)) {
+      const ids = new Set();
+      for (const m of readFileSync(path, 'utf8').matchAll(/\sid="([^"]*)"/g)) ids.add(m[1]);
+      idsByPage.set(path, ids);
+    }
+    return idsByPage.get(path);
+  };
+  const decode = (text) => {
+    try {
+      return decodeURIComponent(text);
+    } catch {
+      return text;
+    }
+  };
+  const seen = new Set();
+  for (const path of htmlFiles) {
+    const html = readFileSync(path, 'utf8');
+    // VitePress prefixes site-absolute links with the configured base; read it
+    // off the page's own asset references rather than assuming one.
+    const base = html.match(/(?:src|href)="(\/[^"]*?\/)assets\//)?.[1] ?? '/';
+    for (const m of html.matchAll(/<a\b[^>]*\shref="([^"]*)"/g)) {
+      const href = m[1];
+      if (/^[a-z][a-z0-9+.-]*:/i.test(href) || href.startsWith('//')) continue; // external
+      const hash = href.indexOf('#');
+      const target = (hash < 0 ? href : href.slice(0, hash)).replace(/\?.*$/, '');
+      const fragment = hash < 0 ? '' : decode(href.slice(hash + 1));
+      let file;
+      if (target === '') file = path;
+      else if (target.startsWith('/')) {
+        if (!target.startsWith(base)) {
+          errors.push('site-absolute link outside the base ' + base + ': ' + href + ' (from ' + relative(root, path) + ')');
+          continue;
+        }
+        file = join(root, decode(target.slice(base.length)));
+      } else file = resolve(dirname(path), decode(target));
+      // `cleanUrls` drops the extension and a directory link serves its index.
+      if (existsSync(file) && statSync(file).isDirectory()) file = join(file, 'index.html');
+      else if (!existsSync(file) && existsSync(file + '.html')) file += '.html';
+      const key = relative(root, file) + '#' + fragment + '<' + relative(root, path);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      if (!existsSync(file)) {
+        errors.push('local link target does not exist: ' + href + ' (from ' + relative(root, path) + ')');
+        continue;
+      }
+      if (fragment !== '' && file.endsWith('.html') && !idsOf(file).has(fragment)) {
+        errors.push('fragment #' + fragment + ' is not an id on ' + relative(root, file) + ' (linked from ' + relative(root, path) + ')');
+      }
     }
   }
   const rules = join(root, 'guide/rules.html');

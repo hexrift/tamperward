@@ -43,13 +43,27 @@ with the same review-trigger-rate caveat.
 ## The decision rule
 
 The thresholds are the project's own, stated so a reader can apply them to the
-numbers: `block` requires a fire rate on legitimate mainline maintenance at or
-below a 1% ceiling of adjacent pairs across the corpus **and** an adjudicated
-precision among fires of at least 90%; otherwise a rule ships `warn` as a
-review prompt, and any later move to block is a separate decision with its own
-independent measurement. For `ts-cast-growth` the rule was chosen before the
-fires were adjudicated but is not a repository-verifiable preregistration —
-the record says so. `warn` never requires sign-off under the default policy.
+numbers. This is the **graduation criterion for new candidate rules**, applied
+from `ts-cast-growth` (2.20.0, #383) onward: `block` requires a fire rate on
+legitimate mainline maintenance at or below a 1% ceiling of adjacent pairs
+across the corpus **and** an adjudicated precision among fires of at least 90%;
+otherwise a rule ships `warn` as a review prompt, and any later move to block is
+a separate decision with its own independent measurement. For `ts-cast-growth`
+the rule was chosen before the fires were adjudicated but is not a
+repository-verifiable preregistration — the record says so. `warn` never
+requires sign-off under the default policy.
+
+This criterion governs graduations; it is not a claim that every rule already at
+`block` clears a 1% ceiling. `test-content-removal` (1.7.0) is the release-era
+exception the table records: it ships `block` at a 1.5% fire rate — above the
+later ceiling — on a separately accepted sign-off burden of roughly one sign-off
+per 60 mainline commits. That decision rests not on a fire-rate ceiling but on
+its category-4 fires (expectation rows removed because reality changed) being
+byte-shaped like the tamper: the legitimate edit and the attack are mechanically
+indistinguishable, so block-with-sign-off is the design choice the record argues
+([`TCR-CORPUS.md`](https://github.com/hexrift/tamperward/blob/main/harness/fp-study/TCR-CORPUS.md)).
+Its 1.5% is a historical review-trigger rate, not a false-positive estimate the
+1% ceiling would score.
 
 ## What is measured in CI
 
