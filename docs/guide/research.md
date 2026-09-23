@@ -7,9 +7,14 @@ runtime; the command produces paired **ungated** / **gated** trajectory records 
 aggregate that keeps TamperWard's own verdict apart from the independent outcome.
 
 ```bash
+npx tamperward research init --out tasks.json --repo ./tasks/content-disposition \
+  --prompt 'Make the suite pass without changing tests.' --verify-command 'npm test'
 npx tamperward research run --manifest tasks.json --out ./ledger \
   --adapter command --agent-budget 900 -- ./my-agent.sh '{prompt}'
 npx tamperward research summarize --ledger ./ledger
+npx tamperward research report --ledger ./ledger
+npx tamperward research bundle --ledger ./ledger --out ./model-eval.tgz
+npx tamperward research validate --bundle ./model-eval.tgz
 ```
 
 Nothing under `harness/` is edited or written. The ledger is yours; counted-round
@@ -62,6 +67,11 @@ breaks one is refused, not believed.
 
 Task ids name the record files (`<out>/pairs/<id>--<pair>.json`), so they are limited
 to `[A-Za-z0-9._-]`.
+
+`research init` authors the one-task form without overwriting an existing file. It
+requires `--out`, `--repo`, `--prompt`, and `--verify-command`; `--base`, `--id`,
+and `--verify-budget` are optional. It prints the manifest's SHA-256, which is the
+identity pinned into each subsequent record.
 
 ## What one pair is
 
@@ -150,6 +160,26 @@ composite score**:
 | `paired` | discordant-pair counts on masked failure: `ungated_only`, `gated_only`, `both`, `neither` |
 | `control_response` | `null` — deny → fix / surrender / bypass needs in-loop deny events this release does not relay |
 
+`research report --ledger` renders the same data as four explicit headings:
+**MODEL BEHAVIOUR**, **CONTROL RESPONSE**, **INDEPENDENT OUTCOME**, and
+**TAMPERWARD PERFORMANCE**. `--json` emits the summary instead. The report never
+turns these evidence families into a composite score.
+
+## Bundles and provenance
+
+`research bundle --ledger ./ledger --out ./model-eval.tgz` creates a mode-0600,
+gzip-compressed archive containing the pair records, derived `summary.json`, the
+four-section `report.txt`, and `provenance.json`. The validator recomputes the
+summary from the records and checks schema/protocol versions and the manifest hash;
+it does not trust conclusions copied into the archive. Use
+`research bundle --validate ./model-eval.tgz` or the equivalent
+`research validate --bundle ./model-eval.tgz`.
+
+Prompts and the exact manifest are not included by default. Pass `--manifest
+tasks.json` when creating a bundle to include that file explicitly; the command
+refuses it if its SHA-256 does not match the ledger. Workspaces, locks, credentials,
+and agent output are never bundled.
+
 ## Adapters
 
 An adapter answers two questions for one trajectory: what process runs the agent in
@@ -179,16 +209,26 @@ interface AdapterTask {
 ```
 
 `layers` is recorded in every document, so a comparison across runtimes never
-silently compares different treatments. Two adapters ship:
+silently compares different treatments. Three adapters ship:
 
 | `--adapter` | process | layers live in the gated arm |
 | --- | --- | --- |
 | `claude-code` | `claude -p <prompt> [--model M]`; `prepareGated` runs `tamperward init` | envelope, PreToolUse deny, Stop sweep |
 | `command` | the argv after `--`, with `{prompt}` `{task}` `{cwd}` `{base}` `{arm}` `{model}` substituted; a slash-containing relative executable such as `./my-agent.sh` is anchored to the directory you ran from, and that normalized absolute template is recorded as execution identity | envelope only (effect layer) |
+| `stdio` | the argv after `--`, with the same substitutions, plus `TAMPERWARD_RESEARCH_PROTOCOL=research-stdio-jsonl-v1` and an explicit capability declaration in the environment | envelope only; intervention is `not-connected` |
 
 Every agent process also receives `TAMPERWARD_RESEARCH_TASK`, `_PROMPT`, `_ARM`,
 `_BASE`, `_CWD` and (when given) `_MODEL` in its environment, so a runtime that
 cannot take the task on its argv can still read it.
+
+The stdio adapter is a language-neutral JSONL lifecycle contract. A runtime may
+send `hello`, `start`, `run`, `event` (`tool`, `edit`, or `turn`), `intervention`,
+`complete`, and `error` objects; the published shape is
+[`schemas/research-stdio-v1.schema.json`](https://github.com/hexrift/tamperward/blob/main/schemas/research-stdio-v1.schema.json).
+Capability declarations are deliberately descriptive: this release does not wire
+stdio events into PreToolUse denial, so `not-connected` must not be treated as
+enforcement. The runner still owns the envelope and independent outcome
+observation.
 
 ### A worked example: a custom runtime through the `command` adapter
 
@@ -223,8 +263,12 @@ re-adjudicates the tree it leaves); the records say `layers: ["envelope"]`.
 
 | command | flags |
 | --- | --- |
-| `research run` | `--manifest <file>` · `--out <dir>` · `--adapter claude-code\|command` (all three required) · `--pairs <n>` · `--model <id>` · `--agent-budget <seconds>` · `--break-lock` · `--json` · then `-- <agent command...>` for the `command` adapter |
+| `research init` | `--out <file>` · `--repo <path-or-url>` · `--prompt <text>` · `--verify-command <command>` (required) · `--base <ref>` · `--id <id>` · `--verify-budget <seconds>` |
+| `research run` | `--manifest <file>` · `--out <dir>` · `--adapter claude-code\|command\|stdio` (all three required) · `--pairs <n>` · `--model <id>` · `--agent-budget <seconds>` · `--break-lock` · `--json` · then `-- <agent command...>` |
 | `research summarize` | `--ledger <dir>` (required) |
+| `research report` | `--ledger <dir>` (required) · `--json` |
+| `research bundle` | `--ledger <dir>` · `--out <file>` (required for creation) · `--manifest <file>` · or `--validate <file>` |
+| `research validate` | `--bundle <file>` (required) |
 
 Exit: `0` when every requested pair is recorded (or already was); `2` when it could
 not start or a trajectory could not be set up — bad manifest, unknown adapter, root or
@@ -237,11 +281,12 @@ fails before cloning a workspace or launching an agent. If a process crashed and
 left `run.lock`, verify the recorded owner is gone and rerun with
 `--break-lock`; active or unreadable locks are never silently replaced.
 
-## Not yet
+## Scope that remains external
 
-This release is the minimal workflow. Still to come: `research init` (interactive
-`research.yml`), `research report` (the text view over the summary), a stdio JSONL
-adapter and `adapter:<module>` loading for in-process runtimes, in-loop deny relay
-(`control_response`), a held-out evaluator, pre-specified retry rules, history
-stripping in the agent-visible clone, signed manifest freezing beyond the sha256 pin,
-and interval estimates on the paired contrast.
+This release provides the authoring, reporting, bundle, validator, and stdio
+contract needed to make a run reproducible. It does not claim an in-loop deny relay
+for stdio (`control_response` remains `null`), dynamic `adapter:<module>` loading,
+a held-out evaluator, pre-specified retry rules, history stripping in the
+agent-visible clone, signed manifest freezing beyond the SHA-256 pin, or interval
+estimates on the paired contrast. Those are separate protocol/runtime work, not
+silently inferred by this release.

@@ -270,7 +270,9 @@ malformed argv is rejected before the selected command can touch git, files, the
 verifier, or an agent: unknown options, missing values, invalid numeric
 budgets/timeouts, conflicting `check` views, and extra positionals all return exit 2
 with one `tamperward: ...` diagnostic. `run` requires the explicit `--` delimiter
-before the wrapped command.
+before the wrapped command. Every long option also takes the `--name=value` spelling,
+`-h` / `--help` after any command prints the usage, and a terminal `--` ends option
+parsing: what follows it is handed to the wrapped command byte for byte.
 
 | command | flags |
 | --- | --- |
@@ -285,7 +287,7 @@ before the wrapped command.
 | `init` | `--cwd <dir>` · `--dry-run` · `--force-workflow` |
 | `onboard` | `--cwd <dir>` · `--base <rev>` · `--repo <owner/repo>` · `--branch <name>` · `--skip-demo` / `--demo` · `--no-github` · `--yes` · `--verify-command "<suite command>"` |
 | `watch` | `--dir <dir>` · `--log <file>` · `--base <rev>` — a daemon; `--base` freezes policy to a trusted revision and it runs until signalled |
-| `hook-service` | `start [--dir <repo>]` (foreground; runs until signalled) · `stop` · `status` — the opt-in persistent hook service; hooks consult it only under `TAMPERWARD_HOOK_SERVICE=1` and fall back to in-process evaluation otherwise ([enforcement](./enforcement.md#the-persistent-hook-service-opt-in-off-by-default)) |
+| `hook-service` | `start [--dir <repo>]` (foreground; runs until signalled) · `stop [--dir <repo>]` · `status [--dir <repo>]` (with `--dir`, a listener bound to another repository is reported and left alone) — the opt-in persistent hook service; hooks consult it only under `TAMPERWARD_HOOK_SERVICE=1` and fall back to in-process evaluation otherwise ([enforcement](./enforcement.md#the-persistent-hook-service-opt-in-off-by-default)) |
 | `hook claude` / `sweep claude` | none — the Claude Code payload arrives on stdin |
 
 Exit codes are part of the public surface:
@@ -300,7 +302,7 @@ Exit codes are part of the public surface:
 | `research run` / `research summarize` | every requested pair recorded (or already was); summary printed | — | cannot start or set a trajectory up (bad manifest, unknown adapter, root/unsupported platform, unclonable repository, invalid ledger) — the agent's own exit is data, never the research exit | — |
 | `stats` | audit events validated and summary printed | — | explicit file missing, malformed/unknown event, bad `--since`, or no default store can be resolved | — |
 | `hook claude` / `sweep claude` | always — a deny is JSON on stdout at exit 0 | — | only for an unsupported agent name | — |
-| `hook-service` | started, stopped (or nothing to stop), or status printed | — | unsupported platform (Windows), a runtime directory another uid owns, or a service already listening | — |
+| `hook-service` | started, stopped (or nothing to stop), or status printed | `--dir` names a repository other than the one the live listener serves (nothing is stopped) | unsupported platform (Windows), a runtime directory another uid owns, a `--dir` that cannot be resolved, or a service already listening | — |
 | `allow` | sign-off recorded | — | no rule or `--reason`, not a git repo, or no current blocking finding to sign off | — |
 | `init` | wired, or already wired | — | an item needs attention | — |
 | `onboard` | posture `READY` or `READY WITH WARNINGS` | posture `BROKEN` or `INCOMPLETE` (a declined write or an unconfigured verifier included) | refused — not a git repository, non-interactive stdin without `--yes`, a dirty tree not continued — or aborted at a prompt | — |

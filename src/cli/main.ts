@@ -126,7 +126,16 @@ type ValueRule = 'string' | 'positive' | 'positive-integer' | 'non-negative' | '
 
 function splitLongOptionEquals(args: string[]): string[] {
   const out: string[] = [];
-  for (const arg of args) {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    // A terminal `--` ends option parsing. Everything after it belongs to the
+    // wrapped command (`run -- <agent>`, `research run -- <agent>`) and is handed
+    // through byte for byte, `--name=value` tokens included: the envelope must
+    // never rewrite the argv it was asked to supervise.
+    if (arg === '--') {
+      out.push(...args.slice(i));
+      break;
+    }
     if (arg.startsWith('--')) {
       const equals = arg.indexOf('=');
       if (equals > 2) {
@@ -385,6 +394,24 @@ export function validateCliArgs(cmd: string, args: string[]): string | undefined
   if (cmd === 'research') {
     const [sub, ...rest] = args;
     if (sub === undefined) return `research requires a subcommand (${RESEARCH_SUBCOMMANDS.join(' | ')})`;
+    if (sub === 'init') {
+      const parsed = validateFlatArgs(rest, {
+        values: {
+          '--out': 'string',
+          '--repo': 'string',
+          '--base': 'string',
+          '--id': 'string',
+          '--prompt': 'string',
+          '--verify-command': 'string',
+          '--verify-budget': 'positive',
+        },
+      });
+      if (parsed.error) return parsed.error;
+      for (const required of ['--out', '--repo', '--prompt', '--verify-command']) {
+        if (!parsed.seen.has(required)) return `research init requires ${required}`;
+      }
+      return undefined;
+    }
     if (sub === 'run') {
       // Like `run`: an explicit "--" separates the research options from the
       // agent command, so a typoed option is never handed to the agent.
@@ -411,6 +438,29 @@ export function validateCliArgs(cmd: string, args: string[]): string | undefined
       const parsed = validateFlatArgs(rest, { values: { '--ledger': 'string' } });
       if (parsed.error) return parsed.error;
       if (!parsed.seen.has('--ledger')) return 'research summarize requires --ledger';
+      return undefined;
+    }
+    if (sub === 'report') {
+      const parsed = validateFlatArgs(rest, { flags: ['--json'], values: { '--ledger': 'string' } });
+      if (parsed.error) return parsed.error;
+      if (!parsed.seen.has('--ledger')) return 'research report requires --ledger';
+      return undefined;
+    }
+    if (sub === 'bundle') {
+      const parsed = validateFlatArgs(rest, {
+        values: { '--ledger': 'string', '--out': 'string', '--manifest': 'string', '--validate': 'string' },
+      });
+      if (parsed.error) return parsed.error;
+      if (parsed.seen.has('--validate')) return undefined;
+      for (const required of ['--ledger', '--out']) {
+        if (!parsed.seen.has(required)) return `research bundle requires ${required}`;
+      }
+      return undefined;
+    }
+    if (sub === 'validate') {
+      const parsed = validateFlatArgs(rest, { values: { '--bundle': 'string' } });
+      if (parsed.error) return parsed.error;
+      if (!parsed.seen.has('--bundle')) return 'research validate requires --bundle';
       return undefined;
     }
     return `unknown research subcommand "${sub}" (${RESEARCH_SUBCOMMANDS.join(' | ')})`;
@@ -442,8 +492,8 @@ Formats:
   tamperward hook claude                    PreToolUse gate (reads hook JSON on stdin)
   tamperward sweep claude                   Stop sweep (re-scan the turn's working tree)
   tamperward hook-service start [--dir D]   OPT-IN persistent hook service: one warm
-  tamperward hook-service stop | status     process per user and repository that
-                                            evaluates hook/sweep requests over a
+  tamperward hook-service stop [--dir D]    process per user and repository that
+  tamperward hook-service status [--dir D]  evaluates hook/sweep requests over a
                                             private unix socket, so each tool call
                                             skips Node + bundle startup. Hooks
                                             consult it only with
@@ -489,6 +539,8 @@ Formats:
                                             code when clean; 124 on clean AGENT_TIMEOUT;
                                             1 on any blocking finding/masked failure;
                                             2 when it cannot adjudicate (fails closed)
+  tamperward research init --out F --repo R  author a versioned one-task manifest
+             --prompt P --verify-command C     and print its sha256 identity
   tamperward research run --manifest F      bring-your-own-model evaluation: for every
              --out D --adapter A [--pairs N]  task in the manifest, pin one source commit,
              [--model M] [--agent-budget S]   clone fresh state per arm, run the agent
@@ -500,6 +552,11 @@ Formats:
   tamperward research summarize --ledger D  aggregate measured pairs into model behaviour,
                                              independent outcome, TamperWard hits/misses
                                              and paired counts — no composite score
+  tamperward research report --ledger D     human-readable four-section report (or --json)
+  tamperward research bundle --ledger D     reproducible records/provenance archive
+             --out F [--manifest M]          (manifest/prompts included only when requested)
+  tamperward research bundle --validate F   structurally and provenance-validate a bundle
+  tamperward research validate --bundle F   alias for bundle validation
   tamperward stats [--file F] [--since 30d] aggregate privacy-safe hook/sweep audit
              [--json] [--cwd D]              events by rule and enforcement surface.
                                              Defaults to the repository-local
