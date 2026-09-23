@@ -9,10 +9,19 @@ name: cast-growth-evidence
 # rate and runs when the rule, the harness or the record changes, or on demand.
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '23 4 * * 1' # weekly, off-peak
   pull_request:
     paths:
       - 'src/detectors/ts-cast-growth.ts'
       - 'src/detectors/ts-any-cast.ts'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'src/ts-lazy.ts'
+      - 'src/engine.ts'
+      - 'src/cli/check.ts'
+      - 'src/policy-load.ts'
+      - 'src/diff/**'
       # Behavioural dependencies of the rule's scope: the protected test globs
       # (protectedCategory), the code-file test (isCodeFile) and the shared
       # selection/finding helpers can move the eligible-source denominator without
