@@ -127,7 +127,6 @@ metric that quantifies it is the **bypass-to-fix conversion rate** (§7.B); see 
 README for the measured result, now including its no-gate control arm.
 
 ---
----
 
 ## 1. Scope & non-goals
 
