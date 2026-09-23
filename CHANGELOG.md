@@ -77,6 +77,20 @@
     a tree CI never ran, and the reconcile CI section prints the adjudicated tree. An
     older `--ci-result` document that carries no `adjudicated_tree` degrades safely to
     NON_APPLICABLE. The receipt still never changes CI's verdict or exit code.
+  - **The `--ci-result` sign-off comes only from the trusted channel.** A
+    MASKED_FAILURE exits 0 only when a reviewer's out-of-band sign-off applies;
+    `receipt reconcile` now recomputes that sign-off from the trusted env
+    (`oobToken('verify', …)`, exactly as `verify` does), never from the
+    `--ci-result` document — a forged `oob_signoff` field inside the file being
+    validated can no longer flip a failing exit to a passing one. The generated CI
+    reconcile step gets the same `TAMPERWARD_OOB_SIGNOFF` / `TAMPERWARD_OOB_HEAD`
+    env as the verify step, so a legitimately signed-off MASKED_FAILURE still exits
+    0. `adjudicated_tree` is now documented as an optional field in
+    `schemas/verify-v1.schema.json` and `docs/reference/machine-output.md`, and the
+    developer git-ref transport in `docs/reference/cli.md` now pushes the receipt
+    blob itself (`git push origin "$blob:refs/tamperward/receipts/<sha>"`, read
+    CI-side with `git cat-file blob FETCH_HEAD`) so the documented transport works
+    end to end.
 
   Shared-schema `$id` reform (#662/#665) is a separate follow-up; the new schemas
   match the current sibling `v1` ref convention.

@@ -334,14 +334,14 @@ the developer's receipt to the reconcile step. Two realizable transports, both s
 because the receipt self-validates and never becomes CI's authority:
 
 - **A git ref on the head repository.** From the developer's tip, push the receipt's
-  bytes to a ref keyed by the head sha, then fetch and read it in CI:
+  bytes to a ref keyed by the head sha, then fetch and read it in CI. A ref outside
+  `refs/heads` may point directly at a blob, so push the blob itself — `FETCH_HEAD`
+  is then that blob and CI reads it with `git cat-file blob FETCH_HEAD`:
 
   ```bash
   # developer, after `receipt export --out receipt.json`:
   blob=$(git hash-object -w receipt.json)
-  git update-ref "refs/tamperward/receipts/$(git rev-parse HEAD)" \
-    "$(printf 'receipt %s\n' "$blob" | git commit-tree "$(git rev-parse HEAD^{tree})" 2>/dev/null || echo "$blob")"
-  git push origin "refs/tamperward/receipts/$(git rev-parse HEAD):refs/tamperward/receipts/$(git rev-parse HEAD)"
+  git push origin "$blob:refs/tamperward/receipts/$(git rev-parse HEAD)"
   ```
 
   ```yaml
@@ -352,6 +352,11 @@ because the receipt self-validates and never becomes CI's authority:
         git cat-file blob FETCH_HEAD > "$RUNNER_TEMP/receipt.json" && \
         echo "TAMPERWARD_RECEIPT=$RUNNER_TEMP/receipt.json" >> "$GITHUB_ENV"
   ```
+
+  (If you prefer a commit-wrapped ref, build a one-file tree so the blob is inside it —
+  `tree=$(printf '100644 blob %s\treceipt.json\n' "$blob" | git mktree)`,
+  `git push origin "$(git commit-tree "$tree" -m receipt):refs/tamperward/receipts/$(git rev-parse HEAD)"` —
+  and read it CI-side with `git cat-file blob FETCH_HEAD:receipt.json`.)
 
 - **A PR comment read via the API.** Post the bounded receipt as a PR comment (it is
   small and non-sensitive) and have a CI step read it back with `gh api` / the REST

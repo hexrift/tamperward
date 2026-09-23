@@ -507,6 +507,56 @@ describe('machine-readable reconciliation & --ci-result transport (#601)', () =>
   }, 40_000);
 });
 
+describe('the --ci-result sign-off comes from the trusted env, never the file (#601 re-review)', () => {
+  // A MASKED_FAILURE exits 0 only when a reviewer's out-of-band sign-off applies.
+  // `verify` derives that sign-off from the TRUSTED channel (the CI env the workflow
+  // sets from a reviewer's label), and `reconcile` must do the same. Deriving it from
+  // the `--ci-result` document let a forged `oob_signoff` field inside the very file
+  // being validated flip a failing exit to a passing one — the receipt/CI-result doc
+  // becoming CI's authority, which it must never be.
+  const OOB_ENV = ['TAMPERWARD_OOB_SIGNOFF', 'TAMPERWARD_OOB_HEAD'] as const;
+  function withEnv<T>(overrides: Partial<Record<(typeof OOB_ENV)[number], string>>, fn: () => T): T {
+    const saved = OOB_ENV.map((k) => [k, process.env[k]] as const);
+    try {
+      for (const k of OOB_ENV) delete process.env[k];
+      for (const [k, v] of Object.entries(overrides)) process.env[k] = v;
+      return fn();
+    } finally {
+      for (const [k, v] of saved) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    }
+  }
+
+  it('a forged oob_signoff in the --ci-result doc with NO env sign-off → exit 1 (the file cannot flip the exit)', () => {
+    const cwd = repo();
+    // A verify-shaped MASKED_FAILURE document carrying a forged `oob_signoff` field.
+    const ciResult = writeCiResult({ ...ciVerifyDoc(cwd, 'MASKED_FAILURE'), oob_signoff: 'forged' });
+    const { code, out } = withEnv({}, () =>
+      capture(() => runReceiptReconcile({ cwd, ...VERIFY_ARGS, ciResult, json: true })),
+    );
+    const doc = JSON.parse(out);
+    expect(doc.ci.verdict).toBe('MASKED_FAILURE');
+    expect(doc.result).toBe('MASKED_FAILURE'); // CI's own verdict, unchanged
+    expect(code).toBe(1); // the forged field did NOT sign it off
+  }, 40_000);
+
+  it('a MASKED_FAILURE with a real env-derived sign-off → exit 0 (the trusted channel does apply)', () => {
+    const cwd = repo();
+    // Same document; no `oob_signoff` field at all. The sign-off is supplied by the
+    // trusted env the generated reconcile step sets (an unbound `verify` token).
+    const ciResult = writeCiResult(ciVerifyDoc(cwd, 'MASKED_FAILURE'));
+    const { code, out } = withEnv({ TAMPERWARD_OOB_SIGNOFF: 'verify' }, () =>
+      capture(() => runReceiptReconcile({ cwd, ...VERIFY_ARGS, ciResult, json: true })),
+    );
+    const doc = JSON.parse(out);
+    expect(doc.ci.verdict).toBe('MASKED_FAILURE');
+    expect(doc.result).toBe('MASKED_FAILURE');
+    expect(code).toBe(0); // env sign-off applies exactly as `verify` computes it
+  }, 40_000);
+});
+
 describe('CI adjudicated a different tree than the receipt binds (#601 re-review)', () => {
   // The reconcile identity is the branch tip a receipt binds, but CI's verdict is
   // about the tree its verify actually ran. In a `pull_request` run that verify runs

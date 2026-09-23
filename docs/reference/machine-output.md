@@ -101,7 +101,13 @@ A resolved (non-`CANNOT_VERIFY`) document also carries `base`, `command`, `budge
 the `visible` and `pristine` stage records (`exit`, `secs`), `protected_restored`,
 `added_protected_removed`, the `verifier_backend` (`kind` local \| container, `trust`,
 `available`, digest-pinned `image` for a container), the `dependency_environment` status,
-and an `oracle_assurance` block (level `suite-exit-only`). Full contract:
+and an `oracle_assurance` block (level `suite-exit-only`). It also carries the optional
+`adjudicated_tree` — the fingerprint of the candidate tree this run actually adjudicated
+(the same identity bound into the local record). In a `pull_request` run the enforcement
+verify runs over the merge result, so `adjudicated_tree` can differ from the branch-tip
+tree a receipt binds; `receipt reconcile` compares the two and reports `NON_APPLICABLE`
+when they differ rather than attribute CI's verdict to a tree it never ran. It is absent
+on documents produced before the field existed. Full contract:
 [`schemas/verify-v1.schema.json`](https://github.com/hexrift/tamperward/blob/main/schemas/verify-v1.schema.json).
 
 ## `run --json`

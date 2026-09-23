@@ -94,6 +94,12 @@ describe('generated CI supply-chain hardening', () => {
     // It consumes verify's verdict (no second suite run) and never rechecks out the
     // merge ref for identity.
     expect(reconcile.run).toContain('--ci-result "$RUNNER_TEMP/tw-verify.json"');
+    // The reconcile step gets the SAME trusted out-of-band sign-off channel as the
+    // verify step, so a signed-off MASKED_FAILURE exits 0 here too — reconcile
+    // recomputes the sign-off from this env, never from the --ci-result document,
+    // so a forged field in that file cannot flip the exit (#601 re-review).
+    expect(reconcile.env.TAMPERWARD_OOB_SIGNOFF).toBe('${{ steps.oob.outputs.rules }}');
+    expect(reconcile.env.TAMPERWARD_OOB_HEAD).toBe('${{ github.event.pull_request.head.sha }}');
   });
 
   it('migrates the byte-exact 2.10.7 generated workflow and is idempotent', () => {

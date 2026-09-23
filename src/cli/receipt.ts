@@ -39,6 +39,7 @@ import {
   type VerificationReceipt,
 } from '../verification-receipt';
 import { runVerify, type VerifyVerdictSummary } from './verify';
+import { oobToken, oobFromEnv, oobHeadFromEnv } from '../signoff';
 import { colourEnabled } from './render/text';
 import { paint, severityColour, BOLD, type Severity } from './render/status';
 
@@ -253,7 +254,14 @@ function ciAdjudicate(cwd: string, opts: ReceiptReconcileOpts): { ci: CiAdjudica
     if (check.reason !== undefined) {
       return { ci: { verdict: 'CANNOT_VERIFY', binding, binding_error: check.reason }, exit: 2 };
     }
-    const signedOff = !!(doc && typeof doc === 'object' && 'oob_signoff' in (doc as Record<string, unknown>));
+    // The sign-off that turns a MASKED_FAILURE into exit 0 must come from the
+    // TRUSTED out-of-band channel (the CI env the workflow sets from a reviewer's
+    // label), recomputed exactly the way `verify` does (`src/cli/verify.ts:1711`)
+    // — NEVER from the `--ci-result` document. Deriving it from the file being
+    // validated let a forged `oob_signoff` field flip a MASKED_FAILURE to exit 0
+    // (#601 re-review). The document's own field is informational at most; it is
+    // not consulted here.
+    const signedOff = check.verdict === 'MASKED_FAILURE' && oobToken('verify', oobFromEnv(), oobHeadFromEnv()) !== null;
     // `adjudicated_tree` is the tree CI's verify actually ran over (may be the merge
     // result, not the receipt's tip tree). Passed through verbatim; undefined for an
     // older verify document, which reconcile degrades to NON_APPLICABLE (#601).

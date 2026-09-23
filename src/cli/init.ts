@@ -304,6 +304,14 @@ jobs:
       - name: Tamperward receipt reconciliation (evidence)
         if: always()
         shell: bash
+        env:
+          # The reconcile step's exit re-asserts CI's verdict, and a MASKED_FAILURE
+          # a reviewer has signed off must exit 0 here just as the verify step does.
+          # reconcile recomputes that sign-off from this SAME trusted channel — never
+          # from the --ci-result document — so a forged oob_signoff field inside the
+          # file it validates can never flip the exit (#601 re-review).
+          TAMPERWARD_OOB_SIGNOFF: \${{ steps.oob.outputs.rules }}
+          TAMPERWARD_OOB_HEAD: \${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
           HEAD_TREE="\$RUNNER_TEMP/tw-head"
