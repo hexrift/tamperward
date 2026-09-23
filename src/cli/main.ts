@@ -9,6 +9,7 @@ import { runHookService } from './hook-service';
 import { runAllow, AllowOpts } from './allow';
 import { runInit, InitOpts } from './init';
 import { runDoctor, DoctorOpts } from './doctor';
+import { runStatus, StatusOpts } from './status';
 import { runVerify, parseVerify } from './verify';
 import { runTraceVerify, parseTraceVerify } from './trace-verify';
 import { runEnvelope, parseRun } from './run';
@@ -79,6 +80,16 @@ function parseDoctor(args: string[]): DoctorOpts {
     else if (a === '--json') o.json = true;
     else if (a === '--repo') o.repo = args[++i];
     else if (a === '--branch') o.branch = args[++i];
+  }
+  return o;
+}
+
+function parseStatus(args: string[]): StatusOpts {
+  const o: StatusOpts = {};
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--json') o.json = true;
+    else if (a === '--cwd') o.cwd = args[++i];
   }
   return o;
 }
@@ -336,6 +347,13 @@ export function validateCliArgs(cmd: string, args: string[]): string | undefined
         '--file': 'string',
         '--since': 'string',
       },
+    }).error;
+  }
+
+  if (cmd === 'status') {
+    return validateFlatArgs(args, {
+      flags: ['--json'],
+      values: { '--cwd': 'string' },
     }).error;
   }
 
@@ -607,6 +625,16 @@ Formats:
                                             every tool the gate must see.
                                             --force-workflow replaces a workflow it
                                             did not write, or one you have edited.
+  tamperward status [--json] [--cwd D]      verification posture in three distinct
+                                            lanes — Authority (repository/final
+                                            adjudication), Intervention (runtime
+                                            steering), and Verification: whether the
+                                            last successful verify still applies to
+                                            the EXACT current state (CURRENT / STALE /
+                                            VERIFYING / BROKEN / UNVERIFIED). --json
+                                            emits the versioned status document for
+                                            editors, CI and dashboards. Local CURRENT
+                                            is posture, never repository/CI authority.
   tamperward runtime verify [--runtime ID]  qualify the in-loop runtime: an operation-
              [--mode headless|interactive]  specific capability matrix (pre-deny:shell,
              [--model M] [--json] [--cwd D]  native-edit, mcp, end-of-turn, transport:*,
@@ -680,6 +708,8 @@ export function main(argv: string[]): number | Promise<number> {
       return runDoctor(parseDoctor(rest));
     case 'stats':
       return runStats(parseStats(rest));
+    case 'status':
+      return runStatus(parseStatus(rest));
     case 'onboard':
       return runOnboard(parseOnboard(rest));
     case 'watch':

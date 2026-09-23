@@ -28,8 +28,8 @@ public protocol, documented on [Exit codes](./exit-codes.md).
 | `json` | The versioned machine document (below). |
 | `auto` | `github` when `GITHUB_ACTIONS=true`, otherwise `text` — so CI wiring stays one line. |
 
-`--json` cannot be combined with `--format`. `verify`, `run`, `doctor`, `stats` and
-`research` accept `--json` and emit their own documents.
+`--json` cannot be combined with `--format`. `verify`, `run`, `doctor`, `stats`,
+`status` and `research` accept `--json` and emit their own documents.
 
 ## `check --json`
 
@@ -118,6 +118,49 @@ document after adjudication.
 
 Full contract:
 [`schemas/run-v1.schema.json`](https://github.com/hexrift/tamperward/blob/main/schemas/run-v1.schema.json).
+
+## `status --json`
+
+The stable consumer contract for verification posture (#600): the #500 VS Code
+status bar/panel, WardOS, CI job summaries and future dashboards read the
+enumerated state instead of scraping `doctor` / `verify` prose. Three distinct
+lanes are always present.
+
+```json
+{
+  "schema_version": 1,
+  "command": "status",
+  "authority": { "state": "ACTIVE" },
+  "intervention": { "state": "PARTIAL", "detail": "PreToolUse hook wired" },
+  "verification": {
+    "state": "CURRENT",
+    "verified_at": "2026-09-23T12:00:00.000Z",
+    "base": "8ef12c1a...",
+    "head": "8ef12c1a...",
+    "verifier_command": "npm test",
+    "tree": "0123abcd...",
+    "binding": {
+      "tree": "0123abcd...", "head": "8ef12c1a...", "base": "8ef12c1a...",
+      "policy": "…", "verifier": "…", "surface": "…", "intervention": "…"
+    }
+  },
+  "runtime": { "agent": "claude-code" }
+}
+```
+
+| lane | states | meaning |
+| --- | --- | --- |
+| `authority.state` | `ACTIVE` \| `PARTIAL` \| `BROKEN` \| `UNKNOWN` | Repository/final-adjudication posture (from `doctor`). |
+| `intervention.state` | `ACTIVE` \| `PARTIAL` \| `INACTIVE` \| `UNKNOWN` | Runtime steering capability (is the in-loop hook wired?). |
+| `verification.state` | `CURRENT` \| `STALE` \| `VERIFYING` \| `BROKEN` \| `UNVERIFIED` | Whether the last successful verify still applies to the exact current state. |
+
+A `STALE` verification carries `changed_input` — the first load-bearing input that
+changed — one of `tree`, `head`, `base`, `policy`, `verifier`, `surface`,
+`intervention`. When a record exists the document also carries `verified_at`, the
+recorded `binding` fingerprints, the live `base`/`head`, and the `verifier_command`.
+Local `CURRENT` is posture/evidence, **not** repository or CI merge authority. Full
+contract:
+[`schemas/status-v1.schema.json`](https://github.com/hexrift/tamperward/blob/main/schemas/status-v1.schema.json).
 
 ## Other JSON surfaces
 
