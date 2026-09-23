@@ -1,9 +1,34 @@
 # Changelog
 
-## [2.34.0] — 2026-09-23
+## [2.35.0] — 2026-09-23
 
 ### Added
 
+- **`stats` streams the audit store, and the evidence store is partitioned** (#518). The
+  `tamperward stats` path no longer reads the whole JSONL file into memory and sorts every
+  event: a bounded line reader (64 KiB chunks, a `MAX_AUDIT_LINE_BYTES` line cap) parses,
+  applies `--since`, and aggregates in one pass, so peak memory is bounded by one event
+  line plus the aggregate cardinality rather than total history. Summary output is
+  byte-identical to the previous full-load path. The privileged GitHub ingestion
+  (`.github/audit/audit-publish.mjs`) now stores each reviewed/dispatch batch as an
+  immutable `events/YYYY/MM/<batch-id>.jsonl` partition instead of rewriting a monolithic
+  `events/all.jsonl`; event-id conflict detection reads and rewrites only the sharded
+  `ids/<pp>.jsonl` index shards a batch touches, never one map over all history. Adding one
+  batch therefore appends O(batch) bytes and never copies or rewrites a historical event
+  file. Explicit batch/line/partition limits fail closed with an exit-2 diagnostic.
+
+### Migration
+
+- **The pre-partition store is read transparently, no manual migration required.** Readers
+  still accept the existing `events/all.jsonl` layout: it is treated as an immutable
+  partition and streamed alongside the new per-batch files. On the first v2 ingest the
+  publisher indexes the legacy events into the id shards once (deterministic, idempotent) so
+  cross-source conflict detection stays complete. The published `audit-v1` schema and
+  `stats` machine-output contract are unchanged.
+
+## [2.34.0] — 2026-09-23
+
+### Added
 - **CLI argument handling** (#419; #646). Every command accepts `-h` / `--help`, long
   options take the `--name=value` spelling, and a terminal `--` ends option parsing.
   `hook-service stop` and `status` take `--dir <repo>` and refuse to act on a listener

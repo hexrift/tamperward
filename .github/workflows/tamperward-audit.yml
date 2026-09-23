@@ -170,7 +170,10 @@ jobs:
 
           git -C "${STORE}" config user.name github-actions[bot]
           git -C "${STORE}" config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git -C "${STORE}" add events/all.jsonl ingested/batches.jsonl summaries/all-time.json README.md
+          # Stage the whole immutable store: the legacy events/all.jsonl prefix,
+          # the new events/YYYY/MM/<batch-id>.jsonl partitions, the sharded id
+          # index under ids/, the append-only ledger and the derived reports.
+          git -C "${STORE}" add events ingested ids summaries README.md
 
           if git -C "${STORE}" diff --cached --quiet; then
             echo "No new audit event ids to persist."

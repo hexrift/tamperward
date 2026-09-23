@@ -6,13 +6,20 @@
 // source snippets, absolute paths and environment values never enter the event.
 
 import { createHash, randomBytes } from 'node:crypto';
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import type { Finding } from '../types';
 import { repoContext } from '../repo-context';
 
 export const AUDIT_SCHEMA_VERSION = 1 as const;
 export const AUDIT_LOG_ENV = 'TAMPERWARD_AUDIT_LOG';
+
+// Streaming bound: a single audit line is one JSON event whose fields are all
+// short, fixed-shape tokens, so a well-formed record is far under this. The cap
+// keeps the line reader's peak memory bounded by one event line regardless of
+// total store size, and turns a pathological single-line file into an
+// actionable exit-2 diagnostic instead of an out-of-memory crash.
+export const MAX_AUDIT_LINE_BYTES = 64 * 1024;
 
 export type AuditSurface = 'pretooluse' | 'stop';
 export type AuditSeverity = 'block' | 'warn';
@@ -225,43 +232,148 @@ export function parseSince(value: string, nowMs = Date.now()): number {
   return parsed;
 }
 
-export function summarizeAudit(events: readonly AuditEventV1[]): AuditSummary {
-  const ordered = [...events].sort(
-    (a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp) || a.id.localeCompare(b.id),
-  );
-  const rules = new Map<string, { events: number; blocked: number; warnings: number }>();
-  const surfaces = new Map<AuditSurface, number>();
-  const sessions = new Set<string>();
+// Total order over events matching the previous full-sort tie-break:
+// chronological by instant, then by id. Tracking the min and max under this
+// order reproduces the old `ordered[0]`/`ordered.at(-1)` first/last bounds
+// without materialising or sorting the full event array.
+function compareEventOrder(a: { ts: number; id: string }, b: { ts: number; id: string }): number {
+  return a.ts - b.ts || a.id.localeCompare(b.id);
+}
 
-  for (const event of ordered) {
-    const bucket = rules.get(event.rule) ?? { events: 0, blocked: 0, warnings: 0 };
+/**
+ * Single-pass audit aggregator. It holds only the summary state — counts, the
+ * per-rule and per-surface maps, the distinct-session set, and the extremal
+ * timestamps — so peak memory is bounded by aggregate cardinality plus one
+ * event at a time, never the total number of events. `summarizeAudit` and the
+ * streaming `runStats` path both drive this, so they produce byte-identical
+ * summaries by construction.
+ */
+export class AuditAggregator {
+  private events = 0;
+  private blocked = 0;
+  private warnings = 0;
+  private readonly rules = new Map<string, { events: number; blocked: number; warnings: number }>();
+  private readonly surfaces = new Map<AuditSurface, number>();
+  private readonly sessions = new Set<string>();
+  private firstTs: string | null = null;
+  private firstKey: { ts: number; id: string } | null = null;
+  private lastTs: string | null = null;
+  private lastKey: { ts: number; id: string } | null = null;
+
+  add(event: AuditEventV1): void {
+    this.events++;
+    if (event.severity === 'block') this.blocked++;
+    else this.warnings++;
+    const bucket = this.rules.get(event.rule) ?? { events: 0, blocked: 0, warnings: 0 };
     bucket.events++;
     if (event.severity === 'block') bucket.blocked++;
     else bucket.warnings++;
-    rules.set(event.rule, bucket);
-    surfaces.set(event.surface, (surfaces.get(event.surface) ?? 0) + 1);
-    if (event.session) sessions.add(event.session);
+    this.rules.set(event.rule, bucket);
+    this.surfaces.set(event.surface, (this.surfaces.get(event.surface) ?? 0) + 1);
+    if (event.session) this.sessions.add(event.session);
+
+    const key = { ts: Date.parse(event.timestamp), id: event.id };
+    if (this.firstKey === null || compareEventOrder(key, this.firstKey) < 0) {
+      this.firstKey = key;
+      this.firstTs = event.timestamp;
+    }
+    if (this.lastKey === null || compareEventOrder(key, this.lastKey) > 0) {
+      this.lastKey = key;
+      this.lastTs = event.timestamp;
+    }
   }
 
-  const by_rule = [...rules.entries()]
-    .map(([rule, counts]) => ({ rule, ...counts }))
-    .sort((a, b) => b.events - a.events || a.rule.localeCompare(b.rule));
-  const by_surface = [...surfaces.entries()]
-    .map(([surface, count]) => ({ surface, events: count }))
-    .sort((a, b) => b.events - a.events || a.surface.localeCompare(b.surface));
+  finish(): AuditSummary {
+    const by_rule = [...this.rules.entries()]
+      .map(([rule, counts]) => ({ rule, ...counts }))
+      .sort((a, b) => b.events - a.events || a.rule.localeCompare(b.rule));
+    const by_surface = [...this.surfaces.entries()]
+      .map(([surface, count]) => ({ surface, events: count }))
+      .sort((a, b) => b.events - a.events || a.surface.localeCompare(b.surface));
 
-  return {
-    schema_version: AUDIT_SCHEMA_VERSION,
-    events: ordered.length,
-    blocked: ordered.filter((event) => event.severity === 'block').length,
-    warnings: ordered.filter((event) => event.severity === 'warn').length,
-    sessions: sessions.size,
-    first_event: ordered[0]?.timestamp ?? null,
-    last_event: ordered.at(-1)?.timestamp ?? null,
-    by_rule,
-    by_surface,
-    interpretation: 'finding-is-not-proof-of-intent',
-  };
+    return {
+      schema_version: AUDIT_SCHEMA_VERSION,
+      events: this.events,
+      blocked: this.blocked,
+      warnings: this.warnings,
+      sessions: this.sessions.size,
+      first_event: this.firstTs,
+      last_event: this.lastTs,
+      by_rule,
+      by_surface,
+      interpretation: 'finding-is-not-proof-of-intent',
+    };
+  }
+}
+
+export function summarizeAudit(events: readonly AuditEventV1[]): AuditSummary {
+  const aggregator = new AuditAggregator();
+  for (const event of events) aggregator.add(event);
+  return aggregator.finish();
+}
+
+/**
+ * Read an audit JSONL file one line at a time with bounded memory: 64 KiB read
+ * chunks and a rolling partial-line buffer that is never allowed to exceed
+ * MAX_AUDIT_LINE_BYTES. Each complete non-blank line is handed to `onLine` with
+ * its 1-based line number. Synchronous by design so `runStats` can validate its
+ * inputs and throw before returning, keeping the CLI's error surface unchanged.
+ */
+export function forEachAuditLine(file: string, onLine: (line: string, lineNumber: number) => void): void {
+  const fd = openSync(file, 'r');
+  try {
+    const chunk = Buffer.allocUnsafe(64 * 1024);
+    let pending = '';
+    let lineNumber = 0;
+    let bytesRead: number;
+    const flush = (line: string): void => {
+      lineNumber++;
+      if (Buffer.byteLength(line, 'utf8') > MAX_AUDIT_LINE_BYTES) {
+        throw new Error(`audit line ${lineNumber} exceeds the ${MAX_AUDIT_LINE_BYTES}-byte limit`);
+      }
+      if (line.trim()) onLine(line, lineNumber);
+    };
+    while ((bytesRead = readSync(fd, chunk, 0, chunk.length, null)) > 0) {
+      pending += chunk.toString('utf8', 0, bytesRead);
+      let newline: number;
+      while ((newline = pending.indexOf('\n')) !== -1) {
+        let line = pending.slice(0, newline);
+        if (line.endsWith('\r')) line = line.slice(0, -1);
+        flush(line);
+        pending = pending.slice(newline + 1);
+      }
+      if (Buffer.byteLength(pending, 'utf8') > MAX_AUDIT_LINE_BYTES) {
+        throw new Error(
+          `audit line ${lineNumber + 1} exceeds the ${MAX_AUDIT_LINE_BYTES}-byte limit`,
+        );
+      }
+    }
+    if (pending.length) flush(pending.endsWith('\r') ? pending.slice(0, -1) : pending);
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/**
+ * Stream a persisted audit store into a summary: parse and validate each line,
+ * apply the `--since` cutoff per event, and aggregate in one pass. Never
+ * allocates the full event array, so peak memory is bounded by one event line
+ * plus the aggregate cardinality — not the file size.
+ */
+export function streamAuditSummary(file: string, cutoff: number | null): AuditSummary {
+  const aggregator = new AuditAggregator();
+  forEachAuditLine(file, (line, lineNumber) => {
+    let value: unknown;
+    try {
+      value = JSON.parse(line);
+    } catch {
+      throw new Error(`audit line ${lineNumber} is not valid JSON`);
+    }
+    const event = parseAuditEvent(value, lineNumber);
+    if (cutoff !== null && Date.parse(event.timestamp) < cutoff) return;
+    aggregator.add(event);
+  });
+  return aggregator.finish();
 }
 
 export function renderAuditStats(summary: AuditSummary): string {
@@ -313,11 +425,7 @@ export function runStats(opts: StatsOpts = {}): number {
     return 0;
   }
 
-  let events = parseAuditJsonl(readFileSync(file, 'utf8'));
-  if (cutoff !== null) {
-    events = events.filter((event) => Date.parse(event.timestamp) >= cutoff);
-  }
-  const summary = summarizeAudit(events);
+  const summary = streamAuditSummary(file, cutoff);
   process.stdout.write(opts.json ? JSON.stringify(summary) + '\n' : renderAuditStats(summary));
   return 0;
 }

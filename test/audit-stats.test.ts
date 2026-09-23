@@ -4,12 +4,15 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+  MAX_AUDIT_LINE_BYTES,
+  forEachAuditLine,
   parseAuditEvent,
   parseAuditJsonl,
   parseSince,
   recordAuditFindings,
   renderAuditStats,
   runStats,
+  streamAuditSummary,
   summarizeAudit,
   type AuditEventV1,
 } from '../src/cli/audit';
@@ -214,5 +217,106 @@ describe('audit stats', () => {
     const file = join(dir, 'events.jsonl');
     writeFileSync(file, JSON.stringify(event()) + '\n');
     expect(parseAuditJsonl(readFileSync(file, 'utf8'))).toHaveLength(1);
+  });
+});
+
+describe('streaming audit stats', () => {
+  const HEX = 'abcdef0123456789';
+  function syntheticEvents(count: number): AuditEventV1[] {
+    const rules = ['test-skip', 'transient-protected-mutation', 'lint-suppression', 'guard-removal'];
+    const surfaces: AuditEventV1['surface'][] = ['pretooluse', 'stop'];
+    const events: AuditEventV1[] = [];
+    for (let i = 0; i < count; i++) {
+      // Deterministic, unique, well-formed 32-hex id per event.
+      const id = 'sha256:' + i.toString(16).padStart(32, '0');
+      const block = i % 3 === 0;
+      const minute = String(i % 60).padStart(2, '0');
+      const hour = String(Math.floor(i / 60) % 24).padStart(2, '0');
+      events.push({
+        schema_version: 1,
+        id,
+        timestamp: `2026-09-${String((i % 27) + 1).padStart(2, '0')}T${hour}:${minute}:00.000Z`,
+        surface: surfaces[i % surfaces.length],
+        agent: 'claude-code',
+        rule: rules[i % rules.length],
+        severity: block ? 'block' : 'warn',
+        decision: block ? 'deny' : 'warn',
+        ...(i % 5 === 0 ? { session: 'sha256:' + HEX[i % 16].repeat(24) } : {}),
+      });
+    }
+    return events;
+  }
+
+  function fileOf(events: AuditEventV1[]): string {
+    const dir = mkdtempSync(join(tmpdir(), 'tw-audit-stream-'));
+    dirs.push(dir);
+    const file = join(dir, 'audit.jsonl');
+    writeFileSync(file, events.map((e) => JSON.stringify(e)).join('\n') + '\n');
+    return file;
+  }
+
+  it('produces summaries byte-identical to the full-load path over a large history', () => {
+    const events = syntheticEvents(5000);
+    const file = fileOf(events);
+    const streamed = streamAuditSummary(file, null);
+    const loaded = summarizeAudit(parseAuditJsonl(readFileSync(file, 'utf8')));
+    expect(JSON.stringify(streamed)).toBe(JSON.stringify(loaded));
+    expect(streamed.events).toBe(5000);
+  });
+
+  it('applies --since identically to filtering the full array', () => {
+    const events = syntheticEvents(2000);
+    const file = fileOf(events);
+    const cutoff = Date.parse('2026-09-14T00:00:00.000Z');
+    const streamed = streamAuditSummary(file, cutoff);
+    const loaded = summarizeAudit(
+      parseAuditJsonl(readFileSync(file, 'utf8')).filter((e) => Date.parse(e.timestamp) >= cutoff),
+    );
+    expect(JSON.stringify(streamed)).toBe(JSON.stringify(loaded));
+    expect(streamed.events).toBeGreaterThan(0);
+    expect(streamed.events).toBeLessThan(2000);
+  });
+
+  it('handles lines split across read-buffer boundaries and trailing no-newline', () => {
+    const events = syntheticEvents(300);
+    const dir = mkdtempSync(join(tmpdir(), 'tw-audit-nonl-'));
+    dirs.push(dir);
+    const file = join(dir, 'audit.jsonl');
+    // No trailing newline on the final line.
+    writeFileSync(file, events.map((e) => JSON.stringify(e)).join('\n'));
+    const seen: string[] = [];
+    forEachAuditLine(file, (line) => seen.push(line));
+    expect(seen).toHaveLength(300);
+    const streamed = streamAuditSummary(file, null);
+    expect(streamed.events).toBe(300);
+  });
+
+  it('rejects a pathological over-long line with an exit-2 diagnostic', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'tw-audit-giant-'));
+    dirs.push(dir);
+    const file = join(dir, 'audit.jsonl');
+    writeFileSync(file, 'x'.repeat(MAX_AUDIT_LINE_BYTES + 1024) + '\n');
+    expect(() => streamAuditSummary(file, null)).toThrow(/exceeds the \d+-byte limit/);
+    // runStats surfaces the throw; guardedMain maps it to exit 2 (fail-closed).
+    expect(() => runStats({ file })).toThrow(/exceeds the \d+-byte limit/);
+  });
+
+  it('streams a real persisted store through runStats --json end to end', () => {
+    const events = syntheticEvents(1200);
+    const file = fileOf(events);
+    const out: string[] = [];
+    const originalWrite = process.stdout.write.bind(process.stdout);
+    (process.stdout as unknown as { write: (s: string) => boolean }).write = (s: string) => {
+      out.push(s);
+      return true;
+    };
+    try {
+      expect(runStats({ file, json: true })).toBe(0);
+    } finally {
+      process.stdout.write = originalWrite;
+    }
+    const summary = JSON.parse(out.join(''));
+    expect(summary.events).toBe(1200);
+    expect(summary).toEqual(summarizeAudit(events));
   });
 });

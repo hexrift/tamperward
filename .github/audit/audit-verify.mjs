@@ -150,6 +150,12 @@ export function loadAuditSchema(schemaPath) {
   return schema;
 }
 
+export function validateAuditValue(schema, value, label = 'audit event') {
+  const errors = validationErrors(schema, value, label);
+  if (errors.length) throw new Error(`audit-verify: ${errors[0]}`);
+  return value;
+}
+
 export function validateAuditJsonl(schema, raw, label = 'audit') {
   const events = [];
   raw.split(/\r?\n/).forEach((line, index) => {

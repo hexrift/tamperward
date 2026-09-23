@@ -138,7 +138,13 @@ describe('GitHub audit store workflow', () => {
     expect(publish).toContain('candidate event id conflicts with stored content');
     expect(publish).toContain('content_sha256');
     expect(publish).toContain('source_sha');
-    expect(publish).toContain('summarize(allEvents)');
+    // The privileged job derives the summary itself by streaming the immutable
+    // partitions (bounded memory), never trusting a prepared derived artifact.
+    expect(publish).toContain('forEachStoredEvent');
+    // New batches land in immutable per-batch partitions; the legacy monolithic
+    // events/all.jsonl is never rewritten, and the id index is sharded.
+    expect(publish).toContain('events/YYYY/MM');
+    expect(publish).toContain('shardOf');
     expect(runText('publish')).toContain('audit-publish.mjs');
     expect(stepsOf('publish').some((s) => (s.uses ?? '').startsWith('actions/download-artifact@'))).toBe(false);
     // The dependency-free verifier validates against the committed schema and
