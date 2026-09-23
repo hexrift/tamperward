@@ -1081,7 +1081,15 @@ function tarEntries(archive: string): Array<{ name: string; bytes: Buffer }> {
   }
   return out;
 }
-function tarArchive(path: string, entries: Array<{ name: string; bytes: Buffer }>): string {
+interface TarCraft {
+  /** Edit a header before its checksum is computed (an attack keeps a valid checksum). */
+  mutate?: (name: string, header: Buffer) => void;
+  /** Bytes to place in an entry's padding instead of zeros. */
+  padding?: (name: string) => Buffer | undefined;
+  /** Bytes appended after the two end-of-archive blocks. */
+  trailing?: Buffer;
+}
+function tarArchive(path: string, entries: Array<{ name: string; bytes: Buffer }>, craft: TarCraft = {}): string {
   const blocks = entries.map(({ name, bytes }) => {
     const h = Buffer.alloc(512, 0);
     h.write(name, 0, 'utf8');
@@ -1094,11 +1102,15 @@ function tarArchive(path: string, entries: Array<{ name: string; bytes: Buffer }
     h[156] = 0x30;
     h.write('ustar', 257, 'ascii');
     h.write('00', 263, 'ascii');
+    craft.mutate?.(name, h);
     const sum = h.reduce((acc, b) => acc + b, 0);
-    h.write(sum.toString(8).padStart(6, '0') + '\0 ', 148, 'ascii');
-    return Buffer.concat([h, bytes, Buffer.alloc((512 - (bytes.length % 512)) % 512, 0)]);
+    h.write(sum.toString(8).padStart(7, '0') + '\0', 148, 'ascii');
+    const pad = Buffer.alloc((512 - (bytes.length % 512)) % 512, 0);
+    const custom = craft.padding?.(name);
+    if (custom) custom.copy(pad, 0, 0, Math.min(custom.length, pad.length));
+    return Buffer.concat([h, bytes, pad]);
   });
-  writeFileSync(path, gzipSync(Buffer.concat([...blocks, Buffer.alloc(1024, 0)])));
+  writeFileSync(path, gzipSync(Buffer.concat([...blocks, Buffer.alloc(1024, 0), craft.trailing ?? Buffer.alloc(0)])));
   return path;
 }
 
@@ -1269,5 +1281,34 @@ describe('research bundle reads only regular pair files and carries only the pai
     expect(() => validateResearchBundle(tarArchive(join(dir, 'extra-field.tgz'), [...others, { name: record!.name, bytes: extra }]))).toThrow(/\.api_key is not a field of the v1 pair record/);
     expect(() => validateResearchBundle(tarArchive(join(dir, 'dup.tgz'), [...entries, entries[0]]))).toThrow(/duplicate archive entry/);
     expect(validateResearchBundle(good)).toEqual({ records: 1, manifest_sha256: 'b'.repeat(64) });
+  });
+
+  it('validate accepts only the exact ustar header form the writer emits, and nothing after the archive end', () => {
+    const dir = tmp();
+    const ledger = ledgerWith(dir, { 'honest--1.json': pairText(validPair()) });
+    const good = createResearchBundle({ ledger, out: join(dir, 'good.tgz') });
+    const entries = tarEntries(good);
+    // A standards-compliant ustar prefix would make a tar reader see
+    // workspaces/private/summary.json where the old parser saw the allowed summary.json.
+    expect(() => validateResearchBundle(tarArchive(join(dir, 'prefix.tgz'), entries, {
+      mutate: (name, h) => { if (name === 'summary.json') h.write('workspaces/private', 345, 'utf8'); },
+    }))).toThrow(/workspaces\/private\/summary\.json uses a ustar prefix/);
+    // A symlink entry (type flag 2) is not a regular file entry.
+    expect(() => validateResearchBundle(tarArchive(join(dir, 'symlink-entry.tgz'), entries, {
+      mutate: (name, h) => { if (name === 'ledger/pairs/honest--1.json') h[156] = 0x32; },
+    }))).toThrow(/honest--1\.json is not a regular file entry/);
+    // Any other deviation from the canonical header (here an owner name), even with a valid checksum, is refused.
+    expect(() => validateResearchBundle(tarArchive(join(dir, 'owner.tgz'), entries, {
+      mutate: (name, h) => { if (name === 'report.txt') h.write('root', 265, 'ascii'); },
+    }))).toThrow(/report\.txt has a header this bundle format does not write/);
+    // Bytes hidden in an entry's padding, or after the two end-of-archive blocks, are refused.
+    expect(() => validateResearchBundle(tarArchive(join(dir, 'padding.tgz'), entries, {
+      padding: (name) => (name === 'provenance.json' ? Buffer.from('TOKEN=x', 'utf8') : undefined),
+    }))).toThrow(/provenance\.json carries bytes in its padding/);
+    expect(() => validateResearchBundle(tarArchive(join(dir, 'trailing.tgz'), entries, {
+      trailing: Buffer.from('TOKEN=x', 'utf8'),
+    }))).toThrow(/bytes after its end-of-archive blocks/);
+    // The same writer, untouched, still produces an archive the validator accepts.
+    expect(validateResearchBundle(tarArchive(join(dir, 'rebuilt.tgz'), entries))).toEqual({ records: 1, manifest_sha256: 'b'.repeat(64) });
   });
 });

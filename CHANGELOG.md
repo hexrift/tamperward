@@ -19,8 +19,11 @@
   or stray bytes cannot travel either, and a record name the ustar header cannot store
   byte for byte is refused rather than truncated. `research validate` holds an archive
   to the same rules: only the evidence entries may be present, a duplicate or nested
-  entry is refused, and every pair record must be canonical. A refusal happens before
-  any output is written.
+  entry is refused, every pair record must be canonical, and the archive must be exactly
+  what the writer emits (one ustar header form with no prefix, link, owner or device
+  fields, zero padding, and nothing after the two end-of-archive blocks), so a tar
+  reader and the validator agree on every path and byte. A refusal happens before any
+  output is written.
 
 ## [2.37.1] — 2026-09-23
 

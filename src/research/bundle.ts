@@ -30,52 +30,99 @@ function octal(value: number, width: number): string {
   return value.toString(8).padStart(width - 1, '0') + '\0';
 }
 
-function tarEntry(name: string, bytes: Buffer): Buffer {
+const NAME_FIELD = 100;
+const TYPE_OFFSET = 156;
+const PREFIX_OFFSET = 345;
+const PREFIX_FIELD = 155;
+
+/** The one ustar header form this bundle format writes: the name in the name
+ *  field alone (no prefix), mode 0644, uid and gid 0, mtime 0, type `0`, magic
+ *  `ustar` version `00`, and an empty link name, owner names and device numbers.
+ *  The reader accepts exactly this form and nothing else (#663). */
+function tarHeader(name: string, size: number): Buffer {
   const header = Buffer.alloc(BLOCK, 0);
-  if (name.startsWith('/') || Buffer.byteLength(name, 'utf8') > TAR_NAME_MAX) {
-    throw new ResearchError(`archive entry name ${name} cannot be stored byte for byte in a ustar header`);
-  }
   header.write(name, 0, 'utf8');
   header.write(octal(0o644, 8), 100, 'ascii');
   header.write(octal(0, 8), 108, 'ascii');
   header.write(octal(0, 8), 116, 'ascii');
-  header.write(octal(bytes.length, 12), 124, 'ascii');
+  header.write(octal(size, 12), 124, 'ascii');
   // Fixed mtime keeps the archive bytes reproducible for the same records and
   // provenance; wall-clock creation time is not research evidence.
   header.write(octal(0, 12), 136, 'ascii');
   header.fill(0x20, 148, 156);
-  header[156] = 0x30;
+  header[TYPE_OFFSET] = 0x30;
   header.write('ustar', 257, 'ascii');
   header.write('00', 263, 'ascii');
   const checksum = header.reduce((sum, b) => sum + b, 0);
   header.write(octal(checksum, 8), 148, 'ascii');
+  return header;
+}
+
+function tarEntry(name: string, bytes: Buffer): Buffer {
+  if (name.startsWith('/') || Buffer.byteLength(name, 'utf8') > TAR_NAME_MAX) {
+    throw new ResearchError(`archive entry name ${name} cannot be stored byte for byte in a ustar header`);
+  }
   const padding = Buffer.alloc((BLOCK - (bytes.length % BLOCK)) % BLOCK, 0);
-  return Buffer.concat([header, bytes, padding]);
+  return Buffer.concat([tarHeader(name, bytes.length), bytes, padding]);
 }
 
 function makeTar(entries: Entry[]): Buffer {
   return Buffer.concat([...entries.map((e) => tarEntry(e.name, e.bytes)), Buffer.alloc(BLOCK * 2, 0)]);
 }
 
+/** A NUL-terminated header field as text. */
+function field(header: Buffer, start: number, length: number): string {
+  const raw = header.subarray(start, start + length);
+  const end = raw.indexOf(0);
+  return raw.subarray(0, end === -1 ? raw.length : end).toString('utf8');
+}
+
+/** Parse an archive this bundle format wrote, and nothing looser: every header
+ *  must be byte for byte the form `tarHeader` emits (so a ustar prefix, a link or
+ *  device entry, a foreign checksum or owner cannot change what a name means), a
+ *  payload's padding must be zero, and the archive must end with exactly two zero
+ *  blocks and nothing after them. A tar reader and this validator therefore agree
+ *  on every path and every byte the archive carries (#663). */
 function parseTar(bytes: Buffer): Map<string, Buffer> {
   const files = new Map<string, Buffer>();
-  for (let offset = 0; offset + BLOCK <= bytes.length; ) {
+  let offset = 0;
+  for (;;) {
+    if (offset + BLOCK > bytes.length) throw new ResearchError('research bundle is missing its end-of-archive blocks');
     const header = bytes.subarray(offset, offset + BLOCK);
-    if (header.every((b) => b === 0)) break;
-    const name = header.subarray(0, 100).toString('utf8').replace(/\0.*$/, '');
-    const sizeText = header.subarray(124, 136).toString('ascii').replace(/\0.*$/, '').trim();
-    const size = Number.parseInt(sizeText || '0', 8);
+    if (header.every((b) => b === 0)) {
+      const second = bytes.subarray(offset + BLOCK, offset + 2 * BLOCK);
+      if (second.length !== BLOCK || !second.every((b) => b === 0) || offset + 2 * BLOCK !== bytes.length) {
+        throw new ResearchError('research bundle carries bytes after its end-of-archive blocks');
+      }
+      return files;
+    }
+    const name = field(header, 0, NAME_FIELD);
+    const prefix = field(header, PREFIX_OFFSET, PREFIX_FIELD);
+    if (prefix) {
+      throw new ResearchError(`research bundle entry ${prefix}/${name} uses a ustar prefix; this bundle format stores every name in the name field`);
+    }
+    const type = header[TYPE_OFFSET];
+    if (type !== 0x30) {
+      throw new ResearchError(`research bundle entry ${name} is not a regular file entry (type flag ${JSON.stringify(String.fromCharCode(type))})`);
+    }
+    const size = Number.parseInt(field(header, 124, 12).trim() || '0', 8);
     if (!name || name.startsWith('/') || name.split('/').includes('..') || !Number.isSafeInteger(size) || size < 0) {
       throw new ResearchError('research bundle contains an unsafe or malformed archive entry');
+    }
+    if (Buffer.byteLength(name, 'utf8') > TAR_NAME_MAX || !header.equals(tarHeader(name, size))) {
+      throw new ResearchError(`research bundle entry ${name} has a header this bundle format does not write`);
     }
     const start = offset + BLOCK;
     const end = start + size;
     if (end > bytes.length) throw new ResearchError('research bundle is truncated');
+    const padded = start + Math.ceil(size / BLOCK) * BLOCK;
+    if (padded > bytes.length || !bytes.subarray(end, padded).every((b) => b === 0)) {
+      throw new ResearchError(`research bundle entry ${name} carries bytes in its padding`);
+    }
     if (files.has(name)) throw new ResearchError(`research bundle contains a duplicate archive entry ${name}`);
     files.set(name, Buffer.from(bytes.subarray(start, end)));
-    offset = start + Math.ceil(size / BLOCK) * BLOCK;
+    offset = padded;
   }
-  return files;
 }
 
 /** The pair records a bundle carries, read once through the hardened ledger

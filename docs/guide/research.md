@@ -191,8 +191,11 @@ the document defines it as an object. The archive holds the canonical serializat
 of each proved record, never the raw file bytes, and a record name the archive
 cannot store byte for byte is refused rather than truncated. The validator holds an
 archive to the same rules: only the evidence entries above (plus the optional
-manifest) may be present, no entry may repeat, and every pair record must be
-canonical.
+manifest) may be present, no entry may repeat, every pair record must be
+canonical, and the archive itself must be exactly what the writer emits (one
+ustar header form with no prefix, link or owner fields, zero padding, and nothing
+after the two end-of-archive blocks), so a tar reader and the validator agree on
+every path and every byte.
 
 ## Adapters
 
