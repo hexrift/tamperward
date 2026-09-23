@@ -59,12 +59,17 @@ jobs:
         # package.json declares engines >=20.19 (2.0.0 dropped Node 18, which is past
         # end of life and which the dev toolchain no longer runs on). Every leg here
         # is a version the package claims to support, so the floor is a tested claim.
-        node: ["20.19", 22, 24]
+        # Keep the required check context test (20) stable while pinning its
+        # actual runtime to the declared 20.19 engine floor.
+        node: [20, 22, 24]
+        include:
+          - node: 20
+            node_version: "20.19"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: ${{ matrix.node }}
+          node-version: ${{ matrix.node_version || matrix.node }}
           cache: npm
       - run: npm ci
       - run: npm test
