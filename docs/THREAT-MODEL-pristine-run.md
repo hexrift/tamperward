@@ -314,7 +314,7 @@ is the variable list. What remains is stated below.
   candidate's filter.
 - **Shared mutable dependencies are attested where the execution environment can
   be bounded, not assumed away.** Since 2.10.9 the envelope freezes one dependency
-  descriptor before candidate execution and reuses it through both verifier runs.
+  descriptor before candidate execution; since 2.16.3, each verifier-entry checkpoint independently rereads and fingerprints the closure that descriptor defines. The descriptor is reused as the attestation scope, not as a snapshot.
   Repository `node_modules` and an identifiable selected Python virtualenv are
   content/type/mode/link fingerprinted; Python site-packages and interpreter identity
   are therefore inside the check. A normal venv interpreter symlink to an external
