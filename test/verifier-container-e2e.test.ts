@@ -8,7 +8,7 @@ import { runEnvelope } from '../src/cli/run';
 import { prepareVerifierBackend, type PreparedVerifierBackend } from '../src/verifier-backend';
 
 const ENABLED = process.env.TAMPERWARD_CONTAINER_E2E === '1';
-const containerIt = ENABLED ? it : it.skip;
+const containerIt = it.skipIf(!ENABLED);
 const BASE_IMAGE = 'node@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32';
 
 const dirs: string[] = [];

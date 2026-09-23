@@ -2,11 +2,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import Ajv2020 from 'ajv/dist/2020.js';
 import { execFileSync, spawnSync } from 'node:child_process';
 import {
+  copyFileSync,
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -174,45 +177,56 @@ function healthyDoctorRepo(): string {
 }
 
 function buildPackExtract(): { packageRoot: string; tarball: string } {
-  const tmp = mkdtempSync(join(ROOT, '.tw-pack-schema-'));
+  const tmp = mkdtempSync(join(tmpdir(), 'tw-pack-schema-'));
   dirs.push(tmp);
+  const staging = join(tmp, 'package');
   const packageRoot = join(tmp, 'extract', 'package');
-  const dist = join(ROOT, 'dist');
-  const hadDist = existsSync(dist);
+  const dist = join(staging, 'dist');
   mkdirSync(dirname(packageRoot), { recursive: true });
   mkdirSync(join(dist, 'cli'), { recursive: true });
 
-  try {
-    buildSync({
-      entryPoints: [join(ROOT, 'src', 'cli', 'index.ts')],
-      bundle: true,
-      platform: 'node',
-      format: 'esm',
-      packages: 'external',
-      outfile: join(dist, 'cli', 'index.js'),
-    });
-
-    // Pack the ACTUAL repository/package manifest, not a reconstructed staging
-    // directory. This is the publish surface users receive.
-    const packed = normalizeNpmPackJson(JSON.parse(execFileSync(
-      'npm',
-      ['pack', '--ignore-scripts', '--json', '--pack-destination', tmp],
-      { cwd: ROOT, encoding: 'utf8' },
-    )));
-    expect(packed).toHaveLength(1);
-
-    const paths = new Set((packed[0].files ?? []).map((x) => x.path));
-    expect(paths.has('dist/cli/index.js')).toBe(true);
-    for (const name of SCHEMA_NAMES) {
-      expect(paths.has(`schemas/${name}-v1.schema.json`)).toBe(true);
-    }
-
-    const tarball = join(tmp, packed[0].filename);
-    execFileSync('tar', ['-xzf', tarball, '-C', dirname(packageRoot)]);
-    return { packageRoot, tarball };
-  } finally {
-    if (!hadDist) rmSync(dist, { recursive: true, force: true });
+  // Stage the real publish manifest and declared package files without
+  // touching the checkout's dist/ or creating root-level test artifacts.
+  for (const name of ['package.json', 'LICENSE', 'NOTICE', 'README.md']) {
+    copyFileSync(join(ROOT, name), join(staging, name));
   }
+  cpSync(join(ROOT, 'schemas'), join(staging, 'schemas'), { recursive: true });
+
+  buildSync({
+    entryPoints: [join(ROOT, 'src', 'cli', 'index.ts')],
+    bundle: true,
+    platform: 'node',
+    format: 'esm',
+    packages: 'external',
+    outfile: join(dist, 'cli', 'index.js'),
+  });
+
+  const packed = normalizeNpmPackJson(JSON.parse(execFileSync(
+    'npm',
+    ['pack', '--ignore-scripts', '--json', '--pack-destination', tmp],
+    { cwd: staging, encoding: 'utf8' },
+  )));
+  expect(packed).toHaveLength(1);
+
+  const paths = new Set((packed[0].files ?? []).map((x) => x.path));
+  expect(paths.has('dist/cli/index.js')).toBe(true);
+  for (const name of SCHEMA_NAMES) {
+    expect(paths.has(`schemas/${name}-v1.schema.json`)).toBe(true);
+  }
+
+  const tarball = join(tmp, packed[0].filename);
+  execFileSync('tar', ['-xzf', tarball, '-C', dirname(packageRoot)]);
+  // The packed artifact intentionally excludes dependencies. Link the checkout's
+  // installed modules only into this extracted test fixture so its bundled CLI
+  // resolves external imports without putting node_modules into the tarball.
+  if (existsSync(join(ROOT, 'node_modules'))) {
+    symlinkSync(
+      join(ROOT, 'node_modules'),
+      join(packageRoot, 'node_modules'),
+      process.platform === 'win32' ? 'junction' : 'dir',
+    );
+  }
+  return { packageRoot, tarball };
 }
 
 function packagedCli(

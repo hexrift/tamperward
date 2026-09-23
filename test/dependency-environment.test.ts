@@ -335,7 +335,7 @@ describe('dependency environment attestation', () => {
   });
 
   it.skipIf(Number(process.versions.node.split('.')[0]) !== 24)(
-    'benchmarks complete dependency snapshots on small/medium/large synthetic trees',
+    'benchmarks complete dependency snapshots on small/medium/large synthetic trees (Node 24 only)',
     () => {
       const cases = [
         { name: 'small', files: 100, bytesPerFile: 4096 },
