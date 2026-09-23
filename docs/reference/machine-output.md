@@ -15,6 +15,12 @@ field, changing its type, or changing a discriminator's meaning requires
 The JSON schemas describe **data shape**, not process status — exit codes are a separate
 public protocol, documented on [Exit codes](./exit-codes.md).
 
+Each published v1 schema has a content-pinned canonical `$id`: its raw GitHub URL points to
+an immutable release commit rather than the mutable `main` branch or an unpublished ref.
+When a v1 schema changes, publish the new bytes from a release commit and update that schema's
+identifier to the new commit; existing identifiers continue to resolve to the exact bytes they
+identified.
+
 [[toc]]
 
 ## Choosing a format: `--format` / `--json`
