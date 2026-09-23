@@ -254,7 +254,18 @@ function ciAdjudicate(cwd: string, opts: ReceiptReconcileOpts): { ci: CiAdjudica
       return { ci: { verdict: 'CANNOT_VERIFY', binding, binding_error: check.reason }, exit: 2 };
     }
     const signedOff = !!(doc && typeof doc === 'object' && 'oob_signoff' in (doc as Record<string, unknown>));
-    return { ci: { verdict: check.verdict, binding, ...(bindingError ? { binding_error: bindingError } : {}) }, exit: verdictExit(check.verdict, signedOff) };
+    // `adjudicated_tree` is the tree CI's verify actually ran over (may be the merge
+    // result, not the receipt's tip tree). Passed through verbatim; undefined for an
+    // older verify document, which reconcile degrades to NON_APPLICABLE (#601).
+    return {
+      ci: {
+        verdict: check.verdict,
+        binding,
+        ...(check.adjudicated_tree !== undefined ? { adjudicated_tree: check.adjudicated_tree } : {}),
+        ...(bindingError ? { binding_error: bindingError } : {}),
+      },
+      exit: verdictExit(check.verdict, signedOff),
+    };
   }
 
   // Self-contained: rerun the canonical verification ourselves, FIRST.
@@ -272,7 +283,18 @@ function ciAdjudicate(cwd: string, opts: ReceiptReconcileOpts): { ci: CiAdjudica
     },
   });
   const verdict: VerifyVerdict = summary?.verdict ?? 'CANNOT_VERIFY';
-  return { ci: { verdict, binding, ...(bindingError ? { binding_error: bindingError } : {}) }, exit };
+  // Self-run: verify executed in THIS checkout, so the tree it adjudicated is the
+  // live tree — exactly the tree `computeBinding` fingerprinted for the identity.
+  // Bind them equal so the cross-check is a no-op for the same-checkout path.
+  return {
+    ci: {
+      verdict,
+      binding,
+      ...(binding ? { adjudicated_tree: binding.tree } : {}),
+      ...(bindingError ? { binding_error: bindingError } : {}),
+    },
+    exit,
+  };
 }
 
 /** A 40- or 64-hex object id, the shape a resolved commit takes. */
@@ -300,7 +322,7 @@ function readCiVerify(
   binding: VerificationBinding | null,
   cwd: string,
   opts: ReceiptReconcileOpts,
-): { verdict: VerifyVerdict; reason?: string } {
+): { verdict: VerifyVerdict; reason?: string; adjudicated_tree?: string } {
   if (!doc || typeof doc !== 'object' || Array.isArray(doc)) {
     return { verdict: 'CANNOT_VERIFY', reason: 'CI verify result is not a JSON object' };
   }
@@ -330,7 +352,13 @@ function readCiVerify(
       };
     }
   }
-  return { verdict: d.verdict };
+  // `adjudicated_tree` is additive (verify-v1 is `additionalProperties: true`) and
+  // optional: a genuine current verify document carries the fingerprint of the tree
+  // it ran over, but an older one has none. Accept only a non-empty string; anything
+  // else (absent, or a malformed value) is left undefined and reconcile degrades to
+  // NON_APPLICABLE rather than assume CI ran the receipt's tree (#601 re-review).
+  const adjudicated_tree = typeof d.adjudicated_tree === 'string' && d.adjudicated_tree.length > 0 ? d.adjudicated_tree : undefined;
+  return { verdict: d.verdict, adjudicated_tree };
 }
 
 function isRecordObject(v: unknown): v is Record<string, unknown> {
@@ -381,6 +409,7 @@ export function renderReconcile(
   r: Reconciliation,
   claimedReceipt: VerificationReceipt | null,
   ciBinding: VerificationBinding | null,
+  adjudicatedTree: string | undefined,
   colour: boolean,
 ): string {
   const tick = (s: string): string => paint(s, severityColour('ok'), colour);
@@ -407,7 +436,12 @@ export function renderReconcile(
   lines.push('CI');
   if (ciBinding) {
     const mark = r.ci.verdict === 'VERIFIED' ? tick('✓') : cross('✗');
-    lines.push(`  ${mark} independently ${r.ci.verdict} ${ciBinding.tree.slice(0, 10)}`);
+    // Print the tree CI actually ADJUDICATED (the merge result in a `pull_request`
+    // run), not the branch-tip identity tree, so the verdict is attributed to the
+    // tree it was really about (#601 re-review). Falls back to the identity tree
+    // for an older verify document that reported no adjudicated tree.
+    const shownTree = adjudicatedTree ?? ciBinding.tree;
+    lines.push(`  ${mark} independently ${r.ci.verdict} ${shownTree.slice(0, 10)}`);
   } else {
     lines.push(`  ${cross('✗')} ${r.ci.verdict} (identity not computable)`);
   }
@@ -471,11 +505,11 @@ export function runReceiptReconcile(opts: ReceiptReconcileOpts = {}): number {
   if (opts.json) {
     process.stdout.write(JSON.stringify(reconcileDocument(r)) + '\n');
   } else {
-    process.stdout.write(renderReconcile(r, claimedReceipt, ci.binding, colourEnabled(process.env, process.stdout)));
+    process.stdout.write(renderReconcile(r, claimedReceipt, ci.binding, ci.adjudicated_tree, colourEnabled(process.env, process.stdout)));
   }
 
   // GitHub Actions job summary: the same separated report, in Markdown.
-  writeJobSummary(r, claimedReceipt, ci.binding);
+  writeJobSummary(r, claimedReceipt, ci.binding, ci.adjudicated_tree);
 
   // The exit code is CI's verdict, computed above BEFORE the receipt was read.
   return exit;
@@ -483,7 +517,12 @@ export function runReceiptReconcile(opts: ReceiptReconcileOpts = {}): number {
 
 /** Append the reconciliation to $GITHUB_STEP_SUMMARY when running under Actions.
  *  Best-effort: a summary write never changes the exit code. */
-function writeJobSummary(r: Reconciliation, receipt: VerificationReceipt | null, ciBinding: VerificationBinding | null): void {
+function writeJobSummary(
+  r: Reconciliation,
+  receipt: VerificationReceipt | null,
+  ciBinding: VerificationBinding | null,
+  adjudicatedTree: string | undefined,
+): void {
   const path = process.env.GITHUB_STEP_SUMMARY;
   if (!path) return;
   const md: string[] = ['## TamperWard receipt reconciliation', ''];
@@ -499,7 +538,8 @@ function writeJobSummary(r: Reconciliation, receipt: VerificationReceipt | null,
     md.push(`- receipt **${r.local.disposition}**${r.local.detail ? ` — ${r.local.detail}` : ''}`);
   }
   md.push('', '### CI');
-  md.push(`- independently **${r.ci.verdict}**${ciBinding ? ` \`${ciBinding.tree.slice(0, 10)}\`` : ' (identity not computable)'}`);
+  const shownTree = adjudicatedTree ?? ciBinding?.tree;
+  md.push(`- independently **${r.ci.verdict}**${shownTree ? ` \`${shownTree.slice(0, 10)}\`` : ' (identity not computable)'}`);
   md.push('', '### RESULT');
   md.push(`**${r.result}** — ${r.agreement}`);
   for (const d of r.divergence) md.push(`- ${d}`);

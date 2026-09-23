@@ -1717,6 +1717,15 @@ function runVerifyImpl(opts: VerifyOpts): number {
         schema_version: MACHINE_SCHEMA_VERSION,
         verdict,
         base,
+        // The candidate tree fingerprint this run actually ADJUDICATED — the same
+        // identity `verify` binds into the #600 record (`treeBefore`). Additive
+        // (verify-v1 is `additionalProperties: true`), it lets `receipt reconcile`
+        // tell whether CI's verdict is about the receipt's tree or a different one:
+        // in a `pull_request` run the enforcement verify runs over the MERGE result,
+        // so when the branch is behind its base this differs from the branch-tip
+        // tree a receipt binds, and reconcile must report NON_APPLICABLE rather than
+        // attribute CI's verdict to a tree CI never ran (#601 re-review).
+        adjudicated_tree: treeBefore,
         command: cmd,
         budget_secs: budget,
         visible: stageJson(visible),

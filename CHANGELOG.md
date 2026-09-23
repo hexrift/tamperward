@@ -59,9 +59,24 @@
   - The generated CI workflow (`tamperward init`) now runs the receipt
     reconciliation as an evidence step after its own pristine `verify` (which
     remains the enforcement authority over the merge result), writing the
-    LOCAL/CI/agreement job summary. Set `TAMPERWARD_RECEIPT` (e.g. from a
-    download-artifact step) to reconcile a transported receipt; with none it reports
-    NO_CLAIM and CI's verdict stands.
+    LOCAL/CI/agreement job summary. The generated workflow transports no receipt on
+    its own — in a `pull_request` run there is no earlier artifact to download and it
+    sets no `TAMPERWARD_RECEIPT` — so as shipped every run reports NO_CLAIM and CI's
+    verdict stands until the workflow owner wires a transport; `docs/reference/cli.md`
+    now gives two realizable ones (a `refs/tamperward/receipts/<head-sha>` ref pushed
+    to the head repo and fetched by a step, or the bounded receipt posted as a PR
+    comment and read via the API — both safe because the receipt self-validates and
+    never becomes CI's authority).
+  - **CI's verdict is attributed only to the tree CI actually ran.** `verify --json`
+    now reports the candidate tree it adjudicated (`adjudicated_tree`, the same
+    fingerprint bound into the #600 record). Because the enforcement `verify` runs
+    over the PR merge result, a branch that is BEHIND its base has a merge tree that
+    differs from the branch-tip tree a receipt binds; `receipt reconcile` compares
+    `adjudicated_tree` against the receipt's tree and reports NON_APPLICABLE
+    (`mismatched_input: tree`) rather than a false AGREE or a dishonest DIVERGENCE for
+    a tree CI never ran, and the reconcile CI section prints the adjudicated tree. An
+    older `--ci-result` document that carries no `adjudicated_tree` degrades safely to
+    NON_APPLICABLE. The receipt still never changes CI's verdict or exit code.
 
   Shared-schema `$id` reform (#662/#665) is a separate follow-up; the new schemas
   match the current sibling `v1` ref convention.

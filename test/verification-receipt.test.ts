@@ -125,13 +125,24 @@ function headSha(cwd: string): string {
 /** A genuine `tamperward verify --json` document shape (verify-v1): the fields a
  *  `--ci-result` file must carry to be accepted as CI's own adjudication (#601
  *  finding 4). `base` defaults to the current HEAD so it matches the base CI
- *  recomputes for the default `--base HEAD` reconcile in these tests. */
-function ciVerifyDoc(cwd: string, verdict: string, base = headSha(cwd)): Record<string, unknown> {
+ *  recomputes for the default `--base HEAD` reconcile in these tests.
+ *  `adjudicatedTree` defaults to the live candidate tree — i.e. the up-to-date
+ *  case where CI ran the same tree the receipt binds — so the tree cross-check
+ *  (#601 re-review) is a no-op and a matching receipt still AGREEs. Pass a
+ *  different value to simulate a behind branch (CI ran the merge result), or
+ *  `undefined` to simulate an older verify document with no adjudicated tree. */
+function ciVerifyDoc(
+  cwd: string,
+  verdict: string,
+  base = headSha(cwd),
+  adjudicatedTree: string | undefined = computeBinding(cwd, inputsFor(cwd)).tree,
+): Record<string, unknown> {
   const failing = verdict !== 'VERIFIED';
   return {
     schema_version: 1,
     verdict,
     base,
+    ...(adjudicatedTree !== undefined ? { adjudicated_tree: adjudicatedTree } : {}),
     command: VERIFY_ARGS.cmd,
     budget_secs: VERIFY_ARGS.budget,
     visible: { exit: failing ? 1 : 0, secs: 0 },
@@ -173,6 +184,20 @@ describe('local verification receipt emission (#601)', () => {
     // Self-consistent evidence digest, and valid against the published schema.
     expect(classifyReceipt(receipt).disposition).toBe('PRESENT');
     expect(validateReceiptDoc(receipt)).toEqual([]);
+  }, 30_000);
+
+  it('verify --json reports the adjudicated tree it ran, equal to the recorded binding (#601 re-review)', () => {
+    // `receipt reconcile` needs to know WHICH tree CI's verify actually ran over —
+    // in a `pull_request` run that is the merge result, which can differ from the
+    // branch-tip tree a receipt binds. verify emits it as `adjudicated_tree`, the
+    // same fingerprint it binds into the #600 record.
+    const cwd = repo();
+    const { code, out } = capture(() => runVerify({ cwd, ...VERIFY_ARGS, json: true }));
+    expect(code).toBe(0);
+    const doc = JSON.parse(out.trim().split('\n').filter(Boolean).pop()!);
+    expect(doc.verdict).toBe('VERIFIED');
+    const record = readVerificationRecord(cwd)!;
+    expect(doc.adjudicated_tree).toBe(record.binding.tree);
   }, 30_000);
 
   it('a non-VERIFIED verify emits no receipt (only a genuine pass vouches for a state)', () => {
@@ -482,6 +507,81 @@ describe('machine-readable reconciliation & --ci-result transport (#601)', () =>
   }, 40_000);
 });
 
+describe('CI adjudicated a different tree than the receipt binds (#601 re-review)', () => {
+  // The reconcile identity is the branch tip a receipt binds, but CI's verdict is
+  // about the tree its verify actually ran. In a `pull_request` run that verify runs
+  // over the MERGE result; when the branch is BEHIND its base the merge tree differs
+  // from the tip tree, so the identity can match while CI never ran the receipt's
+  // tree. Reconcile must then report NON_APPLICABLE — never a false AGREE or a
+  // dishonest DIVERGENCE — while CI's own verdict and exit stand unchanged.
+  const MERGE_TREE = '0'.repeat(64); // a tree fingerprint CI ran that the receipt does not describe
+
+  it('a behind branch (CI VERIFIED the merge result) → NON_APPLICABLE (tree), not a false AGREE', () => {
+    const cwd = repo();
+    verify(cwd); // receipt binds the branch-tip tree
+    const rc = writeReceipt(cwd, storedReceipt(cwd));
+    // Identity (computed at the tip) still matches the receipt, but verify ran over a
+    // different (merge) tree, reported as `adjudicated_tree`.
+    const ciResult = writeCiResult(ciVerifyDoc(cwd, 'VERIFIED', headSha(cwd), MERGE_TREE));
+    const { code, out } = capture(() => runReceiptReconcile({ cwd, ...VERIFY_ARGS, receipt: rc, ciResult, json: true }));
+    const doc = JSON.parse(out);
+    expect(doc.ci.verdict).toBe('VERIFIED');
+    expect(doc.reconciliation.agreement).toBe('NON_APPLICABLE');
+    expect(doc.reconciliation.mismatched_input).toBe('tree');
+    expect(doc.reconciliation.divergence.join(' ')).toMatch(/merge result/);
+    expect(doc.result).toBe('VERIFIED'); // CI's own verdict still stands
+    expect(code).toBe(0);
+  }, 40_000);
+
+  it('a behind branch whose merge is red → NON_APPLICABLE, not a dishonest DIVERGENCE', () => {
+    const cwd = repo();
+    verify(cwd);
+    const rc = writeReceipt(cwd, storedReceipt(cwd));
+    const ciResult = writeCiResult(ciVerifyDoc(cwd, 'SUITE_RED', headSha(cwd), MERGE_TREE));
+    const { code, out } = capture(() => runReceiptReconcile({ cwd, ...VERIFY_ARGS, receipt: rc, ciResult, json: true }));
+    const doc = JSON.parse(out);
+    expect(doc.ci.verdict).toBe('SUITE_RED');
+    expect(doc.reconciliation.agreement).toBe('NON_APPLICABLE'); // NOT DIVERGENCE — CI ran another tree
+    expect(doc.reconciliation.mismatched_input).toBe('tree');
+    expect(doc.result).toBe('SUITE_RED'); // CI's verdict stands; the receipt just does not apply
+    expect(code).toBe(1);
+  }, 40_000);
+
+  it('an up-to-date branch (CI ran the receipt tree) still AGREEs', () => {
+    const cwd = repo();
+    verify(cwd);
+    const rc = writeReceipt(cwd, storedReceipt(cwd));
+    // Default adjudicated tree == the live/tip tree the receipt binds → cross-check
+    // is a no-op → AGREE, as before.
+    const ciResult = writeCiResult(ciVerifyDoc(cwd, 'VERIFIED'));
+    const { code, out } = capture(() => runReceiptReconcile({ cwd, ...VERIFY_ARGS, receipt: rc, ciResult, json: true }));
+    const doc = JSON.parse(out);
+    expect(doc.reconciliation.agreement).toBe('AGREE');
+    expect(doc.reconciliation.mismatched_input).toBeUndefined();
+    expect(doc.result).toBe('VERIFIED');
+    expect(code).toBe(0);
+  }, 40_000);
+
+  it('degradation: an older verify doc with no adjudicated_tree → NON_APPLICABLE, noted (never a blind AGREE)', () => {
+    const cwd = repo();
+    verify(cwd);
+    const rc = writeReceipt(cwd, storedReceipt(cwd));
+    // A verify document that predates the field carries no `adjudicated_tree`. We
+    // cannot confirm CI ran the receipt's tree, so fail safe.
+    const olderDoc = ciVerifyDoc(cwd, 'VERIFIED');
+    delete olderDoc.adjudicated_tree;
+    const ciResult = writeCiResult(olderDoc);
+    const { code, out } = capture(() => runReceiptReconcile({ cwd, ...VERIFY_ARGS, receipt: rc, ciResult, json: true }));
+    const doc = JSON.parse(out);
+    expect(doc.ci.verdict).toBe('VERIFIED');
+    expect(doc.reconciliation.agreement).toBe('NON_APPLICABLE');
+    expect(doc.reconciliation.mismatched_input).toBe('tree');
+    expect(doc.reconciliation.divergence.join(' ')).toMatch(/predates adjudicated-tree/);
+    expect(doc.result).toBe('VERIFIED');
+    expect(code).toBe(0);
+  }, 40_000);
+});
+
 describe('candidate identity vs environment inputs (#601 finding 2)', () => {
   const fullBinding = (over: Partial<VerificationBinding> = {}): VerificationBinding => ({
     tree: 't', head: 'h', base: 'b', policy: 'p', verifier: 'v', surface: 's',
@@ -494,7 +594,9 @@ describe('candidate identity vs environment inputs (#601 finding 2)', () => {
     // has a populated local dependency env — must still AGREE in CI, with those
     // differences reported as informational rather than making it non-applicable.
     const receipt = craftReceipt(fullBinding({ intervention: 'dev-hooks', dependencies: 'dev-node-modules' }));
-    const ci = { verdict: 'VERIFIED' as const, binding: fullBinding({ intervention: 'runner', dependencies: 'runner-node-modules' }) };
+    // CI ran the same tree the receipt binds ('t'), so the tree cross-check passes;
+    // only the machine-local inputs differ.
+    const ci = { verdict: 'VERIFIED' as const, binding: fullBinding({ intervention: 'runner', dependencies: 'runner-node-modules' }), adjudicated_tree: 't' };
     const r = reconcile(ci, classifyReceipt(receipt));
     expect(r.agreement).toBe('AGREE');
     expect(r.applicable).toBe(true);
@@ -524,7 +626,8 @@ describe('candidate identity vs environment inputs (#601 finding 2)', () => {
     }
     for (const input of ['intervention', 'dependencies'] as const) {
       const r = reconcile(
-        { verdict: 'VERIFIED', binding: fullBinding({ [input]: 'X' }) },
+        // CI ran the same tree ('t'); only a machine-local input differs.
+        { verdict: 'VERIFIED', binding: fullBinding({ [input]: 'X' }), adjudicated_tree: 't' },
         classifyReceipt(craftReceipt(fullBinding())),
       );
       expect(r.agreement).toBe('AGREE');

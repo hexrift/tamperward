@@ -299,6 +299,15 @@ export interface CiAdjudication {
   binding: VerificationBinding | null;
   /** When CI's binding could not be computed, why. */
   binding_error?: string;
+  /** The candidate tree fingerprint CI actually ADJUDICATED (`verify`'s
+   *  `treeBefore`). CI's identity (`binding`) is computed from the branch tip a
+   *  receipt binds, but in a `pull_request` run the enforcement verify runs over
+   *  the MERGE result; when the branch is behind its base the two trees differ and
+   *  the verdict is about a tree the receipt does not describe. Undefined when the
+   *  CI verify document predates this field (older `--ci-result` docs) — reconcile
+   *  then degrades to NON_APPLICABLE rather than assume the trees coincide (#601
+   *  re-review). */
+  adjudicated_tree?: string;
 }
 
 /** The reconciliation outcome. `result` is ALWAYS CI's verdict: no receipt state
@@ -391,6 +400,35 @@ export function reconcile(ci: CiAdjudication, claimed: ClaimedReceipt): Reconcil
     base.agreement = 'NON_APPLICABLE';
     base.mismatched_input = mismatch;
     base.divergence.push(`receipt binds a different \`${mismatch}\` than CI computed — the receipt describes another state`);
+    return base;
+  }
+
+  // The candidate IDENTITY matches, but CI's verdict is about the tree it actually
+  // ADJUDICATED — which is not always the identity tree. CI computes its identity
+  // from the branch tip a receipt binds, yet in a `pull_request` run the
+  // enforcement verify runs over the MERGE result. When the branch is BEHIND its
+  // base, the merge tree differs from the tip tree, so CI's verdict is about a tree
+  // the receipt does not describe: reporting AGREE (or a dishonest DIVERGENCE)
+  // would attribute CI's verdict to a tree CI never ran. This cross-check takes
+  // precedence over the verdict-based agreement below, so a behind-branch is always
+  // NON_APPLICABLE, never a false AGREE/DIVERGENCE (#601 re-review).
+  if (ci.adjudicated_tree === undefined) {
+    // Older CI verify documents predate `adjudicated_tree`, so we cannot confirm CI
+    // ran the receipt's tree. Fail safe: non-applicable, and say so — never assume
+    // the trees coincide and risk a dishonest AGREE on a behind branch.
+    base.agreement = 'NON_APPLICABLE';
+    base.mismatched_input = 'tree';
+    base.divergence.push(
+      'CI verify result predates adjudicated-tree reporting — cannot confirm CI ran this tree; treating as non-applicable',
+    );
+    return base;
+  }
+  if (ci.adjudicated_tree !== receipt.binding.tree) {
+    base.agreement = 'NON_APPLICABLE';
+    base.mismatched_input = 'tree';
+    base.divergence.push(
+      'CI adjudicated the merge result, not this tree — bring the branch up to date to reconcile',
+    );
     return base;
   }
 

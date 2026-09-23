@@ -310,8 +310,6 @@ one CI can apply:
 # On the branch tip you are proposing (the commit the PR's head points at):
 tamperward verify --base "$PR_BASE"          # reach VERIFIED, recording the state
 tamperward receipt export --out receipt.json  # bounded receipt for that exact tip
-# Upload receipt.json as a build artifact; the reconcile step reads it via
-# TAMPERWARD_RECEIPT / --receipt against a `pull_request.head.sha` checkout.
 ```
 
 The generated CI workflow computes CI's candidate identity from
@@ -319,6 +317,49 @@ The generated CI workflow computes CI's candidate identity from
 `tree` line up with a receipt bound to that tip. (The enforcement `verify` step
 still runs over the merge result — the receipt only reports agreement; it never
 changes CI's verdict or exit code.)
+
+**When the branch is behind its base**, the merge result differs from the tip, so
+CI's verdict is about a tree the receipt does not describe. The reconcile detects
+this — `verify --json` reports the tree it `adjudicated`, and reconcile compares it
+to the receipt's tree — and reports `NON_APPLICABLE` (`mismatched_input: tree`)
+rather than attributing CI's verdict to the tip. Bring the branch up to date to
+reconcile.
+
+**Transporting the receipt is the workflow owner's job — the generated workflow
+does not do it.** In a `pull_request` run there is no earlier artifact to download
+(artifacts are uploaded by jobs of the *same* run), and the generated workflow sets
+no `TAMPERWARD_RECEIPT` and adds no fetch step. So **as shipped, every run reports
+`NO_CLAIM`** and CI's own verdict stands — until you wire a transport that carries
+the developer's receipt to the reconcile step. Two realizable transports, both safe
+because the receipt self-validates and never becomes CI's authority:
+
+- **A git ref on the head repository.** From the developer's tip, push the receipt's
+  bytes to a ref keyed by the head sha, then fetch and read it in CI:
+
+  ```bash
+  # developer, after `receipt export --out receipt.json`:
+  blob=$(git hash-object -w receipt.json)
+  git update-ref "refs/tamperward/receipts/$(git rev-parse HEAD)" \
+    "$(printf 'receipt %s\n' "$blob" | git commit-tree "$(git rev-parse HEAD^{tree})" 2>/dev/null || echo "$blob")"
+  git push origin "refs/tamperward/receipts/$(git rev-parse HEAD):refs/tamperward/receipts/$(git rev-parse HEAD)"
+  ```
+
+  ```yaml
+  # CI, before the reconcile step:
+  - run: |
+      sha="${{ github.event.pull_request.head.sha }}"
+      git fetch origin "refs/tamperward/receipts/$sha" && \
+        git cat-file blob FETCH_HEAD > "$RUNNER_TEMP/receipt.json" && \
+        echo "TAMPERWARD_RECEIPT=$RUNNER_TEMP/receipt.json" >> "$GITHUB_ENV"
+  ```
+
+- **A PR comment read via the API.** Post the bounded receipt as a PR comment (it is
+  small and non-sensitive) and have a CI step read it back with `gh api` / the REST
+  API, writing it to a file and exporting `TAMPERWARD_RECEIPT`.
+
+Either way the reconcile step picks the receipt up through `TAMPERWARD_RECEIPT` /
+`--receipt`; a run with no receipt still reports `NO_CLAIM` and never fails on that
+alone.
 
 `receipt reconcile` reruns verification **first** (or consumes a preceding
 `verify --json` via `--ci-result`), then reconciles a claimed receipt against CI's
@@ -356,8 +397,9 @@ Under GitHub Actions the same LOCAL / CI / RESULT report is written to the job
 summary. The reconciled verdict — and the exit code — is **CI's own**, computed
 from trusted inputs before the receipt is read; the receipt is only evidence.
 The generated CI workflow (`tamperward init`) runs this as an evidence step after
-its pristine `verify`; set `TAMPERWARD_RECEIPT` (e.g. from a download-artifact
-step) to reconcile a transported receipt.
+its pristine `verify`; it transports no receipt on its own (see the transports
+above), so set `TAMPERWARD_RECEIPT` from a fetch step you add to reconcile a
+transported receipt. With none set the step reports `NO_CLAIM`.
 
 ## Runtime qualification: `runtime verify`, `runtime status`
 

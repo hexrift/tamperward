@@ -667,7 +667,7 @@ Formats:
                                             editors, CI and dashboards. Local CURRENT
                                             is posture, never repository/CI authority.
   tamperward receipt export [--out F]       emit the bounded, transportable verification
-             [--json] [--cwd D]             receipt for the CURRENT verified state (to F,
+             [--cwd D]                      receipt for the CURRENT verified state (to F,
                                             else stdout). Refuses when the state is not
                                             CURRENT. Raw evidence otherwise stays under
                                             .git/tamperward/, never in the tracked tree.
