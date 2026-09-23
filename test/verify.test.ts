@@ -148,6 +148,30 @@ describe('tamperward verify', () => {
     expect(run(cwd)).toBe(1);
   });
 
+  it('BUDGET_EXCEEDED: visible timeout skips pristine execution and fails closed', () => {
+    const cwd = repo();
+    let calls = 0;
+    const { code, json } = capture(() =>
+      run(cwd, {
+        runStage: () => {
+          calls++;
+          return {
+            exit: null,
+            secs: 30,
+            failure: 'budget',
+            reason: 'verifier stage exceeded its budget',
+          };
+        },
+      }),
+    );
+    expect(code).toBe(2);
+    expect(json.verdict).toBe('BUDGET_EXCEEDED');
+    expect((json.visible as { exit: number | null }).exit).toBeNull();
+    expect((json.pristine as { exit: number | null }).exit).toBeNull();
+    expect(String((json.pristine as { reason: string }).reason)).toContain('not run');
+    expect(calls).toBe(1);
+  });
+
   it.skipIf(process.platform === 'win32')('CANNOT_VERIFY: a non-quiescent visible stage cannot certify — a zero exit does not become VERIFIED (exit 2)', () => {
     const cwd = repo();
     // Exit 0, but a process still holds stdout open — not quiescent, must not certify.
