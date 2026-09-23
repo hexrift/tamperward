@@ -891,7 +891,7 @@ const DROPPED_ENV = new Set([
 ]);
 const PINNED_NPM = /^npm_config_(node_options|userconfig|globalconfig)$/i;
 
-function suiteEnv(scratch: string): NodeJS.ProcessEnv {
+export function suiteEnv(scratch: string): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
   for (const [k, v] of Object.entries(process.env)) {
     if (DROPPED_ENV.has(k) || PINNED_NPM.test(k)) continue;

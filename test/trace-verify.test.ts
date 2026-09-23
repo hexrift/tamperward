@@ -13,6 +13,7 @@ import {
   type RawTraceRun,
   type TraceFileAccess,
 } from '../src/cli/trace-verify';
+import { suiteEnv } from '../src/cli/verify';
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -21,6 +22,39 @@ afterEach(() => {
 });
 
 describe('trace-verify strace parsing (#324)', () => {
+  it('uses the verifier suite environment contract for traced commands', () => {
+    const scratch = mkdtempSync(join(tmpdir(), 'tw-trace-env-'));
+    dirs.push(scratch);
+    const saved = {
+      NODE_OPTIONS: process.env.NODE_OPTIONS,
+      PYTHONPATH: process.env.PYTHONPATH,
+      npm_config_node_options: process.env.npm_config_node_options,
+      npm_config_userconfig: process.env.npm_config_userconfig,
+      npm_config_globalconfig: process.env.npm_config_globalconfig,
+      YARN_IGNORE_PATH: process.env.YARN_IGNORE_PATH,
+    };
+    process.env.NODE_OPTIONS = '--require attacker.cjs';
+    process.env.PYTHONPATH = '/tmp/attacker';
+    process.env.npm_config_node_options = '--require attacker.cjs';
+    process.env.npm_config_userconfig = '/tmp/attacker.npmrc';
+    process.env.npm_config_globalconfig = '/tmp/attacker-global.npmrc';
+    process.env.YARN_IGNORE_PATH = '0';
+    try {
+      const env = suiteEnv(scratch);
+      expect(env.NODE_OPTIONS).toBeUndefined();
+      expect(env.PYTHONPATH).toBeUndefined();
+      expect(env.npm_config_node_options).toBe(' ');
+      expect(env.npm_config_userconfig).toBe(join(scratch, 'npmrc-user'));
+      expect(env.npm_config_globalconfig).toBe(join(scratch, 'npmrc-global'));
+      expect(env.YARN_IGNORE_PATH).toBe('1');
+    } finally {
+      for (const [key, value] of Object.entries(saved)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  });
+
   it('extracts repository reads/execs and external runtime paths without treating failed probes as reads', () => {
     const raw = [
       '100 execve("/usr/bin/node", ["node", "scripts/test.js"], 0x0) = 0',
