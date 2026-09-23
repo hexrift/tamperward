@@ -11,11 +11,12 @@ Two measurements are committed. Both are CI-runner or single-machine timings of
 one component, **not universal performance guarantees**, and neither is an
 end-to-end cost of `check`, `verify` or `run` on a real repository.
 
-### Dependency-snapshot cost (2.16.2)
+### Dependency-snapshot cost (2.16.3)
 
 A clean `tamperward run` with an attested local dependency environment performs
-five complete dependency-tree snapshots plus one attestation reuse (six before
-2.16.2). Synthetic fixtures on a GitHub-hosted Node 24 runner, workflow run
+six complete dependency-tree snapshots and zero attestation reuse. The 2.16.2
+optimization was rolled back before publication; 2.16.3 keeps every verifier-entry
+checkpoint independent. Synthetic fixtures on a GitHub-hosted Node 24 runner, workflow run
 `34758006027`, as recorded in the
 [CHANGELOG](https://github.com/hexrift/tamperward/blob/main/CHANGELOG.md):
 
