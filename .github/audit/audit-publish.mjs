@@ -23,7 +23,7 @@
 // Usage: node audit-publish.mjs <schemaPath> <candidatesDir> <storeDir> <sourceSha>
 
 import { createHash } from 'node:crypto';
-import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, writeFileSync } from 'node:fs';
+import { appendFileSync, closeSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { loadAuditSchema, validateAuditJsonl, validateAuditValue } from './audit-verify.mjs';
 
@@ -53,19 +53,8 @@ function ensureDirectory(path, label) {
   mkdirSync(path, { recursive: true });
 }
 
-function readStoreFile(path, label) {
-  if (!existsSync(path)) return '';
-  if (!lstatSync(path).isFile()) throw new Error(`audit-publish: ${label} is not a regular file`);
-  return readFileSync(path, 'utf8');
-}
-
 function assertWritableFile(path, label) {
   if (existsSync(path) && !lstatSync(path).isFile()) throw new Error(`audit-publish: ${label} is not a regular file`);
-}
-
-function append(prefix, additions) {
-  if (additions.length === 0) return prefix;
-  return prefix + (prefix.length > 0 && !prefix.endsWith('\n') ? '\n' : '') + additions.join('\n') + '\n';
 }
 
 // Bounded-memory line reader: 64 KiB chunks and a rolling partial-line buffer
@@ -104,44 +93,65 @@ function forEachLine(path, onLine) {
   }
 }
 
+const LEDGER_KEYS = new Set(['batch_id', 'source_sha', 'content_sha256', 'schema', 'ingested_at', 'event_count']);
+
+function parseLedgerEntry(line, lineNumber) {
+  let entry;
+  try {
+    entry = JSON.parse(line);
+  } catch {
+    throw new Error(`audit-publish: ledger line ${lineNumber} is not valid JSON`);
+  }
+  if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+    throw new Error(`audit-publish: ledger line ${lineNumber} is not a JSON object`);
+  }
+  const unknown = Object.keys(entry).find((key) => !LEDGER_KEYS.has(key));
+  if (unknown) throw new Error(`audit-publish: ledger line ${lineNumber} has unsupported field "${unknown}"`);
+  if (Object.keys(entry).length !== LEDGER_KEYS.size || [...LEDGER_KEYS].some((key) => !(key in entry))) {
+    throw new Error(`audit-publish: ledger line ${lineNumber} is missing a required field`);
+  }
+  if (typeof entry.batch_id !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$/.test(entry.batch_id)) {
+    throw new Error(`audit-publish: ledger line ${lineNumber} has an invalid batch_id`);
+  }
+  if (typeof entry.source_sha !== 'string' || !/^[0-9a-f]{40}$/.test(entry.source_sha)) {
+    throw new Error(`audit-publish: ledger line ${lineNumber} has an invalid source_sha`);
+  }
+  if (typeof entry.content_sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(entry.content_sha256)) {
+    throw new Error(`audit-publish: ledger line ${lineNumber} has an invalid content_sha256`);
+  }
+  if (entry.schema !== 'audit-v1') throw new Error(`audit-publish: ledger line ${lineNumber} has an invalid schema`);
+  if (typeof entry.ingested_at !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(entry.ingested_at) || !Number.isFinite(Date.parse(entry.ingested_at))) {
+    throw new Error(`audit-publish: ledger line ${lineNumber} has an invalid ingested_at`);
+  }
+  if (!Number.isSafeInteger(entry.event_count) || entry.event_count <= 0) {
+    throw new Error(`audit-publish: ledger line ${lineNumber} has an invalid event_count`);
+  }
+  return entry;
+}
+
+function addLedgerEntry(entry, entries, byId) {
+  if (byId.has(entry.batch_id)) throw new Error(`audit-publish: duplicate ledger batch_id ${entry.batch_id}`);
+  byId.set(entry.batch_id, entry);
+  entries.push(entry);
+}
+
 function readLedger(raw) {
-  const allowed = new Set(['batch_id', 'source_sha', 'content_sha256', 'schema', 'ingested_at', 'event_count']);
   const entries = [];
   const byId = new Map();
-  nonblankLines(raw).forEach((line, index) => {
-    let entry;
-    try {
-      entry = JSON.parse(line);
-    } catch {
-      throw new Error(`audit-publish: ledger line ${index + 1} is not valid JSON`);
-    }
-    if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
-      throw new Error(`audit-publish: ledger line ${index + 1} is not a JSON object`);
-    }
-    const unknown = Object.keys(entry).find((key) => !allowed.has(key));
-    if (unknown) throw new Error(`audit-publish: ledger line ${index + 1} has unsupported field "${unknown}"`);
-    if (Object.keys(entry).length !== allowed.size || [...allowed].some((key) => !(key in entry))) {
-      throw new Error(`audit-publish: ledger line ${index + 1} is missing a required field`);
-    }
-    if (typeof entry.batch_id !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$/.test(entry.batch_id)) {
-      throw new Error(`audit-publish: ledger line ${index + 1} has an invalid batch_id`);
-    }
-    if (typeof entry.source_sha !== 'string' || !/^[0-9a-f]{40}$/.test(entry.source_sha)) {
-      throw new Error(`audit-publish: ledger line ${index + 1} has an invalid source_sha`);
-    }
-    if (typeof entry.content_sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(entry.content_sha256)) {
-      throw new Error(`audit-publish: ledger line ${index + 1} has an invalid content_sha256`);
-    }
-    if (entry.schema !== 'audit-v1') throw new Error(`audit-publish: ledger line ${index + 1} has an invalid schema`);
-    if (typeof entry.ingested_at !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(entry.ingested_at) || !Number.isFinite(Date.parse(entry.ingested_at))) {
-      throw new Error(`audit-publish: ledger line ${index + 1} has an invalid ingested_at`);
-    }
-    if (!Number.isSafeInteger(entry.event_count) || entry.event_count <= 0) {
-      throw new Error(`audit-publish: ledger line ${index + 1} has an invalid event_count`);
-    }
-    if (byId.has(entry.batch_id)) throw new Error(`audit-publish: duplicate ledger batch_id ${entry.batch_id}`);
-    byId.set(entry.batch_id, entry);
-    entries.push(entry);
+  raw.split(/\r?\n/).forEach((line, index) => {
+    if (!line.trim()) return;
+    addLedgerEntry(parseLedgerEntry(line, index + 1), entries, byId);
+  });
+  return { entries, byId };
+}
+
+function readLedgerFile(path) {
+  const entries = [];
+  const byId = new Map();
+  if (!existsSync(path)) return { entries, byId };
+  if (!lstatSync(path).isFile()) throw new Error('audit-publish: ingested/batches.jsonl is not a regular file');
+  forEachLine(path, (line, lineNumber) => {
+    addLedgerEntry(parseLedgerEntry(line, lineNumber), entries, byId);
   });
   return { entries, byId };
 }
@@ -310,11 +320,14 @@ function migrateLegacyIds(store) {
   if (existsSync(legacy) && !lstatSync(legacy).isFile()) {
     throw new Error('audit-publish: events/all.jsonl is not a regular file');
   }
-  if (!existsSync(legacy) || !readFileSync(legacy, 'utf8').trim()) {
+  if (!existsSync(legacy)) {
     writeFileSync(sentinel, 'legacy events/all.jsonl indexed into id shards\n');
     return;
   }
   const shards = new Map();
+  // Use the bounded reader even for the empty-file case. Do not probe the
+  // legacy prefix with readFileSync: this path runs before the first v2 ingest
+  // and must not turn a large historical store back into one giant allocation.
   forEachLine(legacy, (line, lineNumber) => {
     let value;
     try {
@@ -360,8 +373,7 @@ try {
   // sees the complete history through the shards, not one giant map.
   migrateLegacyIds(storeDir);
 
-  const existingLedgerRaw = readStoreFile(ledgerPath, 'ingested/batches.jsonl');
-  const { entries: existingLedger, byId: ledgerById } = readLedger(existingLedgerRaw);
+  const { entries: existingLedger, byId: ledgerById } = readLedgerFile(ledgerPath);
 
   const candidateFiles = existsSync(candidatesDir)
     ? readdirSync(candidatesDir).filter((file) => file.endsWith('.jsonl')).sort()
@@ -466,9 +478,9 @@ try {
     assertWritableFile(write.path, 'partition file');
     writeFileSync(write.path, write.contents);
   }
-  const ledgerOutput = append(existingLedgerRaw, appendedLedger.map((entry) => JSON.stringify(entry)));
   assertWritableFile(ledgerPath, 'ingested/batches.jsonl');
-  writeFileSync(ledgerPath, ledgerOutput);
+  const ledgerSeparator = existsSync(ledgerPath) && lstatSync(ledgerPath).size > 0 ? '\n' : '';
+  appendFileSync(ledgerPath, ledgerSeparator + appendedLedger.map((entry) => JSON.stringify(entry)).join('\n') + '\n');
   for (const [shard, map] of touchedShards) {
     assertWritableFile(shardPath(storeDir, shard), `ids/${shard}.jsonl`);
     writeShard(storeDir, shard, map);
