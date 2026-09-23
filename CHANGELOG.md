@@ -1,5 +1,48 @@
 # Changelog
 
+## [2.38.0] — 2026-09-23
+
+### Added
+
+- **Local verification receipts, reconciled in CI** (#601). A successful
+  `tamperward verify` now emits a bounded, transportable **receipt** under
+  `.git/tamperward/verification-receipt.json` — outside the candidate-controlled
+  tracked tree — bound to the SAME load-bearing identity the first-class
+  verification state (#600) already computes: candidate tree fingerprint,
+  entry/base commit, HEAD, policy digest, verifier-contract digest, protected
+  surface, runtime-intervention wiring and dependency environment, plus an
+  `evidence_digest` over its own fields. The receipt carries only fixed-width
+  digests, commit ids, closed-enum stage results, a verdict and a timestamp — no
+  prompt text, source, command bodies, secrets/environment, absolute local paths
+  or logs.
+  - `tamperward receipt export [--out F]` writes the receipt for the CURRENT
+    verified state (the explicit transport handoff); it refuses when the state is
+    not CURRENT.
+  - `tamperward receipt reconcile` reruns the canonical TamperWard verification
+    FIRST, then reconciles a claimed receipt against CI's own adjudication. It
+    prints a summary separating the LOCAL claim, the CI result and their
+    agreement/divergence, writes a GitHub job summary, and emits a
+    machine-readable reconciliation document (`--json`). `--ci-result` consumes a
+    preceding `verify --json` so the suite runs once; `--receipt` names the
+    claimed receipt (absent → NO_CLAIM, never a failure by itself).
+  - **A receipt is evidence, never authority.** The reconciled `result` is CI's
+    own verdict, recomputed from trusted inputs: a stale, mismatched
+    (candidate/tree/policy/verifier/… identity differs), malformed, tampered
+    (`evidence_digest` inconsistent), missing or unknown-schema receipt is
+    NON_APPLICABLE or NO_CLAIM and can NEVER promote or strengthen a CI result. A
+    local-green / CI-red case reports DIVERGENCE and stays failed.
+  - New published Draft 2020-12 schemas `schemas/receipt-v1.schema.json` and
+    `schemas/reconcile-v1.schema.json`, with closed vocabularies single-sourced to
+    the emitter constants.
+  - The generated CI workflow (`tamperward init`) now runs the receipt
+    reconciliation as an evidence step after its own pristine `verify`, writing the
+    LOCAL/CI/agreement job summary. Set `TAMPERWARD_RECEIPT` (e.g. from a
+    download-artifact step) to reconcile a transported receipt; with none it reports
+    NO_CLAIM and CI's verdict stands.
+
+  Shared-schema `$id` reform (#662/#665) is a separate follow-up; the new schemas
+  match the current sibling `v1` ref convention.
+
 ## [2.37.2] — 2026-09-23
 
 ### Fixed

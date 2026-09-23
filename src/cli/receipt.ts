@@ -1,0 +1,429 @@
+// `tamperward receipt` — export a local verification receipt, and reconcile a
+// claimed receipt against CI's own independent adjudication (#601).
+//
+//   receipt export     Emit the bounded, transportable receipt for the CURRENT
+//                      verified state to a caller-chosen path (or stdout). This
+//                      is the explicit handoff: raw evidence otherwise stays under
+//                      `.git/tamperward/`, never in the candidate-controlled tree.
+//
+//   receipt reconcile  CI reruns the canonical TamperWard verification FIRST,
+//                      then reconciles a claimed receipt against that result. The
+//                      final `result` is CI's verdict — a stale/mismatched/
+//                      tampered/missing/unknown-schema receipt can never promote
+//                      or strengthen it. Prints a summary that separates the
+//                      LOCAL claim, the CI result and their agreement/divergence,
+//                      and a machine-readable reconciliation document (--json).
+//
+// The receipt is evidence, not authority (#495). Reconciliation NEVER derives the
+// verdict from the receipt; CI recomputes it from trusted inputs.
+
+import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
+import { machineOutput, type MachineSchemaVersion, VERIFY_VERDICTS, type VerifyVerdict } from '../machine-output';
+import { repoContext, outsideRepository } from '../repo-context';
+import {
+  computeBinding,
+  evaluateVerificationState,
+  readVerificationRecord,
+  type VerificationBinding,
+  type VerificationInputs,
+} from '../verification-state';
+import {
+  classifyReceipt,
+  isOneOf,
+  reconcile,
+  receiptFromRecord,
+  readStoredReceipt,
+  type CiAdjudication,
+  type Reconciliation,
+  type VerificationReceipt,
+} from '../verification-receipt';
+import { runVerify, type VerifyVerdictSummary } from './verify';
+import { colourEnabled } from './render/text';
+import { paint, severityColour, BOLD, type Severity } from './render/status';
+
+export const RECEIPT_SUBCOMMANDS = ['export', 'reconcile'] as const;
+export type ReceiptSubcommand = (typeof RECEIPT_SUBCOMMANDS)[number];
+
+export interface ReceiptExportOpts {
+  cwd?: string;
+  out?: string;
+  json?: boolean;
+}
+
+export interface ReceiptReconcileOpts {
+  cwd?: string;
+  base?: string;
+  cmd?: string;
+  budget?: number;
+  requireAncestor?: boolean;
+  /** Path to the claimed local receipt. Absent means: reconcile with no claim
+   *  (NO_CLAIM), which never fails the build on its own. */
+  receipt?: string;
+  /** A `tamperward verify --json` document from a preceding CI step. When given,
+   *  reconcile consumes THAT verdict instead of rerunning verify itself, so a CI
+   *  pipeline that already ran verify pays for the suite once. Binding identity is
+   *  still recomputed independently here — the receipt never supplies it. */
+  ciResult?: string;
+  json?: boolean;
+  /** @internal test seam: run verify through this instead of the real engine. */
+  runVerifyImpl?: typeof runVerify;
+}
+
+/** Parse `receipt <sub> ...` argv into the sub and its opts. Validation of flag
+ *  shapes is done in `validateCliArgs`; this only maps the already-valid argv. */
+export function parseReceipt(args: string[]): {
+  sub: ReceiptSubcommand | undefined;
+  exportOpts: ReceiptExportOpts;
+  reconcileOpts: ReceiptReconcileOpts;
+} {
+  const [sub, ...rest] = args;
+  const exportOpts: ReceiptExportOpts = {};
+  const reconcileOpts: ReceiptReconcileOpts = {};
+  for (let i = 0; i < rest.length; i++) {
+    const a = rest[i];
+    const next = (): string | undefined => rest[++i];
+    switch (a) {
+      case '--json':
+        exportOpts.json = true;
+        reconcileOpts.json = true;
+        break;
+      case '--require-ancestor':
+        reconcileOpts.requireAncestor = true;
+        break;
+      case '--out':
+        exportOpts.out = next();
+        break;
+      case '--cwd': {
+        const v = next();
+        exportOpts.cwd = v;
+        reconcileOpts.cwd = v;
+        break;
+      }
+      case '--base':
+        reconcileOpts.base = next();
+        break;
+      case '--cmd':
+        reconcileOpts.cmd = next();
+        break;
+      case '--budget': {
+        const v = next();
+        if (v !== undefined) reconcileOpts.budget = Number(v);
+        break;
+      }
+      case '--receipt':
+        reconcileOpts.receipt = next();
+        break;
+      case '--ci-result':
+        reconcileOpts.ciResult = next();
+        break;
+    }
+  }
+  return {
+    sub: isOneOf(RECEIPT_SUBCOMMANDS, sub) ? sub : undefined,
+    exportOpts,
+    reconcileOpts,
+  };
+}
+
+/** Dispatch a parsed `receipt` command. */
+export function runReceipt(args: string[]): number {
+  const { sub, exportOpts, reconcileOpts } = parseReceipt(args);
+  if (sub === 'export') return runReceiptExport(exportOpts);
+  if (sub === 'reconcile') return runReceiptReconcile(reconcileOpts);
+  process.stderr.write(`tamperward: receipt requires a subcommand (${RECEIPT_SUBCOMMANDS.join(' | ')})\n`);
+  return 2;
+}
+
+/** Inputs describing how verify resolved its state, mirroring `tamperward verify`
+ *  so `computeBinding` recomputes the SAME #600 identity. */
+function reconcileInputs(opts: ReceiptReconcileOpts): VerificationInputs {
+  return {
+    base_ref: opts.base ?? 'HEAD',
+    explicit_base: opts.base !== undefined,
+    command_source: opts.cmd !== undefined ? 'flag' : 'policy',
+    command: opts.cmd ?? '',
+    budget_source: opts.budget !== undefined ? 'flag' : 'policy',
+    budget: opts.budget ?? 300,
+  };
+}
+
+/** CI's verdict → the exit code `verify` itself would return, so reconcile's exit
+ *  code is CI's verdict and nothing else. */
+function verdictExit(verdict: VerifyVerdict, signedOff: boolean): number {
+  switch (verdict) {
+    case 'VERIFIED':
+      return 0;
+    case 'MASKED_FAILURE':
+      return signedOff ? 0 : 1;
+    case 'SUITE_RED':
+      return 1;
+    default:
+      return 2; // BUDGET_EXCEEDED, CANNOT_VERIFY
+  }
+}
+
+function needRepo(cwd: string, what: string): number | null {
+  if (repoContext(cwd)) return null;
+  const why = outsideRepository(cwd) ?? 'cwd is not inside a repository the gate can read';
+  process.stderr.write(`tamperward: receipt ${what} needs a git repository (${why})\n`);
+  return 2;
+}
+
+// ---------------------------------------------------------------------------
+// receipt export
+// ---------------------------------------------------------------------------
+
+export function runReceiptExport(opts: ReceiptExportOpts = {}): number {
+  const cwd = opts.cwd ?? process.cwd();
+  const guard = needRepo(cwd, 'export');
+  if (guard !== null) return guard;
+
+  // Only export a receipt for a state that is still verified-CURRENT: the receipt
+  // vouches for the exact live candidate, so a STALE/UNVERIFIED tree has nothing
+  // honest to export. Reconciliation would reject a stale receipt anyway; refusing
+  // here keeps a false claim from ever being written.
+  const evaluation = evaluateVerificationState(cwd);
+  const record = readVerificationRecord(cwd);
+  if (evaluation.state !== 'CURRENT' || !record) {
+    const detail =
+      evaluation.state === 'CURRENT'
+        ? 'no verification record is available to export'
+        : `no CURRENT verification to export (state: ${evaluation.state}) — run \`tamperward verify\` first`;
+    if (opts.json) {
+      process.stdout.write(JSON.stringify(machineOutput({ command: 'receipt-export' as const, exported: false, state: evaluation.state, detail })) + '\n');
+    } else {
+      process.stderr.write(`tamperward: ${detail}\n`);
+    }
+    return 2;
+  }
+
+  const receipt = receiptFromRecord(record);
+  const serialized = JSON.stringify(receipt) + '\n';
+  if (opts.out) {
+    try {
+      writeFileSync(opts.out, serialized);
+    } catch (e) {
+      process.stderr.write(`tamperward: could not write receipt to ${opts.out} (${e instanceof Error ? e.message : String(e)})\n`);
+      return 2;
+    }
+  }
+  if (opts.json) {
+    process.stdout.write(JSON.stringify(machineOutput({ command: 'receipt-export' as const, exported: true, ...(opts.out ? { path: opts.out } : {}), receipt })) + '\n');
+  } else if (opts.out) {
+    process.stdout.write(`receipt: exported VERIFIED receipt for tree ${receipt.binding.tree.slice(0, 10)} to ${opts.out}\n`);
+  } else {
+    process.stdout.write(serialized);
+  }
+  return 0;
+}
+
+// ---------------------------------------------------------------------------
+// receipt reconcile
+// ---------------------------------------------------------------------------
+
+/** CI's own verify adjudication: rerun the suite, or consume a preceding step's
+ *  `--json` document. Never reads the receipt. */
+function ciAdjudicate(cwd: string, opts: ReceiptReconcileOpts): { ci: CiAdjudication; exit: number } {
+  const inputs = reconcileInputs(opts);
+  let binding: VerificationBinding | null = null;
+  let bindingError: string | undefined;
+  try {
+    binding = computeBinding(cwd, inputs);
+  } catch (e) {
+    bindingError = e instanceof Error ? e.message : String(e);
+  }
+
+  if (opts.ciResult !== undefined) {
+    // Consume a preceding `tamperward verify --json` document. Its verdict is
+    // CI's authority; the binding is still the independently-computed one above.
+    let doc: unknown;
+    try {
+      doc = JSON.parse(readFileSync(opts.ciResult, 'utf8'));
+    } catch (e) {
+      // A CI verify result we cannot read is fail-closed: treat as CANNOT_VERIFY.
+      return {
+        ci: { verdict: 'CANNOT_VERIFY', binding, binding_error: `unreadable CI verify result: ${e instanceof Error ? e.message : String(e)}` },
+        exit: 2,
+      };
+    }
+    const verdict = readCiVerdict(doc);
+    const signedOff = !!(doc && typeof doc === 'object' && 'oob_signoff' in (doc as Record<string, unknown>));
+    return { ci: { verdict, binding, ...(bindingError ? { binding_error: bindingError } : {}) }, exit: verdictExit(verdict, signedOff) };
+  }
+
+  // Self-contained: rerun the canonical verification ourselves, FIRST.
+  const impl = opts.runVerifyImpl ?? runVerify;
+  let summary: VerifyVerdictSummary | undefined;
+  const exit = impl({
+    cwd,
+    base: opts.base,
+    cmd: opts.cmd,
+    budget: opts.budget,
+    requireAncestor: opts.requireAncestor,
+    silent: true, // reconcile prints its own summary; suppress verify's stdout
+    onVerdict: (s) => {
+      summary = s;
+    },
+  });
+  const verdict: VerifyVerdict = summary?.verdict ?? 'CANNOT_VERIFY';
+  return { ci: { verdict, binding, ...(bindingError ? { binding_error: bindingError } : {}) }, exit };
+}
+
+/** Extract a verify verdict from a `verify --json` document, fail-safe. An
+ *  unrecognised shape is CANNOT_VERIFY — never a pass. */
+function readCiVerdict(doc: unknown): VerifyVerdict {
+  if (doc && typeof doc === 'object') {
+    const v = (doc as Record<string, unknown>).verdict;
+    if (isOneOf(VERIFY_VERDICTS, v)) {
+      return v;
+    }
+  }
+  return 'CANNOT_VERIFY';
+}
+
+export interface ReconcileDocument {
+  schema_version: MachineSchemaVersion;
+  command: 'reconcile';
+  result: VerifyVerdict;
+  ci: { verdict: VerifyVerdict };
+  local: Reconciliation['local'];
+  reconciliation: {
+    agreement: Reconciliation['agreement'];
+    applicable: boolean;
+    mismatched_input?: string;
+    divergence: string[];
+  };
+}
+
+export function reconcileDocument(r: Reconciliation): ReconcileDocument {
+  return machineOutput({
+    command: 'reconcile' as const,
+    result: r.result,
+    ci: r.ci,
+    local: r.local,
+    reconciliation: {
+      agreement: r.agreement,
+      applicable: r.applicable,
+      ...(r.mismatched_input ? { mismatched_input: r.mismatched_input } : {}),
+      divergence: r.divergence,
+    },
+  });
+}
+
+const AGREEMENT_SEVERITY: Record<Reconciliation['agreement'], Severity> = {
+  AGREE: 'ok',
+  DIVERGENCE: 'bad',
+  NON_APPLICABLE: 'warn',
+  NO_CLAIM: 'info',
+};
+
+/** The human three-section report (LOCAL / CI / RESULT), matching #601. Each
+ *  section's words carry the meaning so it reads correctly with colour stripped. */
+export function renderReconcile(
+  r: Reconciliation,
+  claimedReceipt: VerificationReceipt | null,
+  ciBinding: VerificationBinding | null,
+  colour: boolean,
+): string {
+  const tick = (s: string): string => paint(s, severityColour('ok'), colour);
+  const cross = (s: string): string => paint(s, BOLD + severityColour('bad'), colour);
+  const lines: string[] = [];
+
+  lines.push('LOCAL');
+  if (claimedReceipt) {
+    lines.push(`  ${tick('✓')} candidate ${claimedReceipt.binding.tree.slice(0, 10)} locally verified`);
+    lines.push(`  ${tick('✓')} pristine ${claimedReceipt.stages.pristine}`);
+    lines.push(`  ${tick('✓')} integrity ${claimedReceipt.stages.integrity}`);
+  } else if (r.local.disposition === 'ABSENT') {
+    lines.push('  (no receipt provided)');
+  } else {
+    lines.push(`  ${cross('✗')} receipt ${r.local.disposition}${r.local.detail ? ` — ${r.local.detail}` : ''}`);
+  }
+  lines.push('');
+
+  lines.push('CI');
+  if (ciBinding) {
+    const mark = r.ci.verdict === 'VERIFIED' ? tick('✓') : cross('✗');
+    lines.push(`  ${mark} independently ${r.ci.verdict} ${ciBinding.tree.slice(0, 10)}`);
+  } else {
+    lines.push(`  ${cross('✗')} ${r.ci.verdict} (identity not computable)`);
+  }
+  lines.push('');
+
+  lines.push('RESULT');
+  lines.push(`  ${paint(r.result, (r.result === 'VERIFIED' ? '' : BOLD) + severityColour(r.result === 'VERIFIED' ? 'ok' : 'bad'), colour)}`);
+  const agreementLine: Record<Reconciliation['agreement'], string> = {
+    AGREE: 'Local and CI evidence agree',
+    DIVERGENCE: 'EVIDENCE DIVERGENCE — local claim not confirmed by CI',
+    NON_APPLICABLE: 'Local receipt does not apply to the CI-adjudicated state — ignored',
+    NO_CLAIM: 'No local receipt to reconcile — CI verdict stands',
+  };
+  lines.push(`  ${paint(agreementLine[r.agreement], severityColour(AGREEMENT_SEVERITY[r.agreement]), colour)}`);
+  for (const d of r.divergence) lines.push(`  ${d}`);
+  return lines.join('\n') + '\n';
+}
+
+export function runReceiptReconcile(opts: ReceiptReconcileOpts = {}): number {
+  const cwd = opts.cwd ?? process.cwd();
+  const guard = needRepo(cwd, 'reconcile');
+  if (guard !== null) return guard;
+
+  const { ci, exit } = ciAdjudicate(cwd, opts);
+
+  // Load the claimed receipt (from an explicit path, else the local store). This
+  // is the ONLY place the receipt is read, and it can never change `exit`.
+  let claimedValue: unknown;
+  if (opts.receipt !== undefined) {
+    try {
+      claimedValue = JSON.parse(readFileSync(opts.receipt, 'utf8'));
+    } catch {
+      claimedValue = { __unreadable: true }; // → UNKNOWN_SCHEMA (not a valid receipt)
+    }
+  } else {
+    claimedValue = readStoredReceipt(cwd);
+  }
+  const claimed = classifyReceipt(claimedValue);
+  const r = reconcile(ci, claimed);
+  const claimedReceipt = claimed.disposition === 'PRESENT' ? claimed.receipt : null;
+
+  if (opts.json) {
+    process.stdout.write(JSON.stringify(reconcileDocument(r)) + '\n');
+  } else {
+    process.stdout.write(renderReconcile(r, claimedReceipt, ci.binding, colourEnabled(process.env, process.stdout)));
+  }
+
+  // GitHub Actions job summary: the same separated report, in Markdown.
+  writeJobSummary(r, claimedReceipt, ci.binding);
+
+  // The exit code is CI's verdict, computed above BEFORE the receipt was read.
+  return exit;
+}
+
+/** Append the reconciliation to $GITHUB_STEP_SUMMARY when running under Actions.
+ *  Best-effort: a summary write never changes the exit code. */
+function writeJobSummary(r: Reconciliation, receipt: VerificationReceipt | null, ciBinding: VerificationBinding | null): void {
+  const path = process.env.GITHUB_STEP_SUMMARY;
+  if (!path) return;
+  const md: string[] = ['## TamperWard receipt reconciliation', ''];
+  md.push('### LOCAL');
+  if (receipt) {
+    md.push(`- candidate \`${receipt.binding.tree.slice(0, 10)}\` locally verified`);
+    md.push(`- pristine ${receipt.stages.pristine}`);
+    md.push(`- integrity ${receipt.stages.integrity}`);
+  } else if (r.local.disposition === 'ABSENT') {
+    md.push('- _no receipt provided_');
+  } else {
+    md.push(`- receipt **${r.local.disposition}**${r.local.detail ? ` — ${r.local.detail}` : ''}`);
+  }
+  md.push('', '### CI');
+  md.push(`- independently **${r.ci.verdict}**${ciBinding ? ` \`${ciBinding.tree.slice(0, 10)}\`` : ' (identity not computable)'}`);
+  md.push('', '### RESULT');
+  md.push(`**${r.result}** — ${r.agreement}`);
+  for (const d of r.divergence) md.push(`- ${d}`);
+  md.push('');
+  try {
+    appendFileSync(path, md.join('\n') + '\n');
+  } catch {
+    /* evidence only */
+  }
+}

@@ -263,6 +263,10 @@ jobs:
       # Requires a \`verify:\` block in .tamperward.yml naming the suite command;
       # without one this step fails closed (exit 2) rather than passing quietly.
       - name: Tamperward verify (pristine re-execution)
+        # bash so \`set -o pipefail\` propagates verify's exit through the tee — the
+        # default GitHub shell does not enable pipefail, and tee's own 0 would
+        # otherwise mask a red verify.
+        shell: bash
         env:
           # The same channel as the gate. A compact token generated for \`verify\`
           # (or legacy \`tamperward:allow:verify@<head-sha>\`) accepts a MASKED_FAILURE —
@@ -272,7 +276,30 @@ jobs:
           # stays red whatever the labels say.
           TAMPERWARD_OOB_SIGNOFF: \${{ steps.oob.outputs.rules }}
           TAMPERWARD_OOB_HEAD: \${{ github.event.pull_request.head.sha }}
-        run: tamperward verify --require-ancestor --base "\${{ github.event.pull_request.base.sha }}"
+        # --json to a file for the reconciliation step below; the tee keeps the
+        # verdict visible in the log. This step remains the ENFORCEMENT authority:
+        # its own exit gates the job.
+        run: tamperward verify --require-ancestor --base "\${{ github.event.pull_request.base.sha }}" --json | tee "\$RUNNER_TEMP/tw-verify.json"
+      # EVIDENCE, not authority (#601). CI has now rerun the canonical verification
+      # itself; this step reconciles a claimed LOCAL verification receipt against
+      # THAT result and writes a job summary separating the local claim, the CI
+      # result and their agreement/divergence. A stale/mismatched/tampered/missing/
+      # unknown-schema receipt can NEVER promote a CI result — the reconciled
+      # verdict is CI's own, recomputed from trusted inputs. Set TAMPERWARD_RECEIPT
+      # (e.g. from a download-artifact step) to a receipt exported by
+      # \`tamperward receipt export\`; with none, reconciliation reports NO_CLAIM and
+      # CI's verdict stands. \`if: always()\` re-asserts CI's verdict even when the
+      # verify step above already failed.
+      - name: Tamperward receipt reconciliation (evidence)
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(receipt reconcile --require-ancestor --base "\${{ github.event.pull_request.base.sha }}" --ci-result "\$RUNNER_TEMP/tw-verify.json")
+          if [ -n "\${TAMPERWARD_RECEIPT:-}" ] && [ -f "\${TAMPERWARD_RECEIPT:-}" ]; then
+            args+=(--receipt "\$TAMPERWARD_RECEIPT")
+          fi
+          tamperward "\${args[@]}"
 `;
 
 // Provenance mark for the generated workflow. A file init wrote and NOBODY has

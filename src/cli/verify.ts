@@ -80,9 +80,11 @@ import {
   beginVerifying,
   endVerifying,
   invalidateVerificationRecordIfCurrent,
+  readVerificationRecord,
   recordVerification,
   type VerificationInputs,
 } from '../verification-state';
+import { receiptFromRecord, storeReceipt } from '../verification-receipt';
 import {
   diagnosticLines,
   runCapturedProcessSync,
@@ -1675,6 +1677,11 @@ function runVerifyImpl(opts: VerifyOpts): number {
       // Reuse the tree fingerprint proved unchanged above (finding 6): the record
       // binds the same tree without a second full read of the worktree.
       recordVerification(cwd, inputs, treeBefore);
+      // Emit the transportable receipt (#601) bound to the SAME state, stored
+      // under `.git/tamperward/` — outside the candidate-controlled tree. It is
+      // a projection of the record just written, so it re-derives no identity.
+      const written = readVerificationRecord(cwd);
+      if (written) storeReceipt(cwd, receiptFromRecord(written));
     } catch {
       // Evidence only. Recording must never change the verification verdict.
     }

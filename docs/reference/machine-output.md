@@ -170,6 +170,8 @@ contract:
 | `research run --json` / `research summarize` | Paired records and the aggregate summary (from **2.23.0**). | [`schemas/research-v1.schema.json`](https://github.com/hexrift/tamperward/blob/main/schemas/research-v1.schema.json) |
 | `stats --json` | Aggregate audit document. | [`schemas/stats-v1.schema.json`](https://github.com/hexrift/tamperward/blob/main/schemas/stats-v1.schema.json) |
 | `runtime verify --json` / `runtime status --json` | Version-bound, operation-specific runtime capability qualification (from **2.37.0**). | [`schemas/runtime-qualification-v1.schema.json`](https://github.com/hexrift/tamperward/blob/main/schemas/runtime-qualification-v1.schema.json) |
+| `verify` (on VERIFIED) / `receipt export` | Bounded, transportable **local verification receipt** bound to #600's identity (from **2.38.0**). Evidence, not authority. | [`schemas/receipt-v1.schema.json`](https://github.com/hexrift/tamperward/blob/main/schemas/receipt-v1.schema.json) |
+| `receipt reconcile --json` | CI reconciliation of a claimed receipt against CI's own rerun of verification; the `result` is always CI's verdict — a receipt can never promote it (from **2.38.0**). | [`schemas/reconcile-v1.schema.json`](https://github.com/hexrift/tamperward/blob/main/schemas/reconcile-v1.schema.json) |
 
 The `runtime-qualification` document reports **one explicit state per capability**
 (`PROVEN` \| `PARTIAL` \| `UNPROVEN` \| `UNSUPPORTED` \| `FAIL-OPEN` \| `INCONCLUSIVE`) with

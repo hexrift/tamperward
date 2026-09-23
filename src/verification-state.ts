@@ -551,12 +551,24 @@ const MISMATCH_PRIORITY: readonly BindingInput[] = [
 ];
 
 /** The first binding input (in most-specific-first priority order) whose recorded
- *  fingerprint differs from the live one, or null when every input matches. */
+ *  fingerprint differs from the live one, or null when every input matches.
+ *  Exported as `firstBindingMismatch` so the receipt reconciler (#601) decides
+ *  receipt applicability with the SAME identity comparison `status` uses — a
+ *  receipt binds to the exact candidate state or it is non-applicable, never
+ *  "close enough". */
 function firstMismatch(recorded: VerificationBinding, live: VerificationBinding): BindingInput | null {
   for (const input of MISMATCH_PRIORITY) {
     if (recorded[input] !== live[input]) return input;
   }
   return null;
+}
+
+export { firstMismatch as firstBindingMismatch };
+
+/** Deterministic digest of an arbitrary JSON value, shared with the receipt
+ *  layer so an evidence digest is computed the one canonical way (#601). */
+export function stableDigest(value: unknown): string {
+  return digest(value);
 }
 
 /**

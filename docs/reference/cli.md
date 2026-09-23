@@ -257,6 +257,71 @@ The `--json` form is the stable consumer contract — see
 [Machine output](./machine-output.md#status-json). Consumers read the enumerated
 state; they never reconstruct security posture by scraping `doctor` / `verify` prose.
 
+## Verification receipts: `receipt export`, `receipt reconcile`
+
+A **local verification receipt** is a bounded, transportable projection of the
+verification state (above): a successful `verify` writes one to
+`.git/tamperward/verification-receipt.json`, bound to the *same* load-bearing
+identity — candidate `tree`, `head`, `base`, `policy`, `verifier`, `surface`,
+`intervention` and `dependencies` — plus per-stage results and an `evidence_digest`
+over its own fields. It carries only fixed-width digests, commit ids, closed-enum
+stage results, a verdict and a timestamp: **no** prompt text, source, command
+bodies, secrets/environment, absolute local paths or logs.
+
+The receipt is **evidence, not authority.** CI reruns the canonical TamperWard
+verification itself and computes its own verdict; the receipt only makes the
+agreement or divergence between the local claim and CI explicit. A stale,
+mismatched, malformed, tampered, missing or unknown-schema receipt can **never**
+promote or strengthen a CI result.
+
+```bash
+tamperward receipt export --out receipt.json      # explicit transport handoff
+tamperward receipt reconcile --base main --json    # CI: rerun verify, then reconcile
+```
+
+`receipt export` writes the receipt for the **CURRENT** verified state (it refuses
+when the state is not `CURRENT`, so it never vouches for a state that is not still
+verified). Raw evidence otherwise stays under `.git/tamperward/`, never in the
+tracked tree — transport it explicitly.
+
+`receipt reconcile` reruns verification **first**, then reconciles a claimed
+receipt against CI's own adjudication and prints three sections:
+
+```text
+LOCAL
+  ✓ candidate 8ef12c1aaa locally verified
+  ✓ pristine PASS
+CI
+  ✓ independently VERIFIED 8ef12c1aaa
+RESULT
+  VERIFIED
+  Local and CI evidence agree
+```
+
+A divergence is first-class — a local `VERIFIED` claim over a red CI run reports
+`DIVERGENCE` and **stays failed**:
+
+```text
+RESULT
+  SUITE_RED
+  EVIDENCE DIVERGENCE — local claim not confirmed by CI
+```
+
+| flag | meaning |
+| --- | --- |
+| `--receipt <file>` | The claimed local receipt. Absent → `NO_CLAIM` (never a failure by itself). |
+| `--ci-result <file>` | Consume a preceding `verify --json` document so the suite runs once, instead of rerunning verify. |
+| `--base <rev>` / `--cmd <c>` / `--budget <s>` / `--require-ancestor` | As for `verify` — how CI recomputes its own verdict and identity. |
+| `--json` | Emit the versioned reconciliation document; see [Machine output](./machine-output.md#other-json-surfaces). |
+| `--cwd <dir>` | Repository directory. |
+
+Under GitHub Actions the same LOCAL / CI / RESULT report is written to the job
+summary. The reconciled verdict — and the exit code — is **CI's own**, computed
+from trusted inputs before the receipt is read; the receipt is only evidence.
+The generated CI workflow (`tamperward init`) runs this as an evidence step after
+its pristine `verify`; set `TAMPERWARD_RECEIPT` (e.g. from a download-artifact
+step) to reconcile a transported receipt.
+
 ## Runtime qualification: `runtime verify`, `runtime status`
 
 Turn the binary "runtime detected" label into a **version-bound, operation-specific

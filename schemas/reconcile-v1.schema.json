@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/hexrift/tamperward/v1/schemas/reconcile-v1.schema.json",
+  "title": "TamperWard receipt reconciliation v1",
+  "type": "object",
+  "required": ["schema_version", "command", "result", "ci", "local", "reconciliation"],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "command": {
+      "const": "reconcile"
+    },
+    "result": {
+      "description": "The reconciled verdict. This is ALWAYS CI's own verdict, recomputed from trusted inputs — no receipt state (stale, mismatched, tampered, missing or unknown-schema) can change it. A receipt can never promote or strengthen a CI result.",
+      "enum": [
+        "VERIFIED",
+        "MASKED_FAILURE",
+        "SUITE_RED",
+        "BUDGET_EXCEEDED",
+        "CANNOT_VERIFY"
+      ]
+    },
+    "ci": {
+      "type": "object",
+      "required": ["verdict"],
+      "properties": {
+        "verdict": {
+          "enum": [
+            "VERIFIED",
+            "MASKED_FAILURE",
+            "SUITE_RED",
+            "BUDGET_EXCEEDED",
+            "CANNOT_VERIFY"
+          ]
+        }
+      },
+      "additionalProperties": true
+    },
+    "local": {
+      "type": "object",
+      "required": ["disposition"],
+      "properties": {
+        "disposition": {
+          "enum": ["PRESENT", "ABSENT", "MALFORMED", "UNKNOWN_SCHEMA"]
+        },
+        "verdict": { "const": "VERIFIED" },
+        "verified_at": { "type": "string" },
+        "detail": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "reconciliation": {
+      "type": "object",
+      "required": ["agreement", "applicable", "divergence"],
+      "properties": {
+        "agreement": {
+          "enum": ["AGREE", "DIVERGENCE", "NON_APPLICABLE", "NO_CLAIM"]
+        },
+        "applicable": { "type": "boolean" },
+        "mismatched_input": {
+          "enum": [
+            "tree",
+            "head",
+            "base",
+            "policy",
+            "verifier",
+            "surface",
+            "intervention",
+            "dependencies"
+          ]
+        },
+        "divergence": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true,
+  "description": "Emitted by `tamperward receipt reconcile --json` (#601). CI reruns the canonical TamperWard verification first, then reconciles a claimed local receipt against its own adjudication. `result` and `ci.verdict` are CI's authority; `local` classifies the claimed receipt and `reconciliation` states whether it applies to the exact CI-adjudicated state and whether the two agree. A stale/mismatched/tampered/missing/unknown-schema receipt is NON_APPLICABLE or NO_CLAIM and never changes `result`. Additive within schema major 1.",
+  "examples": [
+    {
+      "schema_version": 1,
+      "command": "reconcile",
+      "result": "VERIFIED",
+      "ci": { "verdict": "VERIFIED" },
+      "local": { "disposition": "PRESENT", "verdict": "VERIFIED", "verified_at": "2026-09-23T12:00:00.000Z" },
+      "reconciliation": { "agreement": "AGREE", "applicable": true, "divergence": [] }
+    },
+    {
+      "schema_version": 1,
+      "command": "reconcile",
+      "result": "MASKED_FAILURE",
+      "ci": { "verdict": "MASKED_FAILURE" },
+      "local": { "disposition": "PRESENT", "verdict": "VERIFIED", "verified_at": "2026-09-23T12:00:00.000Z" },
+      "reconciliation": {
+        "agreement": "DIVERGENCE",
+        "applicable": true,
+        "divergence": ["local claim VERIFIED, CI MASKED_FAILURE", "local pristine: PASS / CI pristine: FAIL"]
+      }
+    },
+    {
+      "schema_version": 1,
+      "command": "reconcile",
+      "result": "SUITE_RED",
+      "ci": { "verdict": "SUITE_RED" },
+      "local": { "disposition": "PRESENT", "verdict": "VERIFIED", "verified_at": "2026-09-23T12:00:00.000Z" },
+      "reconciliation": {
+        "agreement": "NON_APPLICABLE",
+        "applicable": false,
+        "mismatched_input": "tree",
+        "divergence": ["receipt binds a different `tree` than CI computed — the receipt describes another state"]
+      }
+    },
+    {
+      "schema_version": 1,
+      "command": "reconcile",
+      "result": "VERIFIED",
+      "ci": { "verdict": "VERIFIED" },
+      "local": { "disposition": "ABSENT", "detail": "no local verification receipt was provided" },
+      "reconciliation": { "agreement": "NO_CLAIM", "applicable": false, "divergence": [] }
+    }
+  ]
+}

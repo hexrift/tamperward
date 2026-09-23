@@ -39,10 +39,16 @@ import {
   BINDING_INPUTS,
   VERIFICATION_STATES,
 } from '../src/verification-state';
+import {
+  RECEIPT_DISPOSITIONS,
+  RECEIPT_INTEGRITY_RESULTS,
+  RECEIPT_STAGE_RESULTS,
+  RECONCILE_AGREEMENTS,
+} from '../src/verification-receipt';
 
 const ROOT = resolve(__dirname, '..');
 const dirs: string[] = [];
-const SCHEMA_NAMES = ['check', 'verify', 'run', 'doctor', 'research', 'audit', 'stats', 'status', 'runtime-qualification'] as const;
+const SCHEMA_NAMES = ['check', 'verify', 'run', 'doctor', 'research', 'audit', 'stats', 'status', 'runtime-qualification', 'receipt', 'reconcile'] as const;
 type SchemaName = typeof SCHEMA_NAMES[number];
 type NpmPackEntry = { filename: string; files?: Array<{ path: string }> };
 
@@ -581,6 +587,19 @@ describe('machine-readable schema v1 (#333)', () => {
     // module must all agree on the vocabularies (single source, no drift).
     expect([...STATUS_VERIFICATION_STATES]).toEqual([...VERIFICATION_STATES]);
     expect([...STATUS_CHANGED_INPUTS]).toEqual([...BINDING_INPUTS]);
+    // #601: the receipt and reconciliation schemas single-source their closed
+    // vocabularies from src/verification-receipt.ts, and reuse verify's verdicts
+    // and #600's binding inputs — no parallel notion of "what was verified".
+    const receipt = schemaFrom(ROOT, 'receipt');
+    expect(receipt.properties.stages.properties.candidate.enum).toEqual([...RECEIPT_STAGE_RESULTS]);
+    expect(receipt.properties.stages.properties.pristine.enum).toEqual([...RECEIPT_STAGE_RESULTS]);
+    expect(receipt.properties.stages.properties.integrity.enum).toEqual([...RECEIPT_INTEGRITY_RESULTS]);
+    const reconcile = schemaFrom(ROOT, 'reconcile');
+    expect(reconcile.properties.result.enum).toEqual([...VERIFY_VERDICTS]);
+    expect(reconcile.properties.ci.properties.verdict.enum).toEqual([...VERIFY_VERDICTS]);
+    expect(reconcile.properties.local.properties.disposition.enum).toEqual([...RECEIPT_DISPOSITIONS]);
+    expect(reconcile.properties.reconciliation.properties.agreement.enum).toEqual([...RECONCILE_AGREEMENTS]);
+    expect(reconcile.properties.reconciliation.properties.mismatched_input.enum).toEqual([...BINDING_INPUTS]);
     for (const name of SCHEMA_NAMES) {
       expect(schemaFrom(ROOT, name).properties.schema_version).toEqual({ const: MACHINE_SCHEMA_VERSION });
     }
