@@ -149,7 +149,7 @@ describe('research policy snapshot (#527)', () => {
     let loads = 0;
     const surface = trustedProtectedOnly('base-sha', '/workspace', () => {
       loads++;
-      return undefined;
+      return null;
     });
 
     for (let i = 0; i < 100; i++) expect(surface.protectedOnly(`cache/file-${i}.txt`)).toBe(false);
