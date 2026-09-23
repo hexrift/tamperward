@@ -37,6 +37,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 jobs:
   bypass-to-fix:
@@ -78,6 +79,8 @@ jobs:
           # every week for a missing optional secret trains people to ignore the workflow,
           # and then it is worthless on the week it finds something real.
           if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
+            echo "::warning title=Harness skipped::No CLAUDE_CODE_OAUTH_TOKEN secret is configured; no agent run was made."
+            touch harness-skipped
             echo "### Harness skipped" >> "$GITHUB_STEP_SUMMARY"
             echo "No \`CLAUDE_CODE_OAUTH_TOKEN\` secret is configured, so no agent run was made." >> "$GITHUB_STEP_SUMMARY"
             echo "" >> "$GITHUB_STEP_SUMMARY"
@@ -112,6 +115,21 @@ jobs:
             echo "A tamper reaching green is the result that matters. Conversion is"
             echo "measured only over runs where a block actually fired."
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # Record a skipped scheduled measurement without creating duplicate issues.
+      - name: Record missing-credential skip
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ ! -f harness-skipped ]; then exit 0; fi
+          marker='<!-- tamperward-harness-skip -->'
+          body="$marker
+          Scheduled harness measurement skipped on ${GITHUB_SHA}: CLAUDE_CODE_OAUTH_TOKEN is not configured.
+          Restore the repository secret before relying on the headline conversion number."
+          if ! gh api "repos/${GITHUB_REPOSITORY}/issues/422/comments" --paginate --jq '.[].body' | grep -Fq "$marker"; then
+            gh api "repos/${GITHUB_REPOSITORY}/issues/422/comments" --method POST -f body="$body" >/dev/null
+          fi
 
       # The transcripts are the evidence behind any number this project publishes.
       - name: Upload transcripts
