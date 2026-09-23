@@ -329,10 +329,12 @@ describe('version/config binding and staleness (#599)', () => {
     // A genuinely unchanged binding (only the provenance-only timestamp/evidence_id differ) is
     // not stale.
     expect(qualificationStaleness(binding(), binding({ timestamp: 'later', evidence_id: 'other' })).stale).toBe(false);
-    // The TamperWard commit is load-bearing (blocker at 5799408805): the retained-evidence matcher
-    // keys on the `version+commit` build tag, so re-running `verify` after checking out a different
-    // commit (no package-version bump) uses a different build identity and rejects evidence taken
-    // under the prior commit. A stored record from that prior commit must therefore read STALE.
+    // TamperWard's OWN build commit is load-bearing (blocker at 5799408805): the retained-evidence
+    // matcher keys on TamperWard's `version+commit` build tag, so a TamperWard build under a
+    // different commit uses a different build identity and rejects evidence taken under the prior
+    // build. A stored record from that prior TamperWard build must therefore read STALE. (This
+    // commit is TamperWard's own build identity — sourced from package metadata, never a qualified
+    // repo's HEAD; see the CLI end-to-end test that a consumer commit alone does NOT flip STALE.)
     const s = qualificationStaleness(binding(), binding({ tamperward: { version: '2.35.0', commit: 'DIFFERENT' } }));
     expect(s.stale).toBe(true);
     expect(s.changed.join('\n')).toContain('tamperward.commit: abc → DIFFERENT');
@@ -610,6 +612,55 @@ describe('runtime CLI end-to-end (#599)', () => {
     expect(r.status).toBe(2);
     expect(r.stderr).toMatch(/no runtime detected/);
     expect(existsSync(storeFileOf(cwd))).toBe(false);
+  });
+
+  it('review 5800329016 item 1: a consumer-repo commit (HEAD change) alone does NOT flip STALE', () => {
+    // The TamperWard build identity is sourced from TamperWard's OWN package metadata, not the
+    // qualified repository's HEAD. So making an unrelated commit in the consumer repo — nothing
+    // about the runtime, adapter or hook wiring changed — must NOT mark the stored qualification
+    // stale, and the recorded `tamperward.commit` must NOT be the consumer repo's HEAD. Before the
+    // fix `buildQualification` filled `tamperward.commit` from `git rev-parse HEAD` of the qualified
+    // repo, so every consumer commit flipped `status` STALE with `tamperward.commit: X → Y`.
+    const cwd = initRepo();
+    const beforeSha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).trim();
+    run(cwd, ['runtime', 'verify', '--runtime', 'claude-code', '--json'], { TAMPERWARD_RUNTIME_VERSION: '1.0.0' });
+    const before = JSON.parse(run(cwd, ['runtime', 'status', '--runtime', 'claude-code', '--json'], { TAMPERWARD_RUNTIME_VERSION: '1.0.0' }));
+    expect(before.stale).toBe(false);
+    // The recorded TamperWard build commit is never the consumer repo's HEAD (here it is null,
+    // since the bundled CLI carries no published `gitHead`).
+    expect(before.tamperward.commit).not.toBe(beforeSha);
+
+    // A new, unrelated commit in the consumer repo advances HEAD...
+    execFileSync('git', ['commit', '--allow-empty', '-q', '-m', 'unrelated consumer change'], { cwd });
+    const afterSha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).trim();
+    expect(afterSha).not.toBe(beforeSha);
+
+    // ...and the stored qualification is STILL applicable — not stale, no tamperward.commit change.
+    const after = JSON.parse(run(cwd, ['runtime', 'status', '--runtime', 'claude-code', '--json'], { TAMPERWARD_RUNTIME_VERSION: '1.0.0' }));
+    expect(after.stale).toBe(false);
+    expect(after.changed_inputs.join('\n')).not.toMatch(/tamperward\.commit/);
+    expect(after.tamperward.commit).not.toBe(afterSha);
+
+    // A genuine TamperWard identity change still flips STALE (proved at the qualificationStaleness
+    // unit level above); only the QUALIFIED repo's HEAD is decoupled here.
+  });
+
+  it('review 5800329016 item 2: a rejected/tampered store prints its reason on the TEXT surface', () => {
+    // A record `validateStoredReport` rejects (here: every capability forged to PROVEN + FULL, so
+    // the recomputed evidence_id no longer reproduces) must explain itself in text mode, not only
+    // under `--json`. Before the fix `renderText` returned in the unrecorded branch before printing
+    // `note`, so the text surface showed only "no qualification recorded" with no reason.
+    const cwd = initRepo();
+    run(cwd, ['runtime', 'verify', '--runtime', 'claude-code', '--json'], { TAMPERWARD_RUNTIME_VERSION: '1.0.0' });
+    const store = JSON.parse(readFileSync(storeFileOf(cwd), 'utf8'));
+    for (const c of store.records['claude-code'].capabilities) c.state = 'PROVEN';
+    store.records['claude-code'].in_loop_protection = 'FULL';
+    writeFileSync(storeFileOf(cwd), JSON.stringify(store));
+    const text = run(cwd, ['runtime', 'status', '--runtime', 'claude-code'], { TAMPERWARD_RUNTIME_VERSION: '1.0.0' });
+    expect(text).toMatch(/UNQUALIFIED/);
+    // The rejection reason (the same one carried in the `--json` note) is now visible in text mode.
+    expect(text).toMatch(/rejected/);
+    expect(text).toMatch(/evidence_id mismatch/);
   });
 });
 

@@ -39,8 +39,13 @@
   or `in_loop_protection` no longer matches a recomputation from the stored binding + states, is
   reported `recorded: false` with the reason (a hand-edited all-`PROVEN`/`FULL` record can no
   longer render as trusted, and a non-array `capabilities` fails safe instead of an internal
-  error). The TamperWard **commit** is now load-bearing for staleness (it already keyed the
-  evidence match), so a commit-only checkout change reads STALE. The hook-config binding reuses
+  error). TamperWard's **own build commit** is load-bearing for staleness (it already keyed the
+  evidence match): it is sourced from TamperWard's published package metadata (`gitHead`), never
+  from the qualified repository's HEAD, so a TamperWard build change reads STALE while an unrelated
+  commit in a consumer repository does **not** — and the evidence match is keyed on the same
+  TamperWard identity, so matching and staleness stay consistent. When TamperWard's build commit is
+  not authentically available (a dev/source tree), it is honestly `null`; no repository HEAD is ever
+  substituted. The hook-config binding reuses
   the evaluated intervention wiring (parsed `hooks` + `disableAllHooks` across the project,
   project-local, user and user-local Claude settings), so turning hooks off now invalidates the
   qualification; the Copilot hook config is read from its documented path
@@ -51,7 +56,11 @@
   success document on the write succeeding: nothing is persisted, so it prints an explicit
   `recorded: false` failure document (never a success-shaped `recorded: true` stdout doc), reports
   the failure on stderr and exits non-zero — a machine consumer parsing stdout can no longer
-  retain the opposite state from the store.
+  retain the opposite state from the store. A **rejected** store now explains itself on the text
+  surface too: `runtime status` prints the rejection reason (`note`) in the unrecorded block, so a
+  tampered or non-reproducing record is noticed where people look, not only under `--json`. When a
+  runtime is present but ships no adapter, the refusal now reads "no adapter-backed runtime
+  detected" rather than "no runtime detected".
 
 ## [2.36.0] — 2026-09-23
 

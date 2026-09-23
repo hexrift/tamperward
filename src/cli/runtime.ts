@@ -23,9 +23,9 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
-import { gitDir, headSha } from '../git/build';
+import { gitDir } from '../git/build';
 import { repoContext } from '../repo-context';
-import { TW_VERSION } from '../wiring';
+import { TW_VERSION, TW_COMMIT } from '../wiring';
 import { machineOutput, type MachineSchemaVersion } from '../machine-output';
 import { colourEnabled } from './render/text';
 import { paint, severityColour, BOLD, DIM, type Severity } from './render/status';
@@ -292,9 +292,12 @@ function resolveRuntimeVersion(canonicalId: string): string | null {
 }
 
 /** The current TamperWard build as `version+shortcommit`, matching the shape retained evidence
- *  records (`EvidenceBinding.tamperward_version`, e.g. `2.31.0+3671a5e6`). A different TamperWard
- *  version OR commit yields a different tag, so retained evidence taken under one build never
- *  applies to another — the review's requirement that a TamperWard change breaks the match. */
+ *  records (`EvidenceBinding.tamperward_version`, e.g. `2.31.0+3671a5e6`). `commit` is
+ *  TamperWard's OWN build commit (`TW_COMMIT`, the published package's `gitHead`), never a
+ *  qualified repo's HEAD, and is `null` when unavailable — then the tag is the bare version. A
+ *  different TamperWard version OR build commit yields a different tag, so retained evidence taken
+ *  under one build never applies to another — the review's requirement that a TamperWard change
+ *  breaks the match. */
 function tamperwardBuildTag(version: string, commit: string | null): string {
   return commit ? `${version}+${commit.slice(0, 8)}` : version;
 }
@@ -360,7 +363,13 @@ function buildQualification(
   const platform = `${process.platform}-${process.arch}`;
   const model = opts.model ?? null;
   const hookConfigHash = resolveHookConfigHash(canonical, cwd);
-  const commit = headSha(cwd);
+  // TamperWard's OWN build commit (the published package's `gitHead`), NOT the qualified repo's
+  // HEAD. The evidence match keys on TamperWard's `version+commit` build tag, and staleness binds
+  // the same identity; sourcing it from the target repo's HEAD (the previous behaviour) mis-keyed
+  // the match in a consumer repo and flipped `status` STALE on every unrelated consumer commit.
+  // It is `null` when not authentically available (a dev/source tree); we never substitute the
+  // consumer HEAD (#599 review 5800329016).
+  const commit = TW_COMMIT;
   // The current qualification always assesses the full capability list, so THAT is the tested
   // set this run reports; a probe that tested a different surface does not apply to it.
   const testedRaw = [...RUNTIME_CAPABILITY_IDS];
@@ -442,11 +451,16 @@ function resolveTarget(opts: RuntimeOpts, cwd: string): RuntimeAdapter | { error
     const a = adapterFor(opts.runtime);
     return a ?? { error: `no shipped runtime adapter for "${opts.runtime}"` };
   }
-  for (const rt of detectRuntimes(cwd)) {
+  const detected = detectRuntimes(cwd);
+  for (const rt of detected) {
     const a = adapterFor(rt.id);
     if (a) return a;
   }
-  return { error: 'no runtime detected in this repository; pass --runtime <id> to qualify a specific runtime' };
+  // Distinguish "nothing detected" from "a runtime is present but ships no adapter" (e.g. `cursor`
+  // is detected but `adapterFor` has nothing for it): the old message claimed nothing was detected
+  // even in the latter case (#599 review 5800329016 item 3).
+  const reason = detected.length > 0 ? 'no adapter-backed runtime detected in this repository' : 'no runtime detected in this repository';
+  return { error: `${reason}; pass --runtime <id> to qualify a specific runtime` };
 }
 
 const STATE_SEVERITY: Record<CapabilityState, Severity> = {
@@ -472,6 +486,12 @@ function renderText(report: RuntimeQualificationReport, cwd: string): void {
   if (!report.recorded) {
     w('');
     w(`${paint('[UNQUALIFIED]', severityColour('bad') + BOLD, colour)} no qualification recorded for this runtime.`);
+    // Print the reason (`note`) so a REJECTED store — a tampered record, or a pre-fix record whose
+    // evidence_id no longer reproduces — explains itself on the text surface, not only in `--json`.
+    // Without this the text render read "no qualification recorded" and the rejection reason (why a
+    // present-but-untrusted store was discarded) was invisible where people look (#599 review
+    // 5800329016 item 2).
+    if (report.note) w(dim(`  ${report.note.replace(/—/g, '-')}`));
     w(`Run: ${paint('tamperward runtime verify', BOLD, colour)}`);
     return;
   }

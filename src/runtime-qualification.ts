@@ -456,6 +456,9 @@ export type ExecutionMode = 'headless' | 'interactive';
  *  qualification STALE. */
 export interface QualificationBinding {
   runtime: { id: string; label: string; version: string | null };
+  /** TamperWard's OWN build identity: the shipped package version, and its build commit
+   *  (`TW_COMMIT`, the published package's `gitHead`) or `null` when unavailable. This is NEVER the
+   *  qualified repository's HEAD — that commit is unrelated to TamperWard's build. */
   tamperward: { version: string; commit: string | null };
   adapter: { name: string; capability_hash: string };
   hook_config_hash: string | null;
@@ -473,10 +476,12 @@ export type BindingInputs = Omit<QualificationBinding, 'timestamp' | 'evidence_i
 
 /** The load-bearing projection of a binding — the fields staleness compares. `timestamp` and
  *  `evidence_id` are recorded for provenance but do NOT trigger staleness. The TamperWard
- *  version AND commit are both load-bearing: the retained-evidence matcher keys on the
- *  `version+commit` build tag (`tamperwardBuildTag`), so re-running `verify` under a different
- *  commit uses a different build identity and rejects evidence captured under the prior commit —
- *  a stored record taken under that prior commit must therefore read STALE, not applicable. */
+ *  version AND its OWN build commit are both load-bearing: the retained-evidence matcher keys on
+ *  TamperWard's `version+commit` build tag (`tamperwardBuildTag`), so a TamperWard build under a
+ *  different commit uses a different build identity and rejects evidence captured under the prior
+ *  build — a stored record taken under that prior build must therefore read STALE. `tamperward.commit`
+ *  is TamperWard's OWN build commit, never the qualified repository's HEAD, so an unrelated commit
+ *  in a consumer repo does NOT make the qualification stale. */
 export function loadBearing(b: BindingInputs): Record<string, string> {
   return {
     'runtime.id': b.runtime.id,

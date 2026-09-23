@@ -52,6 +52,37 @@ const RESOLVED_TW_VERSION = shippedVersion();
 // refuses before any command carrying it can be emitted or written.
 export const TW_VERSION = RESOLVED_TW_VERSION ?? '0.0.0-unresolved';
 
+// The git commit TamperWard's OWN build was published from — its build identity, NOT the
+// commit of whatever repository TamperWard is qualifying. npm records this as `gitHead` in a
+// published package's package.json when it publishes from a git checkout, so it is what an
+// INSTALLED tamperward authentically carries about its own build. It is deliberately NOT
+// recovered from any working tree (a consumer repo's HEAD is unrelated to TamperWard's build),
+// so it is honestly `null` in a dev/source tree that was never npm-published, and whenever npm
+// did not record it. We never substitute another repo's HEAD and never fabricate a value.
+const GIT_HEAD_RE = /^[0-9a-f]{7,40}$/i;
+function shippedCommit(): string | null {
+  try {
+    const here = dirname(fileURLToPath(import.meta.url));
+    for (const rel of ['../package.json', '../../package.json', '../../../package.json']) {
+      try {
+        const pkg: unknown = JSON.parse(readFileSync(join(here, rel), 'utf8'));
+        if (isRecord(pkg) && pkg.name === 'tamperward') {
+          return typeof pkg.gitHead === 'string' && GIT_HEAD_RE.test(pkg.gitHead) ? pkg.gitHead : null;
+        }
+      } catch {
+        /* keep looking */
+      }
+    }
+  } catch {
+    /* fall through */
+  }
+  return null;
+}
+
+/** TamperWard's own build commit (the published package's `gitHead`), or `null` when it is not
+ *  authentically available — never a substitute drawn from a qualified repository's HEAD. */
+export const TW_COMMIT = shippedCommit();
+
 export function requireShippedVersion(): string {
   if (RESOLVED_TW_VERSION === null) {
     throw new Error(
