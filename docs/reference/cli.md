@@ -208,8 +208,8 @@ Each capability carries **one explicit state** — never a percentage score:
 
 | state | meaning |
 | --- | --- |
-| `PROVEN` | The adapter structurally declares this capability (or committed evidence proves it). |
-| `PARTIAL` | Guaranteed at the adapter/contract boundary; full live-runtime honoring across modes is not separately proven. |
+| `PROVEN` | A **retained real-runtime probe** observed this capability holding under the reported binding (evidence source `committed-evidence`). A static adapter declaration alone **never** earns `PROVEN`. |
+| `PARTIAL` | Declared/guaranteed at the adapter/contract boundary, but **no retained real-runtime probe** proves it holds live for this runtime/version/config. A full static `preDeny` declaration lands here. |
 | `UNPROVEN` | No evidence either way — the conservative default. **Never read as "unsupported-safe".** |
 | `UNSUPPORTED` | The adapter declares it does not provide this capability. |
 | `FAIL-OPEN` | A declared failure mode lets the operation proceed. Surfaced verbatim; can never count toward FULL support. |
@@ -227,10 +227,14 @@ with no `FAIL-OPEN`/`INCONCLUSIVE`; otherwise `PARTIAL` or `NONE`. `Final author
 (CI / pristine `verify`) is a constant **AVAILABLE**: it is independent of the runtime hook,
 so a weak in-loop capability never weakens adjudication. Steering and authority stay separate.
 
-This surface **reports existing facts only** — the declared adapter capabilities (#482) and
-committed evidence. It runs no live in-process probe, promotes no runtime, and makes no
-Round 4.1 eligibility claim. A deeper real-runtime conformance probe lives in
-`npm run probe:*` / `spike:*`.
+`PROVEN` is gated on retained real-runtime evidence matching the **full binding** (runtime name
++ exact version, hook-config hash, execution mode, platform, model, tested set); a mismatch on
+any of those strips a capability back to its declaration's `PARTIAL`. The retained captures live
+under `harness/adapters/**/evidence/` (see `src/adapters/evidence.ts`); absent a matching record,
+a capability is honestly `PARTIAL`/`UNPROVEN` — **never** a fabricated `PROVEN`. This surface
+grades against those committed captures rather than running a live credentialed probe here (those
+are gated, #611/#616, under `npm run probe:*` / `spike:*`); it promotes no runtime and makes no
+Round 4.1 eligibility claim.
 
 ### Binding and staleness
 

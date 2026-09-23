@@ -1,9 +1,11 @@
 // #599 — the version-bound, operation-specific runtime capability model.
 //
-// These tests pin the HONESTY of the derivation: states come only from the adapter's declared
-// capabilities, an unproven capability is never PROVEN, a fail-open is surfaced and can never
-// aggregate to FULL, no percentage appears, the JSON matches the published schema, and a changed
-// load-bearing input marks a stored qualification STALE.
+// These tests pin the HONESTY of the derivation: PROVEN comes ONLY from a retained real-runtime
+// probe matching the full binding — a static adapter/contract declaration alone can never earn
+// PROVEN (it grades PARTIAL at most). A fail-open is surfaced and can never aggregate to FULL, a
+// binding mismatch strips PROVEN back to the declaration's PARTIAL, no percentage appears, the
+// JSON matches the published schema, and a changed load-bearing input marks a stored
+// qualification STALE.
 
 import { describe, it, expect, afterAll } from 'vitest';
 import Ajv2020 from 'ajv/dist/2020.js';
@@ -33,6 +35,7 @@ import { claudeAdapter } from '../src/adapters/claude/adapter';
 import { codexAdapter } from '../src/adapters/codex/adapter';
 import { copilotAdapter } from '../src/adapters/copilot/adapter';
 import { copilotSdkAdapter } from '../src/adapters/copilot-sdk/adapter';
+import { RETAINED_EVIDENCE, matchRetainedEvidence, type EvidenceMatchKey } from '../src/adapters/evidence';
 
 const ROOT = resolve(__dirname, '..');
 const stateOf = (a: CapabilityAssessment[], id: RuntimeCapabilityId) => a.find((x) => x.id === id)!.state;
@@ -48,14 +51,55 @@ describe('capability derivation is honest (#599)', () => {
     }
   });
 
-  it('Claude declares every operation kind in preDeny, so pre-deny capabilities are PROVEN', () => {
-    // Guard the premise: the derivation is only honest because the adapter really declares this.
+  it('a full static preDeny declaration alone is PARTIAL, never PROVEN (the review fix)', () => {
+    // Guard the premise: Claude Code really declares every operation kind in preDeny...
     expect(claudeAdapter.capabilities.preDeny).toEqual(OPERATION_KINDS);
+    // ...and there is NO retained real-runtime probe for it, so nothing may be PROVEN.
+    expect(matchRetainedEvidence({
+      runtime_id: 'claude-code', runtime_version: '9.9.9', model: null,
+      platform: `${process.platform}-${process.arch}`, execution_mode: 'headless', hook_config_hash: null,
+    })).toBeNull();
     const a = assessCapabilities(claudeAdapter.capabilities);
-    for (const id of ['pre-deny:shell', 'pre-deny:native-edit', 'pre-deny:mcp', 'pre-deny:git-mutation'] as const) {
-      expect(stateOf(a, id)).toBe('PROVEN');
+    // The maintainer's exact objection: static preDeny membership must NOT become PROVEN.
+    for (const id of ['pre-deny:shell', 'pre-deny:native-edit', 'pre-deny:mcp', 'pre-deny:git-mutation', 'pre-deny:delete', 'pre-deny:rename'] as const) {
+      expect(stateOf(a, id), id).toBe('PARTIAL');
+      expect(a.find((x) => x.id === id)!.evidence.source).toBe('adapter-declaration');
     }
-    expect(stateOf(a, 'end-of-turn')).toBe('PROVEN');
+    // The declared stop event is likewise only PARTIAL absent a probe that proves the sweep lands.
+    expect(stateOf(a, 'end-of-turn')).toBe('PARTIAL');
+    // Nothing at all is PROVEN from a static declaration.
+    expect(a.some((x) => x.state === 'PROVEN')).toBe(false);
+  });
+
+  it('PROVEN appears ONLY with retained real-runtime evidence matching the full binding', () => {
+    const record = RETAINED_EVIDENCE.find((r) => r.binding.runtime_id === 'github-copilot-sdk-hosted')!;
+    // With the matching retained evidence, the observed capabilities are PROVEN / INCONCLUSIVE...
+    const proven = assessCapabilities(copilotSdkAdapter.capabilities, record);
+    expect(stateOf(proven, 'pre-deny:shell')).toBe('PROVEN');
+    expect(proven.find((x) => x.id === 'pre-deny:shell')!.evidence.source).toBe('committed-evidence');
+    expect(stateOf(proven, 'hook-not-invoked')).toBe('PROVEN');
+    expect(stateOf(proven, 'transport:timeout')).toBe('INCONCLUSIVE'); // a probed-but-unresolved path is never PROVEN
+    // ...while the SAME adapter WITHOUT the evidence stays PARTIAL/UNPROVEN (never PROVEN).
+    const noEvidence = assessCapabilities(copilotSdkAdapter.capabilities);
+    expect(stateOf(noEvidence, 'pre-deny:shell')).toBe('UNPROVEN'); // sdk declares empty preDeny
+    expect(noEvidence.some((x) => x.state === 'PROVEN')).toBe(false);
+  });
+
+  it('a binding mismatch (version/platform/model/mode/config) yields no evidence, so no PROVEN', () => {
+    const record = RETAINED_EVIDENCE.find((r) => r.binding.runtime_id === 'github-copilot-sdk-hosted')!;
+    const match: EvidenceMatchKey = { ...record.binding };
+    expect(matchRetainedEvidence(match)).toBe(record); // exact binding matches
+    // Any single load-bearing field differing breaks the match — PROVEN cannot survive it.
+    for (const over of [
+      { runtime_version: 'copilot-runtime@1.0.86' },
+      { platform: 'linux-x64' },
+      { model: 'gpt-6' },
+      { execution_mode: 'interactive' as const },
+      { hook_config_hash: 'deadbeef' },
+      { runtime_version: null },
+    ]) {
+      expect(matchRetainedEvidence({ ...match, ...over }), JSON.stringify(over)).toBeNull();
+    }
   });
 
   it('a conservative adapter that declares no preDeny reports UNPROVEN, never PROVEN', () => {
@@ -81,14 +125,15 @@ describe('capability derivation is honest (#599)', () => {
     expect(stateOf(a, 'transport:timeout')).toBe('UNPROVEN');
   });
 
-  it('a lifecycle-only end-of-turn is PARTIAL, and post-observe reflects the declaration', () => {
+  it('a lifecycle-only end-of-turn is PARTIAL, and a declared post-observe is PARTIAL not PROVEN', () => {
     const copilot = assessCapabilities(copilotAdapter.capabilities);
     expect(stateOf(copilot, 'end-of-turn')).toBe('PARTIAL'); // agentStop is lifecycle-only
     expect(stateOf(copilot, 'post-observe')).toBe('UNSUPPORTED');
 
     const codex = assessCapabilities(codexAdapter.capabilities);
     expect(codexAdapter.capabilities.postObserve.length).toBeGreaterThan(0);
-    expect(stateOf(codex, 'post-observe')).toBe('PROVEN');
+    // A declared postObserve is a contract-boundary fact, not a live proof → PARTIAL, never PROVEN.
+    expect(stateOf(codex, 'post-observe')).toBe('PARTIAL');
 
     // Claude has no per-tool post-observe; it says so, so it is UNSUPPORTED not UNPROVEN.
     expect(stateOf(assessCapabilities(claudeAdapter.capabilities), 'post-observe')).toBe('UNSUPPORTED');
@@ -125,8 +170,18 @@ describe('in-loop aggregation cannot launder a fail-open (#599)', () => {
     expect(aggregateInLoop(a)).not.toBe('FULL');
   });
 
-  it('no proven pre-deny and no proven end-of-turn aggregates to NONE', () => {
-    expect(aggregateInLoop(assessCapabilities(copilotAdapter.capabilities))).toBe('NONE');
+  it('a runtime with no declared or proven steering surface aggregates to NONE', () => {
+    // A genuinely bare runtime (no preDeny, no end-of-turn) is protected by the neutral layers only.
+    const bare: RuntimeCapabilities = { preDeny: [], postObserve: [], endOfTurn: false, unsupported: [] };
+    expect(aggregateInLoop(assessCapabilities(bare))).toBe('NONE');
+  });
+
+  it('a declared-but-unproven steering surface aggregates to PARTIAL, not FULL and not NONE', () => {
+    // Copilot CLI declares a (lifecycle-only) end-of-turn but no proven pre-deny → PARTIAL,
+    // matching the issue's own UX example. Claude declares a full preDeny surface, unproven live
+    // → also PARTIAL. Neither is FULL (nothing is PROVEN without evidence), neither is NONE.
+    expect(aggregateInLoop(assessCapabilities(copilotAdapter.capabilities))).toBe('PARTIAL');
+    expect(aggregateInLoop(assessCapabilities(claudeAdapter.capabilities))).toBe('PARTIAL');
   });
 
   it('final authority is a constant, independent of the runtime hook', () => {
@@ -227,6 +282,12 @@ describe('runtime CLI end-to-end (#599)', () => {
     expect(validator()(doc)).toBe(true);
     expect(doc).toMatchObject({ command: 'runtime', subcommand: 'verify', final_authority: 'AVAILABLE', recorded: true });
     expect(doc.runtime.version).toBe('9.9.9');
+    // Through the real CLI, with no retained probe for this runtime, NOTHING is PROVEN: a static
+    // preDeny declaration grades PARTIAL. This is the maintainer's fix, enforced end-to-end.
+    expect(doc.capabilities.some((c: { state: string }) => c.state === 'PROVEN')).toBe(false);
+    const shell = doc.capabilities.find((c: { id: string }) => c.id === 'pre-deny:shell');
+    expect(shell.state).toBe('PARTIAL');
+    expect(shell.evidence.source).toBe('adapter-declaration');
     // No percentage / numeric score anywhere in the rendered surface.
     expect(raw).not.toMatch(/%/);
     expect(run(cwd, ['runtime', 'verify', '--runtime', 'claude-code'], { TAMPERWARD_RUNTIME_VERSION: '9.9.9' })).not.toMatch(/%/);

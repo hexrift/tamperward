@@ -10,19 +10,24 @@
   `denial-reason-delivery`, `continue-after-denial`, `transport:{missing-executable,non-zero,
   timeout,malformed,empty}`, `hook-not-invoked` and `detached/quiescence`, each with one
   explicit state — `PROVEN` / `PARTIAL` / `UNPROVEN` / `UNSUPPORTED` / `FAIL-OPEN` /
-  `INCONCLUSIVE`, never a percentage score. Each state is derived **only** from the shipped
-  adapter's declared capabilities (#482) and committed evidence, and cites its evidence source;
-  an unproven capability reports `UNPROVEN`, never a fabricated `PROVEN`, and a declared
-  fail-open is surfaced verbatim as `FAIL-OPEN` (so `In-loop protection` can never aggregate to
-  `FULL`). `Final authority` is a constant `AVAILABLE`: CI / pristine `verify` is independent of
-  the runtime hook, so a weak in-loop capability never weakens adjudication. The qualification is
+  `INCONCLUSIVE`, never a percentage score. **`PROVEN` is gated on retained real-runtime probe
+  evidence** (`src/adapters/evidence.ts`, transcribed from the committed captures under
+  `harness/adapters/**/evidence/`) that matches the **full binding** — runtime name + exact
+  version, hook-config hash, execution mode, platform, model and tested set. A static adapter
+  declaration (contract/mock/`preDeny` membership) can **never** promote a live capability to
+  `PROVEN`: it grades at most `PARTIAL` (declared at the boundary, unproven live), and an absent
+  capability grades `UNPROVEN`/`UNSUPPORTED`. A binding mismatch strips a `PROVEN` back to
+  `PARTIAL`; a probed-but-unresolved path is `INCONCLUSIVE`; a fail-open — declared or observed —
+  is surfaced verbatim as `FAIL-OPEN` (so `In-loop protection` can never aggregate to `FULL`).
+  `Final authority` is a constant `AVAILABLE`: CI / pristine `verify` is independent of the
+  runtime hook, so a weak in-loop capability never weakens adjudication. The qualification is
   bound to the runtime version, TamperWard version/commit, adapter capability hash, hook-config
   hash, execution mode, platform, model, tested capability set, timestamp and a deterministic
   evidence id, and persisted git-locally. `tamperward runtime status` renders the latest recorded
   qualification without rerunning it and marks it **STALE** when any load-bearing input changes.
-  Machine output is published as `schemas/runtime-qualification-v1.schema.json`. This is a
-  reporting surface over existing facts — no runtime is promoted and no Round 4.1 eligibility
-  claim is made.
+  Machine output is published as `schemas/runtime-qualification-v1.schema.json`. Grading consults
+  committed captures only — no live credentialed probe runs here (those are gated, #611/#616),
+  no runtime is promoted, and no Round 4.1 eligibility claim is made.
 
 ## [2.34.0] — 2026-09-23
 

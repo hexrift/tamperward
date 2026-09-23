@@ -1,9 +1,11 @@
 // `tamperward runtime verify` / `tamperward runtime status` (#599).
 //
 // An HONEST, version-bound, operation-specific runtime capability report. It reports what is
-// PROVEN / UNPROVEN / UNSUPPORTED / FAIL-OPEN on THIS runtime/version/config today, derived
-// only from the shipped adapter's declared capabilities (src/adapters/contract.ts, #482) and
-// committed evidence — never a fabricated claim, never a promotion, never a Round 4.1 verdict.
+// PROVEN / UNPROVEN / UNSUPPORTED / FAIL-OPEN on THIS runtime/version/config today. `PROVEN` is
+// gated on RETAINED real-runtime probe evidence (src/adapters/evidence.ts) matching the full
+// binding; the shipped adapter's declared capabilities (src/adapters/contract.ts, #482) can only
+// grade PARTIAL/UNPROVEN on their own — never a fabricated PROVEN, never a promotion, never a
+// Round 4.1 verdict.
 //
 //  - `verify` computes the qualification, binds it to the interpretability inputs (runtime
 //    version, TamperWard version/commit, adapter capability hash, hook config hash, execution
@@ -12,9 +14,11 @@
 //  - `status` renders the latest stored qualification WITHOUT rerunning it, and marks it STALE
 //    when any load-bearing input has changed since it was recorded.
 //
-// This surface derives states from EXISTING facts. It does not run a live in-process
-// conformance probe (a deeper real-runtime probe lives in `npm run probe:*` / `spike:*`), and
-// a mock can never move a live capability to PROVEN — the states mirror, and cite, the adapter.
+// This surface consults EXISTING retained evidence. It does not run a live credentialed probe
+// here (those are gated, #611/#616, and live in `npm run probe:*` / `spike:*`); it grades against
+// the committed, sanitized probe captures those runs retained. A mock or adapter declaration can
+// never move a live capability to PROVEN — only a retained real-runtime observation matching the
+// binding can, and where none exists the capability is honestly PARTIAL/UNPROVEN.
 
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -28,6 +32,7 @@ import { paint, severityColour, BOLD, DIM, type Severity } from './render/status
 import { adapterFor, canonicalRuntimeId, labelFor } from '../adapters/registry';
 import { detectRuntimes } from '../runtimes';
 import { RuntimeAdapter } from '../adapters/contract';
+import { matchRetainedEvidence, type EvidenceMatchKey } from '../adapters/evidence';
 import {
   assessCapabilities,
   aggregateInLoop,
@@ -80,7 +85,7 @@ export interface RuntimeQualificationReport {
 }
 
 const HONESTY_NOTE =
-  'States are derived from the shipped adapter’s declared capabilities and committed evidence, not a live in-process probe. A declaration is not a live proof; UNPROVEN/UNSUPPORTED are reported wherever nothing proves the capability. This reports existing facts only — no promotion, no Round 4.1 eligibility claim.';
+  'PROVEN is reserved for a capability a retained real-runtime probe observed holding under THIS exact runtime/version/config binding; a declaration alone grades PARTIAL (declared at the contract boundary, unproven live) and an absent capability UNPROVEN/UNSUPPORTED. No live in-process probe runs here — grading is against committed, sanitized real-runtime evidence, and absent a matching record nothing is PROVEN. This reports existing facts only — no promotion, no Round 4.1 eligibility claim.';
 
 /** The git-local qualification store (never committed; sits beside the audit ledger). */
 function storePath(cwd: string): string | null {
@@ -177,19 +182,35 @@ function buildQualification(
   cwd: string,
 ): { binding: QualificationBinding; assessments: CapabilityAssessment[] } {
   const canonical = adapter.name;
-  const assessments = assessCapabilities(adapter.capabilities);
   const capHash = capabilityHash(adapter.capabilities);
   const mode: ExecutionMode = opts.mode ?? 'headless';
   const version = resolveRuntimeVersion(canonical);
+  const platform = `${process.platform}-${process.arch}`;
+  const model = opts.model ?? null;
+  const hookConfigHash = resolveHookConfigHash(canonical, cwd);
+  // Grade against RETAINED real-runtime probe evidence, and ONLY when it matches this exact
+  // binding (runtime/version/model/platform/mode/config). No match → no evidence → nothing is
+  // promoted to PROVEN; the static declaration grades PARTIAL/UNPROVEN. This is what gates
+  // PROVEN on real evidence rather than a contract/adapter declaration (#599).
+  const matchKey: EvidenceMatchKey = {
+    runtime_id: canonical,
+    runtime_version: version,
+    model,
+    platform,
+    execution_mode: mode,
+    hook_config_hash: hookConfigHash,
+  };
+  const evidence = matchRetainedEvidence(matchKey);
+  const assessments = assessCapabilities(adapter.capabilities, evidence);
   const testedRaw = assessments.map((a) => a.id);
   const base: Omit<QualificationBinding, 'timestamp' | 'evidence_id'> = {
     runtime: { id: canonical, label: labelFor(canonical), version },
     tamperward: { version: TW_VERSION, commit: headSha(cwd) },
     adapter: { name: canonical, capability_hash: capHash },
-    hook_config_hash: resolveHookConfigHash(canonical, cwd),
+    hook_config_hash: hookConfigHash,
     execution_mode: mode,
-    platform: `${process.platform}-${process.arch}`,
-    model: opts.model ?? null,
+    platform,
+    model,
     tested_capabilities: testedRaw,
   };
   const eid = evidenceId(base, assessments);
