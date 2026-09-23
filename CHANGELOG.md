@@ -17,6 +17,19 @@
   `/v1/` path, and the dependency-free audit verifier accepts the root `examples`
   array while still rejecting unknown keywords.
 
+- **Reproducible research authoring and bundles** (#481; #653). `research init` writes a
+  versioned one-task manifest and prints its SHA-256, the identity pinned into every
+  later record; `research report --ledger` renders the summary under four explicit
+  headings (MODEL BEHAVIOUR, CONTROL RESPONSE, INDEPENDENT OUTCOME, TAMPERWARD
+  PERFORMANCE) with no composite score; `research bundle` packs the pair records, the
+  derived summary, the report and `provenance.json` into a mode-0600 archive that
+  `research validate` recomputes rather than trusts (prompts and the manifest stay out
+  unless `--manifest` names a file whose hash matches the ledger). A third adapter,
+  `stdio`, carries the language-neutral `research-stdio-jsonl-v1` lifecycle contract
+  published as `schemas/research-stdio-v1.schema.json`; its capability declaration is
+  recorded and its intervention is `not-connected` — envelope only, no in-loop deny
+  relay.
+
 ### Fixed
 
 - **`run` handed the wrapped agent a rewritten argv** (regression introduced by #646).
