@@ -257,6 +257,71 @@ The `--json` form is the stable consumer contract — see
 [Machine output](./machine-output.md#status-json). Consumers read the enumerated
 state; they never reconstruct security posture by scraping `doctor` / `verify` prose.
 
+## Runtime qualification: `runtime verify`, `runtime status`
+
+Turn the binary "runtime detected" label into a **version-bound, operation-specific
+capability model**. `runtime verify` reports what is *proven on this runtime/version/config*
+today; `runtime status` renders the latest recorded qualification without rerunning it and
+marks it **STALE** when a load-bearing input has changed.
+
+```bash
+tamperward runtime verify                       # qualify the detected in-loop runtime
+tamperward runtime verify --runtime claude-code --json
+tamperward runtime status                        # render the latest qualification (no rerun)
+```
+
+| flag | meaning |
+| --- | --- |
+| `--runtime <id>` | Adapter to qualify (`claude-code`, `codex`, `github-copilot-cli`, `github-copilot-sdk-hosted`; aliases `claude`, `copilot`, `copilot-sdk`). Defaults to the detected in-loop runtime, else `claude-code`. |
+| `--mode headless\|interactive` | Execution mode the qualification is bound to (default `headless`). |
+| `--model <id>` | Model/config relevant to tool routing, recorded in the binding. |
+| `--json` | Emit the `runtime-qualification` document (`schemas/runtime-qualification-v1.schema.json`). |
+| `--cwd <dir>` | Repository directory. |
+
+### The capability model
+
+Each capability carries **one explicit state** — never a percentage score:
+
+| state | meaning |
+| --- | --- |
+| `PROVEN` | A **retained real-runtime probe** observed this capability holding under the reported binding (evidence source `committed-evidence`). A static adapter declaration alone **never** earns `PROVEN`. |
+| `PARTIAL` | Declared/guaranteed at the adapter/contract boundary, but **no retained real-runtime probe** proves it holds live for this runtime/version/config. A full static `preDeny` declaration lands here. |
+| `UNPROVEN` | No evidence either way — the conservative default. **Never read as "unsupported-safe".** |
+| `UNSUPPORTED` | The adapter declares it does not provide this capability. |
+| `FAIL-OPEN` | A declared failure mode lets the operation proceed. Surfaced verbatim; can never count toward FULL support. |
+| `INCONCLUSIVE` | Evidence exists but does not resolve the state. |
+
+Capabilities reported: `pre-deny:{shell,native-edit,delete,rename,git-mutation,mcp}`,
+`post-observe`, `end-of-turn`, `denial-reason-delivery`, `continue-after-denial`,
+`transport:{missing-executable,non-zero,timeout,malformed,empty}`, `hook-not-invoked`,
+`detached/quiescence`. Every state cites its evidence source (`adapter-declaration`,
+`adapter-unsupported`, `contract`, `committed-evidence`, `not-declared`), so a negative or
+fail-open result is preserved, never hidden.
+
+`In-loop protection` aggregates to `FULL` **only** when every required capability is `PROVEN`
+with no `FAIL-OPEN`/`INCONCLUSIVE`; otherwise `PARTIAL` or `NONE`. `Final authority`
+(CI / pristine `verify`) is a constant **AVAILABLE**: it is independent of the runtime hook,
+so a weak in-loop capability never weakens adjudication. Steering and authority stay separate.
+
+`PROVEN` is gated on retained real-runtime evidence matching the **full binding** (runtime name
++ exact version, hook-config hash, execution mode, platform, model, tested set); a mismatch on
+any of those strips a capability back to its declaration's `PARTIAL`. The retained captures live
+under `harness/adapters/**/evidence/` (see `src/adapters/evidence.ts`); absent a matching record,
+a capability is honestly `PARTIAL`/`UNPROVEN` — **never** a fabricated `PROVEN`. This surface
+grades against those committed captures rather than running a live credentialed probe here (those
+are gated, #611/#616, under `npm run probe:*` / `spike:*`); it promotes no runtime and makes no
+Round 4.1 eligibility claim.
+
+### Binding and staleness
+
+A qualification is bound to the inputs that make it interpretable: runtime name + exact
+version, TamperWard version/commit, adapter capability hash, hook-config hash, execution mode,
+platform, model, tested capability set, timestamp and a deterministic evidence id. The record
+is stored git-locally (`.git/tamperward/runtime-qualification.json`, uncommitted). If any
+load-bearing input changes — a new runtime version, an edited hook config, a changed adapter,
+a different platform or execution mode — `runtime status` reports the previous qualification as
+**STALE** and points at `tamperward runtime verify`.
+
 ## Observation & audit: `watch`, `stats`
 
 ### `watch`

@@ -42,7 +42,7 @@ import {
 
 const ROOT = resolve(__dirname, '..');
 const dirs: string[] = [];
-const SCHEMA_NAMES = ['check', 'verify', 'run', 'doctor', 'research', 'audit', 'stats', 'status'] as const;
+const SCHEMA_NAMES = ['check', 'verify', 'run', 'doctor', 'research', 'audit', 'stats', 'status', 'runtime-qualification'] as const;
 type SchemaName = typeof SCHEMA_NAMES[number];
 type NpmPackEntry = { filename: string; files?: Array<{ path: string }> };
 

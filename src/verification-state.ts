@@ -222,7 +222,7 @@ function surfacePaths(base: string, cwd: string, policy: Policy): string[] {
  *  recognises all these sources); parsing what the runtime steers on binds the
  *  wiring that actually intervenes. Managed settings are not read from a system
  *  path in this hot recompute (a documented follow-up). */
-function interventionWiring(cwd: string): unknown {
+export function interventionWiring(cwd: string): unknown {
   const dir = claudeConfigDir();
   const sources: Array<[string, string]> = [
     ['repo', join(cwd, '.claude', 'settings.json')],

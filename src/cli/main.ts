@@ -16,6 +16,7 @@ import { runEnvelope, parseRun } from './run';
 import { runWatch } from './watch';
 import { runOnboard, OnboardOpts } from './onboard';
 import { runResearchCommand, RESEARCH_SUBCOMMANDS } from './research';
+import { runRuntime, parseRuntime, RUNTIME_SUBCOMMANDS } from './runtime';
 import { runStats, type StatsOpts } from './audit';
 import { runSignoffLabel, SignoffLabelOpts } from './signoff-label';
 
@@ -133,7 +134,7 @@ function parseCheck(args: string[]): CheckOpts {
   return o;
 }
 
-type ValueRule = 'string' | 'positive' | 'positive-integer' | 'non-negative' | 'format';
+type ValueRule = 'string' | 'positive' | 'positive-integer' | 'non-negative' | 'format' | 'mode';
 
 function splitLongOptionEquals(args: string[]): string[] {
   const out: string[] = [];
@@ -231,6 +232,12 @@ function validateFlatArgs(args: string[], grammar: CliGrammar): ValidatedArgs {
       } else if (rule === 'format' && !isFormat(v)) {
         return {
           error: `--format needs one of ${FORMATS.join(' | ')} (got "${v}")`,
+          seen,
+          positionals,
+        };
+      } else if (rule === 'mode' && v !== 'headless' && v !== 'interactive') {
+        return {
+          error: `${a} needs one of headless | interactive (got "${v}")`,
           seen,
           positionals,
         };
@@ -407,6 +414,20 @@ export function validateCliArgs(cmd: string, args: string[]): string | undefined
     return validateFlatArgs(args, {
       values: { '--dir': 'string', '--log': 'string', '--base': 'string' },
     }).error;
+  }
+
+  if (cmd === 'runtime') {
+    const [sub, ...rest] = args;
+    if (sub === undefined) return `runtime requires a subcommand (${RUNTIME_SUBCOMMANDS.join(' | ')})`;
+    if (sub !== 'verify' && sub !== 'status') {
+      return `unknown runtime subcommand "${sub}" (${RUNTIME_SUBCOMMANDS.join(' | ')})`;
+    }
+    const parsed = validateFlatArgs(rest, {
+      flags: ['--json'],
+      values: { '--cwd': 'string', '--runtime': 'string', '--mode': 'mode', '--model': 'string' },
+    });
+    if (parsed.error) return parsed.error;
+    return undefined;
   }
 
   if (cmd === 'research') {
@@ -620,6 +641,26 @@ Formats:
                                             emits the versioned status document for
                                             editors, CI and dashboards. Local CURRENT
                                             is posture, never repository/CI authority.
+  tamperward runtime verify [--runtime ID]  qualify the in-loop runtime: an operation-
+             [--mode headless|interactive]  specific capability matrix (pre-deny:shell,
+             [--model M] [--json] [--cwd D]  native-edit, mcp, end-of-turn, transport:*,
+                                            …) with an explicit state per capability
+                                            (PROVEN | PARTIAL | UNPROVEN | UNSUPPORTED |
+                                            FAIL-OPEN | INCONCLUSIVE; never a score),
+                                            derived from the shipped adapter's declared
+                                            capabilities and committed evidence. Bound to
+                                            the runtime version, TamperWard version/commit,
+                                            adapter hash, hook-config hash, execution mode,
+                                            platform and model; persisted git-locally.
+                                            Reports EXISTING facts only — no promotion, no
+                                            Round 4.1 claim. Final authority (CI / pristine
+                                            verify) stays separate from in-loop steering.
+  tamperward runtime status [--runtime ID]  render the latest recorded qualification
+             [--mode headless|interactive]  WITHOUT rerunning it, and mark it STALE when a
+             [--model M] [--json] [--cwd D]  load-bearing input (version/config/adapter/mode/
+                                            model/…) changed since it was recorded. --mode and
+                                            --model select the binding staleness is compared
+                                            against, as for verify.
   tamperward doctor [--base R]              report installation + authority posture
              [--workflow F] [--cwd D]       and validate the CI verifier's outer-time
              [--json]                       envelope against the trusted policy.
@@ -689,6 +730,10 @@ export function main(argv: string[]): number | Promise<number> {
       return runTraceVerify(parseTraceVerify(rest));
     case 'research':
       return runResearchCommand(rest);
+    case 'runtime': {
+      const { sub, opts } = parseRuntime(rest);
+      return runRuntime(sub, opts);
+    }
     case 'run':
       return runEnvelope({
         ...parseRun(rest),
