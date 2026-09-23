@@ -118,6 +118,33 @@ function writeReceipt(_cwd: string, r: unknown): string {
   return p;
 }
 
+function headSha(cwd: string): string {
+  return execFileSync('git', ['rev-parse', '--verify', 'HEAD^{commit}'], { cwd, encoding: 'utf8' }).trim();
+}
+
+/** A genuine `tamperward verify --json` document shape (verify-v1): the fields a
+ *  `--ci-result` file must carry to be accepted as CI's own adjudication (#601
+ *  finding 4). `base` defaults to the current HEAD so it matches the base CI
+ *  recomputes for the default `--base HEAD` reconcile in these tests. */
+function ciVerifyDoc(cwd: string, verdict: string, base = headSha(cwd)): Record<string, unknown> {
+  const failing = verdict !== 'VERIFIED';
+  return {
+    schema_version: 1,
+    verdict,
+    base,
+    command: VERIFY_ARGS.cmd,
+    budget_secs: VERIFY_ARGS.budget,
+    visible: { exit: failing ? 1 : 0, secs: 0 },
+    pristine: { exit: failing ? 1 : 0, secs: 0 },
+  };
+}
+
+function writeCiResult(doc: unknown): string {
+  const p = tmpFile('ci-verify.json');
+  writeFileSync(p, JSON.stringify(doc));
+  return p;
+}
+
 function ajv(): Ajv2020 {
   return new Ajv2020({ allErrors: true, strict: true });
 }
@@ -287,14 +314,31 @@ describe('CI reconciliation reruns canonical checks, then reconciles (#601)', ()
   it('a missing receipt → NO_CLAIM; absence is not an enforcement failure', () => {
     const cwd = repo();
     // No stored receipt, none provided. Use --ci-result so no verify writes one.
-    const ciResult = tmpFile('ci-verify.json');
-    writeFileSync(ciResult, JSON.stringify({ schema_version: 1, verdict: 'VERIFIED' }));
+    const ciResult = writeCiResult(ciVerifyDoc(cwd, 'VERIFIED'));
     const { code, out } = capture(() => runReceiptReconcile({ cwd, ...VERIFY_ARGS, ciResult, json: true }));
     const doc = JSON.parse(out);
     expect(doc.local.disposition).toBe('ABSENT');
     expect(doc.reconciliation.agreement).toBe('NO_CLAIM');
     expect(doc.result).toBe('VERIFIED');
     expect(code).toBe(0); // CI verified; no receipt does not fail the build
+  }, 40_000);
+
+  it('finding 1: a real verify then reconcile in the SAME checkout without --receipt → NO_CLAIM', () => {
+    // This is exactly the shape of the generated CI workflow: verify runs first
+    // (and writes `.git/tamperward/verification-receipt.json` on VERIFIED), then
+    // reconcile runs. With no --receipt transported, reconcile must NOT pick up
+    // the receipt verify just wrote and manufacture a LOCAL claim / AGREE — the
+    // store fallback is gone, so the claim is ABSENT → NO_CLAIM.
+    const cwd = repo();
+    expect(verify(cwd)).toBe(0);
+    expect(existsSync(receiptPath(cwd)!)).toBe(true); // verify DID write a store receipt
+    const ciResult = writeCiResult(ciVerifyDoc(cwd, 'VERIFIED'));
+    const { code, out } = capture(() => runReceiptReconcile({ cwd, ...VERIFY_ARGS, ciResult, json: true }));
+    const doc = JSON.parse(out);
+    expect(doc.local.disposition).toBe('ABSENT'); // NOT PRESENT — the store is not read
+    expect(doc.reconciliation.agreement).toBe('NO_CLAIM');
+    expect(doc.result).toBe('VERIFIED');
+    expect(code).toBe(0);
   }, 40_000);
 });
 
@@ -373,8 +417,7 @@ describe('machine-readable reconciliation & --ci-result transport (#601)', () =>
     const binding = computeBinding(cwd, inputsFor(cwd));
     const rc = writeReceipt(cwd, craftReceipt(binding));
     // CI verify result provided as a file; suite is NOT rerun here.
-    const ciResult = tmpFile('ci-verify.json');
-    writeFileSync(ciResult, JSON.stringify({ schema_version: 1, verdict: 'VERIFIED' }));
+    const ciResult = writeCiResult(ciVerifyDoc(cwd, 'VERIFIED'));
     const { code, out } = capture(() =>
       runReceiptReconcile({ cwd, ...VERIFY_ARGS, receipt: rc, ciResult, json: true }),
     );
@@ -390,8 +433,7 @@ describe('machine-readable reconciliation & --ci-result transport (#601)', () =>
     const cwd = repo();
     const binding = computeBinding(cwd, inputsFor(cwd));
     const rc = writeReceipt(cwd, craftReceipt(binding));
-    const ciResult = tmpFile('ci-verify.json');
-    writeFileSync(ciResult, JSON.stringify({ schema_version: 1, verdict: 'SUITE_RED' }));
+    const ciResult = writeCiResult(ciVerifyDoc(cwd, 'SUITE_RED'));
     const { code, out } = capture(() =>
       runReceiptReconcile({ cwd, ...VERIFY_ARGS, receipt: rc, ciResult, json: true }),
     );
@@ -412,4 +454,166 @@ describe('machine-readable reconciliation & --ci-result transport (#601)', () =>
     expect(doc.result).toBe('CANNOT_VERIFY');
     expect(code).toBe(2);
   });
+
+  it('finding 4: a receipt-v1 file passed as --ci-result → CANNOT_VERIFY (a receipt is not a verify result)', () => {
+    const cwd = repo();
+    verify(cwd);
+    // The receipt carries verdict:"VERIFIED" but none of verify-v1's shape (no
+    // top-level base commit, no visible/pristine stage objects), so it can never
+    // stand in as CI's own adjudication — exit 2, never a pass.
+    const asCiResult = writeCiResult(storedReceipt(cwd));
+    const { code, out } = capture(() => runReceiptReconcile({ cwd, ...VERIFY_ARGS, ciResult: asCiResult, json: true }));
+    const doc = JSON.parse(out);
+    expect(doc.ci.verdict).toBe('CANNOT_VERIFY');
+    expect(doc.result).toBe('CANNOT_VERIFY');
+    expect(code).toBe(2);
+  }, 40_000);
+
+  it('finding 4: a verify-v1 doc whose base differs from CI\'s computed base → CANNOT_VERIFY', () => {
+    const cwd = repo();
+    // Well-shaped verify-v1 document, VERIFIED, but bound to a foreign base commit
+    // that is not the base CI recomputes → not CI's own adjudication.
+    const ciResult = writeCiResult(ciVerifyDoc(cwd, 'VERIFIED', 'f'.repeat(40)));
+    const { code, out } = capture(() => runReceiptReconcile({ cwd, ...VERIFY_ARGS, ciResult, json: true }));
+    const doc = JSON.parse(out);
+    expect(doc.ci.verdict).toBe('CANNOT_VERIFY');
+    expect(doc.result).toBe('CANNOT_VERIFY');
+    expect(code).toBe(2);
+  }, 40_000);
+});
+
+describe('candidate identity vs environment inputs (#601 finding 2)', () => {
+  const fullBinding = (over: Partial<VerificationBinding> = {}): VerificationBinding => ({
+    tree: 't', head: 'h', base: 'b', policy: 'p', verifier: 'v', surface: 's',
+    intervention: 'i', dependencies: 'd', ...over,
+  });
+
+  it('an env-only divergence (intervention/dependencies) still AGREEs, noted informational', () => {
+    // A genuine branch-tip receipt whose ONLY differences from CI are the
+    // machine-local inputs — a developer who runs Claude Code (intervention) and
+    // has a populated local dependency env — must still AGREE in CI, with those
+    // differences reported as informational rather than making it non-applicable.
+    const receipt = craftReceipt(fullBinding({ intervention: 'dev-hooks', dependencies: 'dev-node-modules' }));
+    const ci = { verdict: 'VERIFIED' as const, binding: fullBinding({ intervention: 'runner', dependencies: 'runner-node-modules' }) };
+    const r = reconcile(ci, classifyReceipt(receipt));
+    expect(r.agreement).toBe('AGREE');
+    expect(r.applicable).toBe(true);
+    expect(r.result).toBe('VERIFIED');
+    expect(r.environment_divergence.sort()).toEqual(['dependencies', 'intervention']);
+    expect(r.divergence.join('\n')).toContain('informational');
+  });
+
+  it('a candidate-identity divergence (tree) is NON_APPLICABLE, not swallowed as informational', () => {
+    const receipt = craftReceipt(fullBinding());
+    const ci = { verdict: 'VERIFIED' as const, binding: fullBinding({ tree: 'DIFFERENT' }) };
+    const r = reconcile(ci, classifyReceipt(receipt));
+    expect(r.agreement).toBe('NON_APPLICABLE');
+    expect(r.mismatched_input).toBe('tree');
+    expect(r.applicable).toBe(false);
+    expect(r.result).toBe('VERIFIED'); // still CI's own verdict
+  });
+
+  it('each candidate-identity input drives NON_APPLICABLE; each environment input stays informational', () => {
+    for (const input of ['tree', 'head', 'base', 'policy', 'verifier', 'surface'] as const) {
+      const r = reconcile(
+        { verdict: 'VERIFIED', binding: fullBinding({ [input]: 'X' }) },
+        classifyReceipt(craftReceipt(fullBinding())),
+      );
+      expect(r.agreement).toBe('NON_APPLICABLE');
+      expect(r.mismatched_input).toBe(input);
+    }
+    for (const input of ['intervention', 'dependencies'] as const) {
+      const r = reconcile(
+        { verdict: 'VERIFIED', binding: fullBinding({ [input]: 'X' }) },
+        classifyReceipt(craftReceipt(fullBinding())),
+      );
+      expect(r.agreement).toBe('AGREE');
+      expect(r.mismatched_input).toBeUndefined();
+      expect(r.environment_divergence).toEqual([input]);
+    }
+  });
+});
+
+describe('the stored receipt never outlives the #600 record (#601 finding 3)', () => {
+  /** A repo whose suite passes iff the env var TW_RED is unset — a "flaky" suite
+   *  that can go red on the SAME tree without any file change. */
+  function flakyRepo(): { cwd: string; opts: Partial<VerifyOpts> } {
+    const cwd = mkdtempSync(join(tmpdir(), 'tw-receipt-flaky-'));
+    dirs.push(cwd);
+    initGit(cwd);
+    writeFileSync(join(cwd, 'src.js'), 'module.exports = 1;\n');
+    mkdirSync(join(cwd, 'test'), { recursive: true });
+    // A suite that passes iff TW_RED is unset — it can go red on the SAME tree
+    // with no file change, so the record's binding still matches the live state.
+    writeFileSync(join(cwd, 'test', 'flaky.test.js'), "if (process.env.TW_RED) { console.error('red'); process.exit(1); }\n");
+    execFileSync('git', ['add', '-A'], { cwd });
+    execFileSync('git', ['commit', '-qm', 'base'], { cwd });
+    return { cwd, opts: { base: 'HEAD', cmd: 'node test/flaky.test.js', budget: 4 } };
+  }
+
+  it('a red run on the SAME tree removes both the record and the receipt', () => {
+    const { cwd, opts } = flakyRepo();
+    // Green: records verification and stores a receipt.
+    expect(capture(() => runVerify({ cwd, ...opts, silent: true })).code).toBe(0);
+    expect(existsSync(receiptPath(cwd)!)).toBe(true);
+    expect(readVerificationRecord(cwd)).not.toBeNull();
+
+    // Red on the SAME tree (no file changed, same verifier): the record is
+    // invalidated AND the receipt is removed, so neither can vouch for a state
+    // that is no longer verified.
+    process.env.TW_RED = '1';
+    try {
+      expect(capture(() => runVerify({ cwd, ...opts, silent: true })).code).toBe(1);
+    } finally {
+      delete process.env.TW_RED;
+    }
+    expect(readVerificationRecord(cwd)).toBeNull();
+    expect(existsSync(receiptPath(cwd)!)).toBe(false); // receipt did not outlive the record
+  }, 40_000);
+});
+
+describe('reconcile stage/receipt-file hygiene (#601 finding 5)', () => {
+  it('finding 5a: a VERIFIED receipt whose stage says FAIL is MALFORMED, not rendered green', () => {
+    // Build a receipt that is internally consistent (correct digest) but claims a
+    // FAIL pristine stage under a VERIFIED verdict — a shape the emitter never
+    // writes. It must be rejected as MALFORMED, never shown with a green ✓.
+    const binding: VerificationBinding = {
+      tree: 't', head: 'h', base: 'b', policy: 'p', verifier: 'v', surface: 's', intervention: 'i', dependencies: 'd',
+    };
+    const core = {
+      schema_version: 1 as const,
+      verdict: 'VERIFIED' as const,
+      binding,
+      stages: { candidate: 'PASS' as const, pristine: 'FAIL' as const, integrity: 'CLEAN' as const },
+    };
+    const receipt = { ...core, tw_version: 'test', verified_at: '2026-01-01T00:00:00.000Z', evidence_digest: receiptEvidenceDigest(core) };
+    const claimed = classifyReceipt(receipt);
+    expect(claimed.disposition).toBe('MALFORMED');
+    if (claimed.disposition === 'MALFORMED') expect(claimed.detail).toContain('not a clean pass');
+  });
+
+  it('finding 5b: an unreadable --receipt is reported as a read failure, not an unknown schema', () => {
+    const cwd = repo();
+    verify(cwd);
+    const ciResult = writeCiResult(ciVerifyDoc(cwd, 'VERIFIED'));
+    const { out } = capture(() =>
+      runReceiptReconcile({ cwd, ...VERIFY_ARGS, receipt: join(cwd, 'does-not-exist.json'), ciResult, json: true }),
+    );
+    const doc = JSON.parse(out);
+    expect(doc.local.disposition).toBe('MALFORMED');
+    expect(String(doc.local.detail)).toMatch(/could not be read/);
+    expect(String(doc.local.detail)).not.toMatch(/schema_version/);
+  }, 40_000);
+
+  it('finding 5c: receipt export has no JSON envelope — the machine output is the receipt-v1 file itself', () => {
+    const cwd = repo();
+    verify(cwd);
+    // export to stdout emits the receipt document directly (no wrapper), valid
+    // against the published receipt-v1 schema.
+    const { code, out } = capture(() => runReceiptExport({ cwd }));
+    expect(code).toBe(0);
+    const doc = JSON.parse(out);
+    expect(doc.verdict).toBe('VERIFIED');
+    expect(validateReceiptDoc(doc)).toEqual([]);
+  }, 40_000);
 });

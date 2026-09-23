@@ -17,25 +17,48 @@
   or logs.
   - `tamperward receipt export [--out F]` writes the receipt for the CURRENT
     verified state (the explicit transport handoff); it refuses when the state is
-    not CURRENT.
+    not CURRENT. The exported machine output IS the `receipt-v1` document (to
+    `--out`, or stdout when no path is given) — there is no separate `--json`
+    envelope.
   - `tamperward receipt reconcile` reruns the canonical TamperWard verification
     FIRST, then reconciles a claimed receipt against CI's own adjudication. It
     prints a summary separating the LOCAL claim, the CI result and their
     agreement/divergence, writes a GitHub job summary, and emits a
-    machine-readable reconciliation document (`--json`). `--ci-result` consumes a
-    preceding `verify --json` so the suite runs once; `--receipt` names the
-    claimed receipt (absent → NO_CLAIM, never a failure by itself).
+    machine-readable reconciliation document (`--json`). A local claim is
+    **explicit**: the receipt is read only from `--receipt`, never from the local
+    `.git/tamperward/` store (that store holds the receipt CI's own preceding
+    `verify` step just wrote, so a fallback would manufacture agreement). Absent
+    `--receipt` → NO_CLAIM, never a failure by itself; unreadable/unparseable →
+    MALFORMED with a read/parse reason. `--ci-result` consumes a preceding
+    `verify --json` so the suite runs once, and must be a genuine `verify --json`
+    document (`schema_version: 1`, a resolved `base` commit, `visible`/`pristine`
+    stage objects) whose `base` matches the base CI computed — anything else,
+    including a receipt file, is CANNOT_VERIFY (exit 2), so a receipt can never
+    stand in as CI's verdict.
+  - **Cross-machine reconciliation.** The binding splits into a **candidate
+    identity** reproducible on any machine — `tree`, `head`, `base`, `policy`,
+    `verifier`, `surface` — which is authoritative for applicability, versus the
+    **machine-local environment inputs** `intervention` and `dependencies`, which
+    are reported as INFORMATIONAL divergence (`reconciliation.environment_divergence`)
+    and never, on their own, make a receipt non-applicable. The generated CI
+    workflow computes CI's candidate identity from `pull_request.head.sha` (the
+    branch tip a developer verifies), not the PR merge ref, so a genuine receipt's
+    `head`/`tree` line up.
   - **A receipt is evidence, never authority.** The reconciled `result` is CI's
     own verdict, recomputed from trusted inputs: a stale, mismatched
     (candidate/tree/policy/verifier/… identity differs), malformed, tampered
-    (`evidence_digest` inconsistent), missing or unknown-schema receipt is
-    NON_APPLICABLE or NO_CLAIM and can NEVER promote or strengthen a CI result. A
-    local-green / CI-red case reports DIVERGENCE and stays failed.
+    (`evidence_digest` inconsistent, or a VERIFIED verdict with a non-clean stage),
+    missing or unknown-schema receipt is NON_APPLICABLE or NO_CLAIM and can NEVER
+    promote or strengthen a CI result. A local-green / CI-red case reports
+    DIVERGENCE and stays failed. When a red run on the same tree invalidates the
+    #600 record, the stored receipt is removed with it, so it can never outlive
+    the state it vouches for.
   - New published Draft 2020-12 schemas `schemas/receipt-v1.schema.json` and
     `schemas/reconcile-v1.schema.json`, with closed vocabularies single-sourced to
     the emitter constants.
   - The generated CI workflow (`tamperward init`) now runs the receipt
-    reconciliation as an evidence step after its own pristine `verify`, writing the
+    reconciliation as an evidence step after its own pristine `verify` (which
+    remains the enforcement authority over the merge result), writing the
     LOCAL/CI/agreement job summary. Set `TAMPERWARD_RECEIPT` (e.g. from a
     download-artifact step) to reconcile a transported receipt; with none it reports
     NO_CLAIM and CI's verdict stands.

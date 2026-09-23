@@ -281,11 +281,48 @@ tamperward receipt reconcile --base main --json    # CI: rerun verify, then reco
 
 `receipt export` writes the receipt for the **CURRENT** verified state (it refuses
 when the state is not `CURRENT`, so it never vouches for a state that is not still
-verified). Raw evidence otherwise stays under `.git/tamperward/`, never in the
+verified). The exported machine output **is** the `receipt-v1` document — written
+to `--out`, or to stdout when no path is given; there is no separate `--json`
+envelope. Raw evidence otherwise stays under `.git/tamperward/`, never in the
 tracked tree — transport it explicitly.
 
-`receipt reconcile` reruns verification **first**, then reconciles a claimed
-receipt against CI's own adjudication and prints three sections:
+### What matches across machines, and what does not
+
+A receipt is produced on one machine (a developer's checkout) and reconciled on
+another (a CI runner). The binding splits into two parts:
+
+- the **candidate identity** — `tree`, `head`, `base`, `policy`, `verifier`,
+  `surface` — is reproducible from the same commit and the same trusted base on
+  any machine. It is **authoritative for applicability**: if any of these differs
+  from the identity CI recomputes, the receipt describes another state and is
+  `NON_APPLICABLE`.
+- the **environment inputs** — `intervention` (the local agent-hook wiring, e.g.
+  `~/.claude/settings.json`) and `dependencies` (the local backend's discovered
+  dependency environment) — are irreducibly machine-local and are **expected** to
+  differ between a developer and a runner. They are reported as **informational**
+  divergence (`reconciliation.environment_divergence`) and never, on their own,
+  make a receipt non-applicable.
+
+So a genuine receipt applies in CI when its candidate identity matches. To produce
+one CI can apply:
+
+```bash
+# On the branch tip you are proposing (the commit the PR's head points at):
+tamperward verify --base "$PR_BASE"          # reach VERIFIED, recording the state
+tamperward receipt export --out receipt.json  # bounded receipt for that exact tip
+# Upload receipt.json as a build artifact; the reconcile step reads it via
+# TAMPERWARD_RECEIPT / --receipt against a `pull_request.head.sha` checkout.
+```
+
+The generated CI workflow computes CI's candidate identity from
+`pull_request.head.sha` (the branch tip), **not** the PR merge ref, so `head` and
+`tree` line up with a receipt bound to that tip. (The enforcement `verify` step
+still runs over the merge result — the receipt only reports agreement; it never
+changes CI's verdict or exit code.)
+
+`receipt reconcile` reruns verification **first** (or consumes a preceding
+`verify --json` via `--ci-result`), then reconciles a claimed receipt against CI's
+own adjudication and prints three sections:
 
 ```text
 LOCAL
@@ -309,8 +346,8 @@ RESULT
 
 | flag | meaning |
 | --- | --- |
-| `--receipt <file>` | The claimed local receipt. Absent → `NO_CLAIM` (never a failure by itself). |
-| `--ci-result <file>` | Consume a preceding `verify --json` document so the suite runs once, instead of rerunning verify. |
+| `--receipt <file>` | The claimed local receipt. A local claim must be **explicit**: the receipt is read only from this flag, never from the local `.git/tamperward/` store (in CI that store holds the receipt this job's own `verify` just wrote). Absent → `NO_CLAIM` (never a failure by itself); unreadable/unparseable → `MALFORMED` (ignored as evidence). |
+| `--ci-result <file>` | Consume a preceding `verify --json` document so the suite runs once, instead of rerunning verify. The file must be a genuine `verify --json` document (`schema_version: 1`, a resolved `base` commit, `visible`/`pristine` stage objects) whose `base` matches the base CI computed — anything else (including a receipt) is `CANNOT_VERIFY`, exit 2. |
 | `--base <rev>` / `--cmd <c>` / `--budget <s>` / `--require-ancestor` | As for `verify` — how CI recomputes its own verdict and identity. |
 | `--json` | Emit the versioned reconciliation document; see [Machine output](./machine-output.md#other-json-surfaces). |
 | `--cwd <dir>` | Repository directory. |

@@ -37,6 +37,8 @@ import {
 } from '../src/machine-output';
 import {
   BINDING_INPUTS,
+  CANDIDATE_IDENTITY_INPUTS,
+  ENVIRONMENT_INPUTS,
   VERIFICATION_STATES,
 } from '../src/verification-state';
 import {
@@ -599,7 +601,11 @@ describe('machine-readable schema v1 (#333)', () => {
     expect(reconcile.properties.ci.properties.verdict.enum).toEqual([...VERIFY_VERDICTS]);
     expect(reconcile.properties.local.properties.disposition.enum).toEqual([...RECEIPT_DISPOSITIONS]);
     expect(reconcile.properties.reconciliation.properties.agreement.enum).toEqual([...RECONCILE_AGREEMENTS]);
-    expect(reconcile.properties.reconciliation.properties.mismatched_input.enum).toEqual([...BINDING_INPUTS]);
+    // Applicability is decided by the reproducible CANDIDATE identity only; the
+    // machine-local environment inputs are reported as informational divergence
+    // and are the ONLY values `environment_divergence` carries (#601 finding 2).
+    expect(reconcile.properties.reconciliation.properties.mismatched_input.enum).toEqual([...CANDIDATE_IDENTITY_INPUTS]);
+    expect(reconcile.properties.reconciliation.properties.environment_divergence.items.enum).toEqual([...ENVIRONMENT_INPUTS]);
     for (const name of SCHEMA_NAMES) {
       expect(schemaFrom(ROOT, name).properties.schema_version).toEqual({ const: MACHINE_SCHEMA_VERSION });
     }

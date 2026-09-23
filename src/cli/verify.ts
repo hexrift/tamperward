@@ -84,7 +84,7 @@ import {
   recordVerification,
   type VerificationInputs,
 } from '../verification-state';
-import { receiptFromRecord, storeReceipt } from '../verification-receipt';
+import { receiptFromRecord, removeStoredReceipt, storeReceipt } from '../verification-receipt';
 import {
   diagnosticLines,
   runCapturedProcessSync,
@@ -1692,7 +1692,12 @@ function runVerifyImpl(opts: VerifyOpts): number {
     // still matches the live state; a record for a different state is left as
     // STALE. Evidence only: a failure here never changes the verdict.
     try {
-      invalidateVerificationRecordIfCurrent(cwd);
+      // Remove the transportable receipt whenever the #600 record it projects is
+      // invalidated (#601 finding 3): otherwise a red run on the same tree would
+      // leave `verification-receipt.json` behind, and it could still be exported
+      // or transported as a claim for a state that is no longer verified. The
+      // receipt is a projection of the record — it must never outlive it.
+      if (invalidateVerificationRecordIfCurrent(cwd)) removeStoredReceipt(cwd);
     } catch {
       // Evidence only. Reconciliation must never change the verification verdict.
     }

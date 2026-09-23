@@ -24,6 +24,7 @@ import {
   computeBinding,
   evaluateVerificationState,
   readVerificationRecord,
+  resolveConcreteCommit,
   type VerificationBinding,
   type VerificationInputs,
 } from '../verification-state';
@@ -32,8 +33,8 @@ import {
   isOneOf,
   reconcile,
   receiptFromRecord,
-  readStoredReceipt,
   type CiAdjudication,
+  type ClaimedReceipt,
   type Reconciliation,
   type VerificationReceipt,
 } from '../verification-receipt';
@@ -47,7 +48,6 @@ export type ReceiptSubcommand = (typeof RECEIPT_SUBCOMMANDS)[number];
 export interface ReceiptExportOpts {
   cwd?: string;
   out?: string;
-  json?: boolean;
 }
 
 export interface ReceiptReconcileOpts {
@@ -84,7 +84,9 @@ export function parseReceipt(args: string[]): {
     const next = (): string | undefined => rest[++i];
     switch (a) {
       case '--json':
-        exportOpts.json = true;
+        // `--json` is a reconcile-only flag. `receipt export`'s machine output IS
+        // the receipt file it writes (a published `receipt-v1` document); it has
+        // no separate JSON envelope (#601 finding 5c).
         reconcileOpts.json = true;
         break;
       case '--require-ancestor':
@@ -189,14 +191,13 @@ export function runReceiptExport(opts: ReceiptExportOpts = {}): number {
       evaluation.state === 'CURRENT'
         ? 'no verification record is available to export'
         : `no CURRENT verification to export (state: ${evaluation.state}) — run \`tamperward verify\` first`;
-    if (opts.json) {
-      process.stdout.write(JSON.stringify(machineOutput({ command: 'receipt-export' as const, exported: false, state: evaluation.state, detail })) + '\n');
-    } else {
-      process.stderr.write(`tamperward: ${detail}\n`);
-    }
+    process.stderr.write(`tamperward: ${detail}\n`);
     return 2;
   }
 
+  // The exported machine output IS the receipt file: a published `receipt-v1`
+  // document written to `--out`, or to stdout when no path is given. There is no
+  // separate JSON envelope (#601 finding 5c).
   const receipt = receiptFromRecord(record);
   const serialized = JSON.stringify(receipt) + '\n';
   if (opts.out) {
@@ -206,10 +207,6 @@ export function runReceiptExport(opts: ReceiptExportOpts = {}): number {
       process.stderr.write(`tamperward: could not write receipt to ${opts.out} (${e instanceof Error ? e.message : String(e)})\n`);
       return 2;
     }
-  }
-  if (opts.json) {
-    process.stdout.write(JSON.stringify(machineOutput({ command: 'receipt-export' as const, exported: true, ...(opts.out ? { path: opts.out } : {}), receipt })) + '\n');
-  } else if (opts.out) {
     process.stdout.write(`receipt: exported VERIFIED receipt for tree ${receipt.binding.tree.slice(0, 10)} to ${opts.out}\n`);
   } else {
     process.stdout.write(serialized);
@@ -246,9 +243,18 @@ function ciAdjudicate(cwd: string, opts: ReceiptReconcileOpts): { ci: CiAdjudica
         exit: 2,
       };
     }
-    const verdict = readCiVerdict(doc);
+    // The `--ci-result` document is the ONE place a file's `verdict` becomes CI's
+    // authority, so it must be a genuine `tamperward verify --json` document, not
+    // any JSON that happens to carry a `verdict` (a receipt-v1 file carries
+    // `verdict: "VERIFIED"` too). Require verify-v1's shape and cross-check its
+    // `base` against the trusted base CI computed; anything else is CANNOT_VERIFY
+    // (#601 finding 4). Fail-closed, never a pass.
+    const check = readCiVerify(doc, binding, cwd, opts);
+    if (check.reason !== undefined) {
+      return { ci: { verdict: 'CANNOT_VERIFY', binding, binding_error: check.reason }, exit: 2 };
+    }
     const signedOff = !!(doc && typeof doc === 'object' && 'oob_signoff' in (doc as Record<string, unknown>));
-    return { ci: { verdict, binding, ...(bindingError ? { binding_error: bindingError } : {}) }, exit: verdictExit(verdict, signedOff) };
+    return { ci: { verdict: check.verdict, binding, ...(bindingError ? { binding_error: bindingError } : {}) }, exit: verdictExit(check.verdict, signedOff) };
   }
 
   // Self-contained: rerun the canonical verification ourselves, FIRST.
@@ -269,16 +275,66 @@ function ciAdjudicate(cwd: string, opts: ReceiptReconcileOpts): { ci: CiAdjudica
   return { ci: { verdict, binding, ...(bindingError ? { binding_error: bindingError } : {}) }, exit };
 }
 
-/** Extract a verify verdict from a `verify --json` document, fail-safe. An
- *  unrecognised shape is CANNOT_VERIFY — never a pass. */
-function readCiVerdict(doc: unknown): VerifyVerdict {
-  if (doc && typeof doc === 'object') {
-    const v = (doc as Record<string, unknown>).verdict;
-    if (isOneOf(VERIFY_VERDICTS, v)) {
-      return v;
+/** A 40- or 64-hex object id, the shape a resolved commit takes. */
+function isCommitId(v: unknown): v is string {
+  return typeof v === 'string' && /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(v);
+}
+
+/**
+ * Validate a `--ci-result` document as a genuine `tamperward verify --json`
+ * document and extract its verdict, or explain why it cannot be trusted (#601
+ * finding 4). This is the one place a file's `verdict` becomes CI's authority, so
+ * it is guarded hard:
+ *   - it must have the verify-v1 SHAPE: `schema_version: 1`, a resolved `base`
+ *     commit id, and `visible` / `pristine` stage objects (a receipt-v1 file has
+ *     `verdict: "VERIFIED"` but none of these, so it is rejected);
+ *   - its `verdict` must be a known verify verdict;
+ *   - its `base` must match the trusted base CI computed — either the merge-base
+ *     the reconcile resolved (`ci.binding.base`) or the concrete base ref CI was
+ *     told to use (the enforcement verify on a PR merge ref records the concrete
+ *     base). A document describing a different base is not CI's own adjudication.
+ * Any failure returns a `reason`; the caller maps that to CANNOT_VERIFY / exit 2.
+ */
+function readCiVerify(
+  doc: unknown,
+  binding: VerificationBinding | null,
+  cwd: string,
+  opts: ReceiptReconcileOpts,
+): { verdict: VerifyVerdict; reason?: string } {
+  if (!doc || typeof doc !== 'object' || Array.isArray(doc)) {
+    return { verdict: 'CANNOT_VERIFY', reason: 'CI verify result is not a JSON object' };
+  }
+  const d = doc as Record<string, unknown>;
+  if (d.schema_version !== 1) {
+    return { verdict: 'CANNOT_VERIFY', reason: `CI verify result is not a verify --json document (schema_version ${JSON.stringify(d.schema_version)})` };
+  }
+  if (!isCommitId(d.base)) {
+    return { verdict: 'CANNOT_VERIFY', reason: 'CI verify result has no resolved base commit — not a verify --json document (a receipt is not a verify result)' };
+  }
+  if (!isRecordObject(d.visible) || !isRecordObject(d.pristine)) {
+    return { verdict: 'CANNOT_VERIFY', reason: 'CI verify result is missing the visible/pristine stage objects — not a verify --json document' };
+  }
+  if (!isOneOf(VERIFY_VERDICTS, d.verdict)) {
+    return { verdict: 'CANNOT_VERIFY', reason: `CI verify result has an unknown verdict ${JSON.stringify(d.verdict)}` };
+  }
+  // Cross-check the document's base against the trusted base CI computed. Skip
+  // only when CI could not compute its own identity at all (already surfaced as a
+  // binding error); the shape checks above still stand in that case.
+  if (binding) {
+    const concrete = resolveConcreteCommit(cwd, opts.base ?? 'HEAD');
+    const accepted = new Set([binding.base, ...(concrete ? [concrete] : [])]);
+    if (!accepted.has(d.base)) {
+      return {
+        verdict: 'CANNOT_VERIFY',
+        reason: `CI verify result binds base ${d.base.slice(0, 10)} but CI computed ${binding.base.slice(0, 10)} — the document describes a different base`,
+      };
     }
   }
-  return 'CANNOT_VERIFY';
+  return { verdict: d.verdict };
+}
+
+function isRecordObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
 export interface ReconcileDocument {
@@ -292,6 +348,7 @@ export interface ReconcileDocument {
     applicable: boolean;
     mismatched_input?: string;
     divergence: string[];
+    environment_divergence: Reconciliation['environment_divergence'];
   };
 }
 
@@ -306,6 +363,7 @@ export function reconcileDocument(r: Reconciliation): ReconcileDocument {
       applicable: r.applicable,
       ...(r.mismatched_input ? { mismatched_input: r.mismatched_input } : {}),
       divergence: r.divergence,
+      environment_divergence: r.environment_divergence,
     },
   });
 }
@@ -327,13 +385,18 @@ export function renderReconcile(
 ): string {
   const tick = (s: string): string => paint(s, severityColour('ok'), colour);
   const cross = (s: string): string => paint(s, BOLD + severityColour('bad'), colour);
+  // The mark is DERIVED from the stage value, never assumed green — a PASS/CLEAN
+  // stage gets ✓, anything else ✗ (#601 finding 5a). classifyReceipt already
+  // rejects a VERIFIED receipt with a non-pass stage as MALFORMED, so a PRESENT
+  // receipt is PASS/PASS/CLEAN; deriving the mark keeps the two in lockstep.
+  const stageMark = (value: string, pass: string): string => (value === pass ? tick('✓') : cross('✗'));
   const lines: string[] = [];
 
   lines.push('LOCAL');
   if (claimedReceipt) {
-    lines.push(`  ${tick('✓')} candidate ${claimedReceipt.binding.tree.slice(0, 10)} locally verified`);
-    lines.push(`  ${tick('✓')} pristine ${claimedReceipt.stages.pristine}`);
-    lines.push(`  ${tick('✓')} integrity ${claimedReceipt.stages.integrity}`);
+    lines.push(`  ${stageMark(claimedReceipt.stages.candidate, 'PASS')} candidate ${claimedReceipt.binding.tree.slice(0, 10)} locally verified`);
+    lines.push(`  ${stageMark(claimedReceipt.stages.pristine, 'PASS')} pristine ${claimedReceipt.stages.pristine}`);
+    lines.push(`  ${stageMark(claimedReceipt.stages.integrity, 'CLEAN')} integrity ${claimedReceipt.stages.integrity}`);
   } else if (r.local.disposition === 'ABSENT') {
     lines.push('  (no receipt provided)');
   } else {
@@ -363,6 +426,29 @@ export function renderReconcile(
   return lines.join('\n') + '\n';
 }
 
+/** The claimed receipt from an explicit `--receipt` path, classified. Absence of
+ *  the flag is ABSENT (→ NO_CLAIM); an unreadable or non-JSON file is a transport
+ *  problem reported as MALFORMED with a read/parse detail (#601 findings 1, 5b).
+ *  Every non-PRESENT disposition fails safe and can never strengthen CI. */
+function loadClaimedReceipt(path: string | undefined): ClaimedReceipt {
+  if (path === undefined) {
+    return { disposition: 'ABSENT', detail: 'no local verification receipt was provided (pass one with --receipt)' };
+  }
+  let raw: string;
+  try {
+    raw = readFileSync(path, 'utf8');
+  } catch (e) {
+    return { disposition: 'MALFORMED', detail: `receipt file could not be read (${e instanceof Error ? e.message : String(e)})` };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (e) {
+    return { disposition: 'MALFORMED', detail: `receipt file could not be parsed as JSON (${e instanceof Error ? e.message : String(e)})` };
+  }
+  return classifyReceipt(parsed);
+}
+
 export function runReceiptReconcile(opts: ReceiptReconcileOpts = {}): number {
   const cwd = opts.cwd ?? process.cwd();
   const guard = needRepo(cwd, 'reconcile');
@@ -370,19 +456,15 @@ export function runReceiptReconcile(opts: ReceiptReconcileOpts = {}): number {
 
   const { ci, exit } = ciAdjudicate(cwd, opts);
 
-  // Load the claimed receipt (from an explicit path, else the local store). This
-  // is the ONLY place the receipt is read, and it can never change `exit`.
-  let claimedValue: unknown;
-  if (opts.receipt !== undefined) {
-    try {
-      claimedValue = JSON.parse(readFileSync(opts.receipt, 'utf8'));
-    } catch {
-      claimedValue = { __unreadable: true }; // → UNKNOWN_SCHEMA (not a valid receipt)
-    }
-  } else {
-    claimedValue = readStoredReceipt(cwd);
-  }
-  const claimed = classifyReceipt(claimedValue);
+  // Load the claimed receipt. A local claim must be EXPLICIT (#601 finding 1):
+  // the receipt is read ONLY from `--receipt`. There is deliberately NO fall-back
+  // to the local `.git/tamperward/` store — in CI that store holds the receipt
+  // this job's own preceding `verify` step just wrote, so reconciling against it
+  // would manufacture a LOCAL claim bound to exactly the state CI adjudicated and
+  // report AGREE on every green run without any transported receipt. With no
+  // `--receipt`, the claim is ABSENT → NO_CLAIM. This is also the ONLY place the
+  // receipt is read, and it can never change `exit`.
+  const claimed = loadClaimedReceipt(opts.receipt);
   const r = reconcile(ci, claimed);
   const claimedReceipt = claimed.disposition === 'PRESENT' ? claimed.receipt : null;
 
@@ -405,11 +487,12 @@ function writeJobSummary(r: Reconciliation, receipt: VerificationReceipt | null,
   const path = process.env.GITHUB_STEP_SUMMARY;
   if (!path) return;
   const md: string[] = ['## TamperWard receipt reconciliation', ''];
+  const mark = (value: string, pass: string): string => (value === pass ? '✓' : '✗');
   md.push('### LOCAL');
   if (receipt) {
-    md.push(`- candidate \`${receipt.binding.tree.slice(0, 10)}\` locally verified`);
-    md.push(`- pristine ${receipt.stages.pristine}`);
-    md.push(`- integrity ${receipt.stages.integrity}`);
+    md.push(`- ${mark(receipt.stages.candidate, 'PASS')} candidate \`${receipt.binding.tree.slice(0, 10)}\` locally verified`);
+    md.push(`- ${mark(receipt.stages.pristine, 'PASS')} pristine ${receipt.stages.pristine}`);
+    md.push(`- ${mark(receipt.stages.integrity, 'CLEAN')} integrity ${receipt.stages.integrity}`);
   } else if (r.local.disposition === 'ABSENT') {
     md.push('- _no receipt provided_');
   } else {

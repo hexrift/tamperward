@@ -285,21 +285,36 @@ jobs:
       # THAT result and writes a job summary separating the local claim, the CI
       # result and their agreement/divergence. A stale/mismatched/tampered/missing/
       # unknown-schema receipt can NEVER promote a CI result — the reconciled
-      # verdict is CI's own, recomputed from trusted inputs. Set TAMPERWARD_RECEIPT
-      # (e.g. from a download-artifact step) to a receipt exported by
-      # \`tamperward receipt export\`; with none, reconciliation reports NO_CLAIM and
-      # CI's verdict stands. \`if: always()\` re-asserts CI's verdict even when the
-      # verify step above already failed.
+      # verdict is CI's own (consumed from the verify --json above), recomputed from
+      # trusted inputs. Set TAMPERWARD_RECEIPT (e.g. from a download-artifact step)
+      # to a receipt exported by \`tamperward receipt export\` on the BRANCH TIP;
+      # with none, reconciliation reports NO_CLAIM and CI's verdict stands.
+      # \`if: always()\` re-asserts CI's verdict even when the verify step failed.
+      #
+      # The reconcile computes CI's candidate identity from pull_request.head.sha —
+      # the branch tip a developer verifies — NOT this job's merge-ref HEAD, so a
+      # genuine receipt's \`head\`/\`tree\` line up (a receipt binds the branch tip;
+      # the merge ref is a synthetic commit that no receipt can match). A linked
+      # worktree reuses this checkout's object store (base, head and the merge
+      # commit are all present from fetch-depth: 0), so merge-base resolves without
+      # a second fetch. reconcile with --ci-result runs NO candidate code here — it
+      # only computes identity (git/filesystem reads) and consumes the verdict the
+      # verify step already produced. The enforcement authority remains the verify
+      # step, which runs over the MERGE result as before.
       - name: Tamperward receipt reconciliation (evidence)
         if: always()
         shell: bash
         run: |
           set -euo pipefail
-          args=(receipt reconcile --require-ancestor --base "\${{ github.event.pull_request.base.sha }}" --ci-result "\$RUNNER_TEMP/tw-verify.json")
+          HEAD_TREE="\$RUNNER_TEMP/tw-head"
+          rm -rf "\$HEAD_TREE"
+          git worktree add --detach "\$HEAD_TREE" "\${{ github.event.pull_request.head.sha }}"
+          args=(receipt reconcile --require-ancestor --cwd "\$HEAD_TREE" --base "\${{ github.event.pull_request.base.sha }}" --ci-result "\$RUNNER_TEMP/tw-verify.json")
           if [ -n "\${TAMPERWARD_RECEIPT:-}" ] && [ -f "\${TAMPERWARD_RECEIPT:-}" ]; then
             args+=(--receipt "\$TAMPERWARD_RECEIPT")
           fi
           tamperward "\${args[@]}"
+          git worktree remove --force "\$HEAD_TREE" || true
 `;
 
 // Provenance mark for the generated workflow. A file init wrote and NOBODY has

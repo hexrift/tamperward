@@ -511,7 +511,6 @@ export function validateCliArgs(cmd: string, args: string[]): string | undefined
     if (sub === undefined) return `receipt requires a subcommand (${RECEIPT_SUBCOMMANDS.join(' | ')})`;
     if (sub === 'export') {
       return validateFlatArgs(rest, {
-        flags: ['--json'],
         values: { '--out': 'string', '--cwd': 'string' },
       }).error;
     }

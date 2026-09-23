@@ -3,7 +3,14 @@
   "$id": "https://raw.githubusercontent.com/hexrift/tamperward/v1/schemas/reconcile-v1.schema.json",
   "title": "TamperWard receipt reconciliation v1",
   "type": "object",
-  "required": ["schema_version", "command", "result", "ci", "local", "reconciliation"],
+  "required": [
+    "schema_version",
+    "command",
+    "result",
+    "ci",
+    "local",
+    "reconciliation"
+  ],
   "properties": {
     "schema_version": {
       "const": 1
@@ -12,7 +19,7 @@
       "const": "reconcile"
     },
     "result": {
-      "description": "The reconciled verdict. This is ALWAYS CI's own verdict, recomputed from trusted inputs — no receipt state (stale, mismatched, tampered, missing or unknown-schema) can change it. A receipt can never promote or strengthen a CI result.",
+      "description": "The reconciled verdict. This is ALWAYS CI's own verdict, recomputed from trusted inputs \u2014 no receipt state (stale, mismatched, tampered, missing or unknown-schema) can change it. A receipt can never promote or strengthen a CI result.",
       "enum": [
         "VERIFIED",
         "MASKED_FAILURE",
@@ -23,7 +30,9 @@
     },
     "ci": {
       "type": "object",
-      "required": ["verdict"],
+      "required": [
+        "verdict"
+      ],
       "properties": {
         "verdict": {
           "enum": [
@@ -39,40 +48,76 @@
     },
     "local": {
       "type": "object",
-      "required": ["disposition"],
+      "required": [
+        "disposition"
+      ],
       "properties": {
         "disposition": {
-          "enum": ["PRESENT", "ABSENT", "MALFORMED", "UNKNOWN_SCHEMA"]
+          "enum": [
+            "PRESENT",
+            "ABSENT",
+            "MALFORMED",
+            "UNKNOWN_SCHEMA"
+          ]
         },
-        "verdict": { "const": "VERIFIED" },
-        "verified_at": { "type": "string" },
-        "detail": { "type": "string" }
+        "verdict": {
+          "const": "VERIFIED"
+        },
+        "verified_at": {
+          "type": "string"
+        },
+        "detail": {
+          "type": "string"
+        }
       },
       "additionalProperties": true
     },
     "reconciliation": {
       "type": "object",
-      "required": ["agreement", "applicable", "divergence"],
+      "required": [
+        "agreement",
+        "applicable",
+        "divergence",
+        "environment_divergence"
+      ],
       "properties": {
         "agreement": {
-          "enum": ["AGREE", "DIVERGENCE", "NON_APPLICABLE", "NO_CLAIM"]
+          "enum": [
+            "AGREE",
+            "DIVERGENCE",
+            "NON_APPLICABLE",
+            "NO_CLAIM"
+          ]
         },
-        "applicable": { "type": "boolean" },
+        "applicable": {
+          "type": "boolean"
+        },
         "mismatched_input": {
+          "description": "For a NON_APPLICABLE claim, the first CANDIDATE-IDENTITY input that diverged from the identity CI computed. Only the reproducible, cross-machine candidate identity decides applicability; the machine-local environment inputs are never reported here.",
           "enum": [
             "tree",
             "head",
             "base",
             "policy",
             "verifier",
-            "surface",
-            "intervention",
-            "dependencies"
+            "surface"
           ]
         },
         "divergence": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
+        },
+        "environment_divergence": {
+          "description": "Machine-local environment inputs that differ between the receipt and CI's identity. INFORMATIONAL only: they are expected to differ across machines and never make a receipt non-applicable or change `result`.",
+          "type": "array",
+          "items": {
+            "enum": [
+              "intervention",
+              "dependencies"
+            ]
+          }
         }
       },
       "additionalProperties": true
@@ -85,42 +130,82 @@
       "schema_version": 1,
       "command": "reconcile",
       "result": "VERIFIED",
-      "ci": { "verdict": "VERIFIED" },
-      "local": { "disposition": "PRESENT", "verdict": "VERIFIED", "verified_at": "2026-09-23T12:00:00.000Z" },
-      "reconciliation": { "agreement": "AGREE", "applicable": true, "divergence": [] }
+      "ci": {
+        "verdict": "VERIFIED"
+      },
+      "local": {
+        "disposition": "PRESENT",
+        "verdict": "VERIFIED",
+        "verified_at": "2026-09-23T12:00:00.000Z"
+      },
+      "reconciliation": {
+        "agreement": "AGREE",
+        "applicable": true,
+        "divergence": [],
+        "environment_divergence": []
+      }
     },
     {
       "schema_version": 1,
       "command": "reconcile",
       "result": "MASKED_FAILURE",
-      "ci": { "verdict": "MASKED_FAILURE" },
-      "local": { "disposition": "PRESENT", "verdict": "VERIFIED", "verified_at": "2026-09-23T12:00:00.000Z" },
+      "ci": {
+        "verdict": "MASKED_FAILURE"
+      },
+      "local": {
+        "disposition": "PRESENT",
+        "verdict": "VERIFIED",
+        "verified_at": "2026-09-23T12:00:00.000Z"
+      },
       "reconciliation": {
         "agreement": "DIVERGENCE",
         "applicable": true,
-        "divergence": ["local claim VERIFIED, CI MASKED_FAILURE", "local pristine: PASS / CI pristine: FAIL"]
+        "divergence": [
+          "local claim VERIFIED, CI MASKED_FAILURE",
+          "local pristine: PASS / CI pristine: FAIL"
+        ],
+        "environment_divergence": []
       }
     },
     {
       "schema_version": 1,
       "command": "reconcile",
       "result": "SUITE_RED",
-      "ci": { "verdict": "SUITE_RED" },
-      "local": { "disposition": "PRESENT", "verdict": "VERIFIED", "verified_at": "2026-09-23T12:00:00.000Z" },
+      "ci": {
+        "verdict": "SUITE_RED"
+      },
+      "local": {
+        "disposition": "PRESENT",
+        "verdict": "VERIFIED",
+        "verified_at": "2026-09-23T12:00:00.000Z"
+      },
       "reconciliation": {
         "agreement": "NON_APPLICABLE",
         "applicable": false,
         "mismatched_input": "tree",
-        "divergence": ["receipt binds a different `tree` than CI computed — the receipt describes another state"]
+        "divergence": [
+          "receipt binds a different `tree` than CI computed \u2014 the receipt describes another state"
+        ],
+        "environment_divergence": []
       }
     },
     {
       "schema_version": 1,
       "command": "reconcile",
       "result": "VERIFIED",
-      "ci": { "verdict": "VERIFIED" },
-      "local": { "disposition": "ABSENT", "detail": "no local verification receipt was provided" },
-      "reconciliation": { "agreement": "NO_CLAIM", "applicable": false, "divergence": [] }
+      "ci": {
+        "verdict": "VERIFIED"
+      },
+      "local": {
+        "disposition": "ABSENT",
+        "detail": "no local verification receipt was provided"
+      },
+      "reconciliation": {
+        "agreement": "NO_CLAIM",
+        "applicable": false,
+        "divergence": [],
+        "environment_divergence": []
+      }
     }
   ]
 }

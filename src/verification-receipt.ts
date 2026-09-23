@@ -24,13 +24,16 @@
 // schemas ship under.
 
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { repoContext } from './repo-context';
 import {
   BINDING_INPUTS,
-  firstBindingMismatch,
-  type BindingInput,
+  environmentInputDivergences,
+  firstCandidateIdentityMismatch,
+  STALE_REASON,
+  type CandidateIdentityInput,
+  type EnvironmentInput,
   type VerificationBinding,
   type VerificationRecord,
 } from './verification-state';
@@ -159,20 +162,17 @@ export function storeReceipt(cwd: string, receipt: VerificationReceipt): boolean
   }
 }
 
-/** The stored local receipt, or null when absent/unreadable (fail safe). */
-export function readStoredReceipt(cwd: string): unknown {
+/** Remove the stored local receipt. Called wherever the #600 record it projects
+ *  is invalidated/removed, so a stale receipt never outlives the record and can
+ *  never be transported as a claim for a state that is no longer verified (#601
+ *  finding 3). Best-effort evidence: a delete failure never changes a verdict. */
+export function removeStoredReceipt(cwd: string): void {
   const path = receiptPath(cwd);
-  if (!path) return null;
-  let raw: string;
+  if (!path) return;
   try {
-    raw = readFileSync(path, 'utf8');
+    rmSync(path, { force: true });
   } catch {
-    return null;
-  }
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return null;
+    /* evidence only */
   }
 }
 
@@ -241,6 +241,16 @@ export function classifyReceipt(value: unknown): ClaimedReceipt {
   if (!isStages(value.stages)) {
     return { disposition: 'MALFORMED', detail: 'receipt stages are incomplete or malformed' };
   }
+  // A VERIFIED receipt whose stages report anything but a clean pass is
+  // self-contradictory: the emitter only ever writes PASS/PASS/CLEAN for VERIFIED,
+  // so a FAIL/CHANGED stage under a VERIFIED verdict is a forged or corrupt receipt.
+  // Reject as MALFORMED rather than render a green ✓ over a FAIL (#601 finding 5a).
+  if (value.stages.candidate !== 'PASS' || value.stages.pristine !== 'PASS' || value.stages.integrity !== 'CLEAN') {
+    return {
+      disposition: 'MALFORMED',
+      detail: 'receipt verdict is VERIFIED but a stage result is not a clean pass',
+    };
+  }
   if (typeof value.evidence_digest !== 'string') {
     return { disposition: 'MALFORMED', detail: 'receipt evidence_digest is missing' };
   }
@@ -306,11 +316,17 @@ export interface Reconciliation {
     detail?: string;
   };
   ci: { verdict: VerifyVerdict };
-  /** For a NON_APPLICABLE claim whose binding differs, the first load-bearing
-   *  input that diverged from CI's identity. */
-  mismatched_input?: BindingInput;
+  /** For a NON_APPLICABLE claim whose CANDIDATE IDENTITY differs, the first
+   *  candidate-identity input that diverged from CI's identity. The machine-local
+   *  environment inputs are never reported here — they are informational. */
+  mismatched_input?: CandidateIdentityInput;
   /** Human-readable divergence notes (never authoritative). */
   divergence: string[];
+  /** Machine-local environment inputs (`intervention`, `dependencies`) that
+   *  differ between the receipt and CI's identity. INFORMATIONAL only: they are
+   *  expected to differ across machines and never make a receipt non-applicable
+   *  or change `result` (#601 finding 2). */
+  environment_divergence: EnvironmentInput[];
 }
 
 /**
@@ -330,6 +346,7 @@ export function reconcile(ci: CiAdjudication, claimed: ClaimedReceipt): Reconcil
     local: { disposition: claimed.disposition },
     ci: { verdict: ci.verdict },
     divergence: [],
+    environment_divergence: [],
   };
 
   if (claimed.disposition !== 'PRESENT') {
@@ -358,7 +375,15 @@ export function reconcile(ci: CiAdjudication, claimed: ClaimedReceipt): Reconcil
     return base;
   }
 
-  const mismatch = firstBindingMismatch(receipt.binding, ci.binding);
+  // Cross-machine applicability is decided by the CANDIDATE IDENTITY only
+  // (`tree`, `head`, `base`, `policy`, `verifier`, `surface`) — the subset that is
+  // reproducible on any machine from the same commit and trusted base. The
+  // machine-local environment inputs (`intervention`, `dependencies`) are recorded
+  // as informational divergence and never make the receipt non-applicable (#601
+  // finding 2).
+  base.environment_divergence = environmentInputDivergences(receipt.binding, ci.binding);
+
+  const mismatch = firstCandidateIdentityMismatch(receipt.binding, ci.binding);
   if (mismatch) {
     // The receipt describes a DIFFERENT candidate state than CI adjudicated.
     // Non-applicable, not "close enough": stale tree, policy/verifier drift, a
@@ -369,7 +394,12 @@ export function reconcile(ci: CiAdjudication, claimed: ClaimedReceipt): Reconcil
     return base;
   }
 
-  // The receipt binds the exact state CI adjudicated.
+  // The receipt's candidate identity binds the exact state CI adjudicated. Note
+  // any environment-input divergence for the reader; it does not affect the
+  // agreement, which is governed by candidate identity + CI's verdict.
+  for (const env of base.environment_divergence) {
+    base.divergence.push(`informational: ${STALE_REASON[env]} (machine-local; not load-bearing for cross-machine applicability)`);
+  }
   base.applicable = true;
   if (ci.verdict === 'VERIFIED') {
     base.agreement = 'AGREE';
