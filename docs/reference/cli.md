@@ -181,6 +181,82 @@ tamperward doctor --github --repo owner/repo --branch main
 Postures: `READY`, `READY WITH WARNINGS`, `INCOMPLETE`, `BROKEN`. Set `GH_TOKEN` /
 `GITHUB_TOKEN` when GitHub requires authentication.
 
+## Verification posture: `status`
+
+One continuous answer to the question no exit code alone answers: **is the exact
+candidate state I am looking at still the state that was independently verified?**
+`status` reports three **distinct lanes**, never collapsed into one number:
+
+- **Authority** — repository/final-adjudication posture (the same posture `doctor`
+  derives): `ACTIVE` / `PARTIAL` / `BROKEN` / `UNKNOWN`.
+- **Intervention** — runtime steering capability, i.e. whether the in-loop
+  PreToolUse hook is wired: `ACTIVE` / `PARTIAL` / `INACTIVE` / `UNKNOWN`.
+- **Verification** — whether the last successful `verify` still applies to the
+  exact current state, as a first-class state machine.
+
+```bash
+tamperward status
+tamperward status --json
+```
+
+```text
+TamperWard
+
+Authority     ACTIVE
+Intervention  PARTIAL
+Verification  CURRENT
+
+Verified tree  8ef12c1...
+Base           HEAD@8ef12c1a...
+Verifier       npm test
+Runtime        claude-code
+```
+
+After a change, the state names *why* it is no longer current:
+
+```text
+Verification  STALE
+
+Reason  candidate tree changed since verification
+```
+
+**Verification states:**
+
+| state | meaning |
+| --- | --- |
+| `CURRENT` | Every load-bearing input still matches the last successful verification. |
+| `STALE` | A load-bearing input changed since that verification; `changed_input` names the first one. |
+| `VERIFYING` | A verification is in progress (a live process holds the marker). |
+| `BROKEN` | The recorded authority wiring can no longer be evaluated (e.g. an invalid policy). |
+| `UNVERIFIED` | No applicable successful verification exists. |
+
+`CURRENT` is bound to stable fingerprints of the inputs that actually matter: the
+candidate worktree (`tree`), HEAD (`head`), the trusted base commit (`base`), the
+TamperWard policy (`policy`), the verifier contract — command, budget, inputs and
+backend (`verifier`), the protected verification surface at the base (`surface`),
+the local runtime steering wiring (`intervention`), and the dependency environment
+(`dependencies`) — the attested dependency fingerprint `verify` refuses
+`DEPENDENCY_DRIFT` against, or the digest-pinned image for a container backend, so
+an `npm install` of a different version with an unchanged tree is caught. A mere
+exit-0 never keeps `CURRENT`: change any bound input and the state becomes `STALE`.
+A later `verify` of the same state that does not reach `VERIFIED` (a flaky red
+suite, a masked failure) invalidates the record, so `status` reports `UNVERIFIED`
+rather than a stale `CURRENT`.
+
+State is persisted under `.git/tamperward/` — a **non-candidate authority**, never
+the tracked, candidate-writable tree — and bound to hashes rather than mutable path
+names. A malformed or missing record fails safe to `UNVERIFIED`, never `CURRENT`.
+Local `CURRENT` is **posture/evidence, not repository or CI merge authority**.
+
+| flag | meaning |
+| --- | --- |
+| `--json` | Emit the versioned `status` document (for editors, CI job summaries and dashboards). |
+| `--cwd <dir>` | Repository directory. |
+
+The `--json` form is the stable consumer contract — see
+[Machine output](./machine-output.md#status-json). Consumers read the enumerated
+state; they never reconstruct security posture by scraping `doctor` / `verify` prose.
+
 ## Observation & audit: `watch`, `stats`
 
 ### `watch`
