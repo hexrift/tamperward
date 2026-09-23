@@ -75,7 +75,7 @@ overwrites anything you wrote, and `--dry-run` shows the plan first:
 | item | what it wires |
 | --- | --- |
 | agent loop | Claude Code `PreToolUse` deny + `Stop` sweep, merged into `.claude/settings.json` |
-| pre-commit | husky when present, the plain git hook otherwise |
+| pre-commit | husky, lefthook, pre-commit, simple-git-hooks or `core.hooksPath` when present; the plain git hook otherwise |
 | CI | a PR-gate workflow with three gate stages: `doctor --github`, `check --diff` over the PR range, cleared only by an out-of-band `tw1:<digest>` label generated with `tamperward signoff-label` (legacy full-SHA labels remain accepted), and `verify --require-ancestor` — pristine re-execution of your suite against the base, whose masked-failure verdict can use a token generated for `verify`. The verify step **needs a `verify:` block in `.tamperward.yml`** naming the suite command; without one it fails closed (exit 2) rather than passing quietly |
 | CODEOWNERS | an owner requirement on the workflow directory, the policy file and CODEOWNERS itself — the paths that decide whether the gate runs at all |
 | policy | a commented baseline `.tamperward.yml` — the defaults apply even without it |
@@ -284,7 +284,7 @@ before the wrapped command.
 | `allow` | `<rule>` · `--file <path>` · `--reason "<why>"` (required) · `--cwd <dir>` |
 | `init` | `--cwd <dir>` · `--dry-run` · `--force-workflow` |
 | `onboard` | `--cwd <dir>` · `--base <rev>` · `--repo <owner/repo>` · `--branch <name>` · `--skip-demo` / `--demo` · `--no-github` · `--yes` · `--verify-command "<suite command>"` |
-| `watch` | `--dir <dir>` · `--log <file>` — a daemon; it runs until signalled |
+| `watch` | `--dir <dir>` · `--log <file>` · `--base <rev>` — a daemon; `--base` freezes policy to a trusted revision and it runs until signalled |
 | `hook-service` | `start [--dir <repo>]` (foreground; runs until signalled) · `stop` · `status` — the opt-in persistent hook service; hooks consult it only under `TAMPERWARD_HOOK_SERVICE=1` and fall back to in-process evaluation otherwise ([enforcement](./enforcement.md#the-persistent-hook-service-opt-in-off-by-default)) |
 | `hook claude` / `sweep claude` | none — the Claude Code payload arrives on stdin |
 
