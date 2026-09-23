@@ -211,7 +211,7 @@ describe('github job summary', () => {
       { findings: [finding({ file, line: 3 })], scanned: 1, ignoredFiles: 0 },
       env,
     );
-    const target = md.match(/\]\(([^)]+)\)/)?.[1];
+    const target = md.match(/\]\((https?:\/\/[^)]*#L3)\)/)?.[1];
     expect(target).toBeTruthy();
     const url = new URL(target!);
     expect(url.search).toBe('');

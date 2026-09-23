@@ -70,11 +70,19 @@ export function mdCode(s: string): string {
   return s.replace(/`/g, "'").replace(/[\r\n]/g, ' ');
 }
 
-/** Percent-encode the characters that would terminate a markdown link target. */
+/** Percent-encode one repository path segment using RFC 3986 semantics. */
+function encodePathSegment(segment: string): string {
+  return encodeURIComponent(segment).replace(/[!'()*]/g, (character) =>
+    '%' + character.charCodeAt(0).toString(16).padStart(2, '0').toUpperCase(),
+  );
+}
+
+/** Percent-encode repository path data while preserving slash separators. */
 export function mdUrl(s: string): string {
   // Encode each repository path segment independently so separators remain
-  // structural while #, ?, %, spaces, parentheses, and Unicode remain data.
-  return s.split('/').map((segment) => encodeURIComponent(segment)).join('/');
+  // structural while reserved delimiters, spaces, parentheses, and Unicode
+  // remain data rather than changing the Markdown link target.
+  return s.split('/').map(encodePathSegment).join('/');
 }
 
 function locationCell(f: Finding, env: NodeJS.ProcessEnv): string {
