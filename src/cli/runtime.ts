@@ -33,6 +33,7 @@ import { adapterFor, canonicalRuntimeId, labelFor } from '../adapters/registry';
 import { detectRuntimes } from '../runtimes';
 import { RuntimeAdapter } from '../adapters/contract';
 import { matchRetainedEvidence, type EvidenceMatchKey } from '../adapters/evidence';
+import { interventionWiring } from '../verification-state';
 import {
   assessCapabilities,
   aggregateInLoop,
@@ -40,8 +41,11 @@ import {
   evidenceId,
   sha16 as sha16Local,
   qualificationStaleness,
+  CAPABILITY_STATES,
+  EVIDENCE_SOURCES,
   FINAL_AUTHORITY,
   RUNTIME_CAPABILITY_IDS,
+  type BindingInputs,
   type CapabilityAssessment,
   type CapabilityState,
   type ExecutionMode,
@@ -113,6 +117,142 @@ function readStore(cwd: string): QualificationStore | null {
   return null;
 }
 
+function isRec(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+const CAP_ID_SET = new Set<string>(RUNTIME_CAPABILITY_IDS);
+
+/**
+ * Validate a stored qualification record before `status` renders it as recorded/trusted. Mirrors
+ * #660's `parseVerificationRecord` fail-safe: `readStore` only asserts `records` is an object, so
+ * a hand-edited `.git/tamperward/runtime-qualification.json` (every capability forced `PROVEN`,
+ * `in_loop_protection: "FULL"`) would otherwise render as recorded and not stale, and a non-array
+ * `capabilities` would throw an internal error (exit 2) in `renderText` instead of failing safe.
+ *
+ * This checks the on-disk shape against the published schema AND recomputes the deterministic
+ * `evidence_id` (over the stored load-bearing binding + states) and the `in_loop_protection`
+ * aggregate (over the stored states) — a record whose recorded values disagree with the
+ * recomputation is rejected. On any rejection the caller reports `recorded: false` with the
+ * reason, never a trusted render. Returns the typed report on success, or a human reason.
+ */
+function asStringOrNull(v: unknown): string | null | undefined {
+  return v === null || typeof v === 'string' ? v : undefined;
+}
+
+function validateStoredReport(value: unknown): { report: RuntimeQualificationReport } | { reason: string } {
+  if (!isRec(value)) return { reason: 'record is not an object' };
+  if (value.schema_version !== 1) return { reason: 'unrecognized schema_version' };
+  if (value.command !== 'runtime') return { reason: 'command is not "runtime"' };
+  const subcommand = value.subcommand;
+  if (subcommand !== 'verify' && subcommand !== 'status') return { reason: 'invalid subcommand' };
+  const recorded = value.recorded;
+  const stale = value.stale;
+  if (typeof recorded !== 'boolean' || typeof stale !== 'boolean') return { reason: 'invalid recorded/stale flags' };
+  const changedInputs = value.changed_inputs;
+  if (!Array.isArray(changedInputs) || !changedInputs.every((s): s is string => typeof s === 'string')) return { reason: 'invalid changed_inputs' };
+
+  const runtime = value.runtime;
+  if (!isRec(runtime)) return { reason: 'invalid runtime binding' };
+  const rId = runtime.id;
+  const rLabel = runtime.label;
+  const rVersion = asStringOrNull(runtime.version);
+  if (typeof rId !== 'string' || !rId || typeof rLabel !== 'string' || !rLabel || rVersion === undefined)
+    return { reason: 'invalid runtime binding' };
+
+  const tw = value.tamperward;
+  if (!isRec(tw)) return { reason: 'invalid tamperward binding' };
+  const twVersion = tw.version;
+  const twCommit = asStringOrNull(tw.commit);
+  if (typeof twVersion !== 'string' || !twVersion || twCommit === undefined) return { reason: 'invalid tamperward binding' };
+
+  const adapter = value.adapter;
+  if (!isRec(adapter)) return { reason: 'invalid adapter binding' };
+  const adName = adapter.name;
+  const adHash = adapter.capability_hash;
+  if (typeof adName !== 'string' || !adName || typeof adHash !== 'string' || !adHash) return { reason: 'invalid adapter binding' };
+
+  const hookConfigHash = asStringOrNull(value.hook_config_hash);
+  if (hookConfigHash === undefined) return { reason: 'invalid hook_config_hash' };
+  const executionMode = value.execution_mode;
+  if (executionMode !== 'headless' && executionMode !== 'interactive') return { reason: 'invalid execution_mode' };
+  const platform = value.platform;
+  if (typeof platform !== 'string' || !platform) return { reason: 'invalid platform' };
+  const model = asStringOrNull(value.model);
+  if (model === undefined) return { reason: 'invalid model' };
+  const testedCapabilities = value.tested_capabilities;
+  if (!Array.isArray(testedCapabilities) || !testedCapabilities.every((c): c is string => typeof c === 'string' && CAP_ID_SET.has(c)))
+    return { reason: 'invalid tested_capabilities' };
+  const timestamp = value.timestamp;
+  if (typeof timestamp !== 'string' || !timestamp) return { reason: 'invalid timestamp' };
+  const storedEvidenceId = value.evidence_id;
+  if (typeof storedEvidenceId !== 'string' || !storedEvidenceId) return { reason: 'invalid evidence_id' };
+
+  if (!Array.isArray(value.capabilities)) return { reason: 'capabilities is not an array' };
+  const capabilities: CapabilityAssessment[] = [];
+  for (const c of value.capabilities) {
+    if (!isRec(c)) return { reason: 'invalid capability entry' };
+    // `.find` narrows to the literal union with no cast: an unknown value simply yields undefined.
+    const id = RUNTIME_CAPABILITY_IDS.find((x) => x === c.id);
+    const state = CAPABILITY_STATES.find((x) => x === c.state);
+    if (!id || !state) return { reason: 'invalid capability entry' };
+    const ev = c.evidence;
+    if (!isRec(ev)) return { reason: 'invalid capability evidence' };
+    const source = EVIDENCE_SOURCES.find((x) => x === ev.source);
+    const detail = ev.detail;
+    if (!source || typeof detail !== 'string') return { reason: 'invalid capability evidence' };
+    capabilities.push({ id, state, evidence: { source, detail } });
+  }
+  const inLoop = value.in_loop_protection;
+  if (inLoop !== 'FULL' && inLoop !== 'PARTIAL' && inLoop !== 'NONE') return { reason: 'invalid in_loop_protection' };
+  if (value.final_authority !== FINAL_AUTHORITY) return { reason: 'invalid final_authority' };
+  const note = value.note;
+  if (typeof note !== 'string') return { reason: 'invalid note' };
+
+  // Recompute the deterministic evidence_id from the stored binding + states, and the aggregate
+  // from the states, and require both to match what was recorded. A tampered record (states edited
+  // to PROVEN, or an in_loop_protection that disagrees with its capabilities) no longer reproduces
+  // its own evidence_id/aggregate and is rejected — fail safe to unrecorded, never trusted.
+  const base: BindingInputs = {
+    runtime: { id: rId, label: rLabel, version: rVersion },
+    tamperward: { version: twVersion, commit: twCommit },
+    adapter: { name: adName, capability_hash: adHash },
+    hook_config_hash: hookConfigHash,
+    execution_mode: executionMode,
+    platform,
+    model,
+    tested_capabilities: testedCapabilities,
+  };
+  const recomputedId = evidenceId(base, capabilities);
+  if (recomputedId !== storedEvidenceId) return { reason: `evidence_id mismatch (recorded ${storedEvidenceId}, recomputed ${recomputedId})` };
+  const recomputedAgg = aggregateInLoop(capabilities);
+  if (inLoop !== recomputedAgg) return { reason: `in_loop_protection mismatch (recorded ${inLoop}, recomputed ${recomputedAgg})` };
+
+  const report: RuntimeQualificationReport = {
+    schema_version: 1,
+    command: 'runtime',
+    subcommand,
+    recorded,
+    stale,
+    changed_inputs: changedInputs,
+    runtime: base.runtime,
+    tamperward: base.tamperward,
+    adapter: base.adapter,
+    hook_config_hash: hookConfigHash,
+    execution_mode: executionMode,
+    platform,
+    model,
+    tested_capabilities: testedCapabilities,
+    timestamp,
+    evidence_id: storedEvidenceId,
+    capabilities,
+    in_loop_protection: inLoop,
+    final_authority: FINAL_AUTHORITY,
+    note,
+  };
+  return { report };
+}
+
 function writeRecord(cwd: string, id: string, report: RuntimeQualificationReport): boolean {
   const path = storePath(cwd);
   if (!path) return false;
@@ -167,12 +307,28 @@ function resolveComponentVersions(_canonicalId: string): string[] {
   return [];
 }
 
-/** Best-effort hash of the runtime's hook configuration, so a config change invalidates the
- *  qualification. Claude Code's is the `hooks` block of `.claude/settings.json`; null when none. */
+/** Best-effort hash of the runtime's hook configuration, so a config change — including the
+ *  switches that turn hooks OFF — invalidates the qualification.
+ *
+ *  For Claude Code this REUSES #660's `interventionWiring` (src/verification-state.ts): the
+ *  EVALUATED wiring — the parsed `hooks` AND `disableAllHooks` canonicalised across every source
+ *  the runtime reads hooks from (the project `.claude/settings.json` and its `.local` override,
+ *  and the user-level file and its `.local` override, `$CLAUDE_CONFIG_DIR` else `~/.claude`). The
+ *  old hash covered only the `hooks` block of the project file, so `disableAllHooks: true`, a
+ *  `.local` override or a user-level change all left it unchanged even though the wiring that
+ *  would intervene had been disabled; sharing `interventionWiring` keeps this staleness surface
+ *  consistent with `status`/verification-state.
+ *
+ *  For the Copilot CLI the adapter wires its hooks in `.github/hooks/tamperward.json` (see
+ *  docs/guide/runtime-adapters.md and `harness/adapters/copilot-probe.mjs`); the previous
+ *  `.github/copilot/hooks.json` path never existed, so the hash was always null and an edited
+ *  Copilot hook config never marked the qualification STALE. */
 function resolveHookConfigHash(canonicalId: string, cwd: string): string | null {
+  if (canonicalId === 'claude-code') {
+    return sha16Local(JSON.stringify(interventionWiring(cwd)));
+  }
   const files: Record<string, string> = {
-    'claude-code': join(cwd, '.claude', 'settings.json'),
-    'github-copilot-cli': join(cwd, '.github', 'copilot', 'hooks.json'),
+    'github-copilot-cli': join(cwd, '.github', 'hooks', 'tamperward.json'),
   };
   const file = files[canonicalId];
   if (!file || !existsSync(file)) return null;
@@ -276,8 +432,11 @@ function reportFrom(
   });
 }
 
-/** Resolve the target adapter from --runtime or auto-detection, defaulting to Claude Code
- *  (the shipped in-loop adapter) when nothing adapter-backed is detected. */
+/** Resolve the target adapter from --runtime or auto-detection. When nothing is detected and no
+ *  `--runtime` was given, REFUSE rather than falling back to Claude Code: the old fallback
+ *  persisted a Claude Code qualification (with `runtime.version: null`, `hook_config_hash: null`)
+ *  in a repository that has no runtime at all, leaving the store holding qualifications for absent
+ *  runtimes. An explicit `--runtime` still qualifies the named runtime (the caller asserts it). */
 function resolveTarget(opts: RuntimeOpts, cwd: string): RuntimeAdapter | { error: string } {
   if (opts.runtime) {
     const a = adapterFor(opts.runtime);
@@ -287,7 +446,7 @@ function resolveTarget(opts: RuntimeOpts, cwd: string): RuntimeAdapter | { error
     const a = adapterFor(rt.id);
     if (a) return a;
   }
-  return adapterFor('claude-code')!;
+  return { error: 'no runtime detected in this repository; pass --runtime <id> to qualify a specific runtime' };
 }
 
 const STATE_SEVERITY: Record<CapabilityState, Severity> = {
@@ -369,8 +528,20 @@ export function runRuntime(sub: string | undefined, opts: RuntimeOpts): number {
     }
     const { binding, assessments } = buildQualification(target, opts, cwd);
     const report = reportFrom('verify', binding, assessments);
-    writeRecord(cwd, target.name, report);
+    const wrote = writeRecord(cwd, target.name, report);
     emit(report, opts, cwd);
+    if (!wrote) {
+      // Persisting the record is what `verify` is FOR (so `status` can render it later). A
+      // read-only `.git`, a failed `mkdir`, or running outside a repository leaves nothing on
+      // disk — report it on stderr and exit non-zero rather than a silent exit 0 that reads as
+      // success while `status` will report UNQUALIFIED with no explanation.
+      const dest = storePath(cwd);
+      process.stderr.write(
+        `tamperward: could not persist the qualification to ${dest ?? 'the git-local store (no repository found)'}; ` +
+          `nothing was recorded, so \`tamperward runtime status\` will report UNQUALIFIED\n`,
+      );
+      return 1;
+    }
     return 0;
   }
 
@@ -381,20 +552,28 @@ export function runRuntime(sub: string | undefined, opts: RuntimeOpts): number {
       return 2;
     }
     const store = readStore(cwd);
-    const stored = store?.records[target.name];
-    if (!stored) {
-      // No stored qualification: report honestly, do not synthesize one.
+    const raw = store?.records[target.name];
+    const validated = raw === undefined ? { reason: 'none recorded' } : validateStoredReport(raw);
+    if ('reason' in validated) {
+      // No stored qualification, OR a stored record that failed shape/evidence_id validation:
+      // report honestly as unrecorded, do not synthesize one and never render an unvalidated
+      // (possibly hand-edited) record as trusted.
       const { binding, assessments } = buildQualification(target, opts, cwd);
+      const note =
+        raw === undefined
+          ? `No qualification recorded for ${binding.runtime.label}. Run: tamperward runtime verify`
+          : `Stored qualification for ${binding.runtime.label} was rejected (${validated.reason}) and treated as unrecorded. Run: tamperward runtime verify`;
       const empty: RuntimeQualificationReport = {
         ...reportFrom('status', binding, assessments),
         recorded: false,
         capabilities: [],
         in_loop_protection: 'NONE',
-        note: `No qualification recorded for ${binding.runtime.label}. Run: tamperward runtime verify`,
+        note,
       };
       emit(empty, opts, cwd);
       return 0;
     }
+    const stored = validated.report;
     // Render the STORED qualification (no rerun), but recompute staleness against current inputs.
     const { binding: current } = buildQualification(target, opts, cwd);
     const storedBinding: QualificationBinding = {

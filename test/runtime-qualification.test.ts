@@ -10,7 +10,7 @@
 import { describe, it, expect, afterAll } from 'vitest';
 import Ajv2020 from 'ajv/dist/2020.js';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, readFileSync, existsSync, symlinkSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, readFileSync, writeFileSync, existsSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { buildSync } from 'esbuild';
@@ -325,10 +325,17 @@ describe('version/config binding and staleness (#599)', () => {
     ...over,
   });
 
-  it('an unchanged binding is not stale', () => {
-    const s = qualificationStaleness(binding(), binding({ timestamp: 'later', evidence_id: 'other', tamperward: { version: '2.35.0', commit: 'DIFFERENT' } }));
-    // commit is provenance, not load-bearing: a commit-only change is NOT stale.
-    expect(s.stale).toBe(false);
+  it('an unchanged binding is not stale, but a commit-only change IS stale', () => {
+    // A genuinely unchanged binding (only the provenance-only timestamp/evidence_id differ) is
+    // not stale.
+    expect(qualificationStaleness(binding(), binding({ timestamp: 'later', evidence_id: 'other' })).stale).toBe(false);
+    // The TamperWard commit is load-bearing (blocker at 5799408805): the retained-evidence matcher
+    // keys on the `version+commit` build tag, so re-running `verify` after checking out a different
+    // commit (no package-version bump) uses a different build identity and rejects evidence taken
+    // under the prior commit. A stored record from that prior commit must therefore read STALE.
+    const s = qualificationStaleness(binding(), binding({ tamperward: { version: '2.35.0', commit: 'DIFFERENT' } }));
+    expect(s.stale).toBe(true);
+    expect(s.changed.join('\n')).toContain('tamperward.commit: abc → DIFFERENT');
   });
 
   it('a changed runtime version marks the qualification STALE and names the change', () => {
@@ -467,6 +474,118 @@ describe('runtime CLI end-to-end (#599)', () => {
     const cwd = initRepo();
     expect(() => run(cwd, ['runtime', 'nope'])).toThrow();
     expect(() => run(cwd, ['runtime', 'verify', '--runtime', 'does-not-exist'])).toThrow();
+  });
+
+  // Run and capture a non-zero exit without throwing away status/stderr.
+  const runFail = (cwd: string, args: string[], env: Record<string, string> = {}): { status: number; stdout: string; stderr: string } => {
+    try {
+      run(cwd, args, env);
+      return { status: 0, stdout: '', stderr: '' };
+    } catch (e) {
+      const err = e as { status?: number; stdout?: Buffer | string; stderr?: Buffer | string };
+      return { status: err.status ?? -1, stdout: String(err.stdout ?? ''), stderr: String(err.stderr ?? '') };
+    }
+  };
+  const storeFileOf = (cwd: string) => join(cwd, '.git', 'tamperward', 'runtime-qualification.json');
+
+  it('finding 1: status rejects a hand-edited all-PROVEN / FULL record (stale evidence_id) as unrecorded', () => {
+    const cwd = initRepo();
+    run(cwd, ['runtime', 'verify', '--runtime', 'claude-code', '--json'], { TAMPERWARD_RUNTIME_VERSION: '1.0.0' });
+    const store = JSON.parse(readFileSync(storeFileOf(cwd), 'utf8'));
+    // Forge every capability to PROVEN and force FULL in-loop protection, leaving evidence_id stale.
+    for (const c of store.records['claude-code'].capabilities) c.state = 'PROVEN';
+    store.records['claude-code'].in_loop_protection = 'FULL';
+    writeFileSync(storeFileOf(cwd), JSON.stringify(store));
+    const doc = JSON.parse(run(cwd, ['runtime', 'status', '--runtime', 'claude-code', '--json'], { TAMPERWARD_RUNTIME_VERSION: '1.0.0' }));
+    expect(doc.recorded).toBe(false);
+    expect(doc.capabilities).toEqual([]);
+    expect(doc.in_loop_protection).toBe('NONE');
+    expect(doc.note).toMatch(/rejected/);
+  });
+
+  it('finding 1: status fails safe (no exit-2 internal error) when stored capabilities is not an array', () => {
+    const cwd = initRepo();
+    run(cwd, ['runtime', 'verify', '--runtime', 'claude-code', '--json'], { TAMPERWARD_RUNTIME_VERSION: '1.0.0' });
+    const store = JSON.parse(readFileSync(storeFileOf(cwd), 'utf8'));
+    store.records['claude-code'].capabilities = { not: 'an-array' };
+    writeFileSync(storeFileOf(cwd), JSON.stringify(store));
+    // Must NOT throw / exit 2 — it fails safe to recorded:false and exit 0.
+    const raw = run(cwd, ['runtime', 'status', '--runtime', 'claude-code', '--json'], { TAMPERWARD_RUNTIME_VERSION: '1.0.0' });
+    const doc = JSON.parse(raw);
+    expect(doc.recorded).toBe(false);
+  });
+
+  it('finding 1: status rejects a record whose evidence_id no longer matches its binding+states', () => {
+    const cwd = initRepo();
+    run(cwd, ['runtime', 'verify', '--runtime', 'claude-code', '--json'], { TAMPERWARD_RUNTIME_VERSION: '1.0.0' });
+    const store = JSON.parse(readFileSync(storeFileOf(cwd), 'utf8'));
+    store.records['claude-code'].evidence_id = 'deadbeefdeadbeef';
+    writeFileSync(storeFileOf(cwd), JSON.stringify(store));
+    const doc = JSON.parse(run(cwd, ['runtime', 'status', '--runtime', 'claude-code', '--json'], { TAMPERWARD_RUNTIME_VERSION: '1.0.0' }));
+    expect(doc.recorded).toBe(false);
+    expect(doc.note).toMatch(/evidence_id mismatch/);
+  });
+
+  it('finding 2: disableAllHooks beside an unchanged hooks block flips the qualification STALE', () => {
+    const cwd = initRepo();
+    mkdirSync(join(cwd, '.claude'), { recursive: true });
+    const hooks = { hooks: { PreToolUse: [{ hooks: [{ type: 'command', command: 'tamperward hook claude-code' }] }] } };
+    writeFileSync(join(cwd, '.claude', 'settings.json'), JSON.stringify(hooks));
+    run(cwd, ['runtime', 'verify', '--runtime', 'claude-code', '--json'], { TAMPERWARD_RUNTIME_VERSION: '1.0.0' });
+    // Same hooks block, but disableAllHooks now turns them off — the old hooks-only hash missed this.
+    writeFileSync(join(cwd, '.claude', 'settings.json'), JSON.stringify({ disableAllHooks: true, ...hooks }));
+    const doc = JSON.parse(run(cwd, ['runtime', 'status', '--runtime', 'claude-code', '--json'], { TAMPERWARD_RUNTIME_VERSION: '1.0.0' }));
+    expect(doc.stale).toBe(true);
+    expect(doc.changed_inputs.join('\n')).toMatch(/hook_config_hash/);
+  });
+
+  it('finding 2: a .claude/settings.local.json override flips the qualification STALE', () => {
+    const cwd = initRepo();
+    mkdirSync(join(cwd, '.claude'), { recursive: true });
+    writeFileSync(join(cwd, '.claude', 'settings.json'), JSON.stringify({ hooks: {} }));
+    run(cwd, ['runtime', 'verify', '--runtime', 'claude-code', '--json'], { TAMPERWARD_RUNTIME_VERSION: '1.0.0' });
+    writeFileSync(join(cwd, '.claude', 'settings.local.json'), JSON.stringify({ disableAllHooks: true }));
+    const doc = JSON.parse(run(cwd, ['runtime', 'status', '--runtime', 'claude-code', '--json'], { TAMPERWARD_RUNTIME_VERSION: '1.0.0' }));
+    expect(doc.stale).toBe(true);
+    expect(doc.changed_inputs.join('\n')).toMatch(/hook_config_hash/);
+  });
+
+  it('finding 2: an edited Copilot hook config at the documented path (.github/hooks/tamperward.json) flips STALE', () => {
+    const cwd = initRepo();
+    mkdirSync(join(cwd, '.github', 'hooks'), { recursive: true });
+    writeFileSync(join(cwd, '.github', 'hooks', 'tamperward.json'), JSON.stringify({ hooks: { preToolUse: 'a' } }));
+    run(cwd, ['runtime', 'verify', '--runtime', 'copilot', '--json'], { TAMPERWARD_RUNTIME_VERSION: '1.0.0' });
+    const before = JSON.parse(run(cwd, ['runtime', 'status', '--runtime', 'copilot', '--json'], { TAMPERWARD_RUNTIME_VERSION: '1.0.0' }));
+    expect(before.hook_config_hash).not.toBeNull();
+    expect(before.stale).toBe(false);
+    writeFileSync(join(cwd, '.github', 'hooks', 'tamperward.json'), JSON.stringify({ hooks: { preToolUse: 'CHANGED' } }));
+    const after = JSON.parse(run(cwd, ['runtime', 'status', '--runtime', 'copilot', '--json'], { TAMPERWARD_RUNTIME_VERSION: '1.0.0' }));
+    expect(after.stale).toBe(true);
+    expect(after.changed_inputs.join('\n')).toMatch(/hook_config_hash/);
+  });
+
+  it('finding 3: --mode that is neither headless nor interactive exits 2 (no silent headless default)', () => {
+    const cwd = initRepo();
+    const r = runFail(cwd, ['runtime', 'verify', '--runtime', 'claude-code', '--mode', 'interactve'], { TAMPERWARD_RUNTIME_VERSION: '1.0.0' });
+    expect(r.status).toBe(2);
+    expect(r.stderr).toMatch(/--mode needs one of headless \| interactive/);
+  });
+
+  it('finding 4: verify reports a write failure on stderr and exits non-zero when nothing is persisted', () => {
+    const cwd = initRepo();
+    // Occupy the store directory path with a FILE so mkdir of `.git/tamperward` fails.
+    writeFileSync(join(cwd, '.git', 'tamperward'), 'not a directory');
+    const r = runFail(cwd, ['runtime', 'verify', '--runtime', 'claude-code', '--json'], { TAMPERWARD_RUNTIME_VERSION: '1.0.0' });
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toMatch(/could not persist the qualification/);
+  });
+
+  it('finding 6: refuses to qualify an absent runtime (no --runtime, nothing detected) at exit 2, recording nothing', () => {
+    const cwd = initRepo();
+    const r = runFail(cwd, ['runtime', 'verify', '--json']);
+    expect(r.status).toBe(2);
+    expect(r.stderr).toMatch(/no runtime detected/);
+    expect(existsSync(storeFileOf(cwd))).toBe(false);
   });
 });
 

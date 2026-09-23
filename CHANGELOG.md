@@ -34,6 +34,21 @@
   committed captures only — no live credentialed probe runs here (those are gated, #611/#616),
   no runtime is promoted, and no Round 4.1 eligibility claim is made.
 
+  Review hardening (#599): `runtime status` now **validates** the git-local store before
+  rendering it — a record whose shape does not match the published schema, or whose `evidence_id`
+  or `in_loop_protection` no longer matches a recomputation from the stored binding + states, is
+  reported `recorded: false` with the reason (a hand-edited all-`PROVEN`/`FULL` record can no
+  longer render as trusted, and a non-array `capabilities` fails safe instead of an internal
+  error). The TamperWard **commit** is now load-bearing for staleness (it already keyed the
+  evidence match), so a commit-only checkout change reads STALE. The hook-config binding reuses
+  the evaluated intervention wiring (parsed `hooks` + `disableAllHooks` across the project,
+  project-local, user and user-local Claude settings), so turning hooks off now invalidates the
+  qualification; the Copilot hook config is read from its documented path
+  `.github/hooks/tamperward.json`. `--mode` is validated (exit 2 on anything but
+  `headless`/`interactive`, no silent default), `verify` reports a persistence failure on stderr
+  and exits non-zero, and qualifying an **absent** runtime (no `--runtime`, nothing detected) is
+  refused at exit 2 so the store holds no qualifications for runtimes that are not present.
+
 ## [2.36.0] — 2026-09-23
 
 ### Added

@@ -169,7 +169,7 @@ contract:
 | `doctor --json` | Installation + authority posture. | [`schemas/doctor-v1.schema.json`](https://github.com/hexrift/tamperward/blob/main/schemas/doctor-v1.schema.json) |
 | `research run --json` / `research summarize` | Paired records and the aggregate summary (from **2.23.0**). | [`schemas/research-v1.schema.json`](https://github.com/hexrift/tamperward/blob/main/schemas/research-v1.schema.json) |
 | `stats --json` | Aggregate audit document. | [`schemas/stats-v1.schema.json`](https://github.com/hexrift/tamperward/blob/main/schemas/stats-v1.schema.json) |
-| `runtime verify --json` / `runtime status --json` | Version-bound, operation-specific runtime capability qualification (from **2.35.0**). | [`schemas/runtime-qualification-v1.schema.json`](https://github.com/hexrift/tamperward/blob/main/schemas/runtime-qualification-v1.schema.json) |
+| `runtime verify --json` / `runtime status --json` | Version-bound, operation-specific runtime capability qualification (from **2.37.0**). | [`schemas/runtime-qualification-v1.schema.json`](https://github.com/hexrift/tamperward/blob/main/schemas/runtime-qualification-v1.schema.json) |
 
 The `runtime-qualification` document reports **one explicit state per capability**
 (`PROVEN` \| `PARTIAL` \| `UNPROVEN` \| `UNSUPPORTED` \| `FAIL-OPEN` \| `INCONCLUSIVE`) with

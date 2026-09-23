@@ -471,14 +471,18 @@ export interface QualificationBinding {
  *  provenance-only `timestamp`/`evidence_id`. */
 export type BindingInputs = Omit<QualificationBinding, 'timestamp' | 'evidence_id'>;
 
-/** The load-bearing projection of a binding — the fields staleness compares. `commit`,
- *  `timestamp` and `evidence_id` are recorded for provenance but do NOT trigger staleness
- *  (`capability_hash` already captures adapter behaviour changes within a version). */
+/** The load-bearing projection of a binding — the fields staleness compares. `timestamp` and
+ *  `evidence_id` are recorded for provenance but do NOT trigger staleness. The TamperWard
+ *  version AND commit are both load-bearing: the retained-evidence matcher keys on the
+ *  `version+commit` build tag (`tamperwardBuildTag`), so re-running `verify` under a different
+ *  commit uses a different build identity and rejects evidence captured under the prior commit —
+ *  a stored record taken under that prior commit must therefore read STALE, not applicable. */
 export function loadBearing(b: BindingInputs): Record<string, string> {
   return {
     'runtime.id': b.runtime.id,
     'runtime.version': b.runtime.version ?? '∅',
     'tamperward.version': b.tamperward.version,
+    'tamperward.commit': b.tamperward.commit ?? '∅',
     'adapter.capability_hash': b.adapter.capability_hash,
     'hook_config_hash': b.hook_config_hash ?? '∅',
     'execution_mode': b.execution_mode,

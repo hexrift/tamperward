@@ -134,7 +134,7 @@ function parseCheck(args: string[]): CheckOpts {
   return o;
 }
 
-type ValueRule = 'string' | 'positive' | 'positive-integer' | 'non-negative' | 'format';
+type ValueRule = 'string' | 'positive' | 'positive-integer' | 'non-negative' | 'format' | 'mode';
 
 function splitLongOptionEquals(args: string[]): string[] {
   const out: string[] = [];
@@ -232,6 +232,12 @@ function validateFlatArgs(args: string[], grammar: CliGrammar): ValidatedArgs {
       } else if (rule === 'format' && !isFormat(v)) {
         return {
           error: `--format needs one of ${FORMATS.join(' | ')} (got "${v}")`,
+          seen,
+          positionals,
+        };
+      } else if (rule === 'mode' && v !== 'headless' && v !== 'interactive') {
+        return {
+          error: `${a} needs one of headless | interactive (got "${v}")`,
           seen,
           positionals,
         };
@@ -418,7 +424,7 @@ export function validateCliArgs(cmd: string, args: string[]): string | undefined
     }
     const parsed = validateFlatArgs(rest, {
       flags: ['--json'],
-      values: { '--cwd': 'string', '--runtime': 'string', '--mode': 'string', '--model': 'string' },
+      values: { '--cwd': 'string', '--runtime': 'string', '--mode': 'mode', '--model': 'string' },
     });
     if (parsed.error) return parsed.error;
     return undefined;
@@ -650,9 +656,11 @@ Formats:
                                             Round 4.1 claim. Final authority (CI / pristine
                                             verify) stays separate from in-loop steering.
   tamperward runtime status [--runtime ID]  render the latest recorded qualification
-             [--json] [--cwd D]             WITHOUT rerunning it, and mark it STALE when a
-                                            load-bearing input (version/config/adapter/…)
-                                            changed since it was recorded.
+             [--mode headless|interactive]  WITHOUT rerunning it, and mark it STALE when a
+             [--model M] [--json] [--cwd D]  load-bearing input (version/config/adapter/mode/
+                                            model/…) changed since it was recorded. --mode and
+                                            --model select the binding staleness is compared
+                                            against, as for verify.
   tamperward doctor [--base R]              report installation + authority posture
              [--workflow F] [--cwd D]       and validate the CI verifier's outer-time
              [--json]                       envelope against the trusted policy.
