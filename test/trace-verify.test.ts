@@ -85,7 +85,7 @@ describe('trace-verify strace parsing (#324)', () => {
     ].join('\n');
 
     expect(parseStraceFileAccess(raw)).toEqual([
-      { path: '/__tamperward_trusted_base__/packages/widget/fixtures/settings.json', access: 'read' },
+      { path: '/__tamperward_trusted_base__/packages/widget/fixtures/other.json', access: 'read' },
       { path: '/__tamperward_trusted_base__/packages/widget/fixtures', access: 'read' },
       { path: '/__tamperward_trusted_base__/packages/widget/fixtures/settings.json', access: 'read' },
       { path: '/__tamperward_trusted_base__/packages/widget/fixtures/child.json', access: 'read' },
