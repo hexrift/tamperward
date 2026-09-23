@@ -5,6 +5,7 @@
 // at the LOCAL layer (pre-commit); the agent-layer hook ignores the ledger entirely, and CI
 // honors only an out-of-band approval — see src/signoff.ts.
 
+import { relative, resolve, sep } from 'node:path';
 import { diffWorktree } from '../git/build';
 import { evaluate } from '../engine';
 import { loadPolicy } from '../policy-load';
@@ -40,9 +41,15 @@ export function runAllow(opts: AllowOpts): number {
     return 2;
   }
 
+  // Git reports finding paths relative to the repository root. Accept the
+  // operator's normal path spellings (./foo, an absolute path, and Windows
+  // separators) without changing the exact finding that the sign-off binds to.
+  const requestedFile = opts.file === undefined
+    ? undefined
+    : relative(cwd, resolve(cwd, opts.file)).split(sep).join('/');
   // Bind the sign-off to the actual blocking tamper(s) for this rule (+ file, if given).
   const targets = findings.filter(
-    (f) => f.severity === 'block' && f.rule === opts.rule && (!opts.file || f.file === opts.file),
+    (f) => f.severity === 'block' && f.rule === opts.rule && (!requestedFile || f.file === requestedFile),
   );
   if (targets.length === 0) {
     process.stderr.write(

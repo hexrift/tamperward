@@ -292,7 +292,9 @@ describe('lifecycle', () => {
     expect(validateCliArgs('hook-service', ['start'])).toBeUndefined();
     expect(validateCliArgs('hook-service', ['start', '--dir', '/x'])).toBeUndefined();
     expect(validateCliArgs('hook-service', ['stop'])).toBeUndefined();
+    expect(validateCliArgs('hook-service', ['stop', '--dir', '/x'])).toBeUndefined();
     expect(validateCliArgs('hook-service', ['status'])).toBeUndefined();
+    expect(validateCliArgs('hook-service', ['status', '--dir', '/x'])).toBeUndefined();
     expect(validateCliArgs('hook-service', [])).toMatch(/start|stop|status/);
     expect(validateCliArgs('hook-service', ['restart'])).toMatch(/start|stop|status/);
     expect(validateCliArgs('hook-service', ['stop', '--bogus'])).toMatch(/unknown option/);
