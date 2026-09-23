@@ -45,9 +45,13 @@
   project-local, user and user-local Claude settings), so turning hooks off now invalidates the
   qualification; the Copilot hook config is read from its documented path
   `.github/hooks/tamperward.json`. `--mode` is validated (exit 2 on anything but
-  `headless`/`interactive`, no silent default), `verify` reports a persistence failure on stderr
-  and exits non-zero, and qualifying an **absent** runtime (no `--runtime`, nothing detected) is
-  refused at exit 2 so the store holds no qualifications for runtimes that are not present.
+  `headless`/`interactive`, no silent default), and qualifying an **absent** runtime (no `--runtime`, nothing detected) is
+  refused at exit 2 so the store holds no qualifications for runtimes that are not present. On a
+  persistence failure `verify` now **writes before it emits** and gates the `recorded: true`
+  success document on the write succeeding: nothing is persisted, so it prints an explicit
+  `recorded: false` failure document (never a success-shaped `recorded: true` stdout doc), reports
+  the failure on stderr and exits non-zero — a machine consumer parsing stdout can no longer
+  retain the opposite state from the store.
 
 ## [2.36.0] — 2026-09-23
 

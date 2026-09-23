@@ -528,20 +528,32 @@ export function runRuntime(sub: string | undefined, opts: RuntimeOpts): number {
     }
     const { binding, assessments } = buildQualification(target, opts, cwd);
     const report = reportFrom('verify', binding, assessments);
+    // Persist BEFORE emitting, and gate the `recorded: true` success document on the write
+    // succeeding. Emitting first would print a schema-valid stdout doc claiming `recorded: true`
+    // even when nothing reached the store — a machine consumer parsing stdout would then retain
+    // the OPPOSITE state from disk (stderr and a non-zero exit notwithstanding).
     const wrote = writeRecord(cwd, target.name, report);
-    emit(report, opts, cwd);
     if (!wrote) {
       // Persisting the record is what `verify` is FOR (so `status` can render it later). A
       // read-only `.git`, a failed `mkdir`, or running outside a repository leaves nothing on
-      // disk — report it on stderr and exit non-zero rather than a silent exit 0 that reads as
-      // success while `status` will report UNQUALIFIED with no explanation.
+      // disk. Report it on stderr, emit an explicit `recorded: false` failure document (shaped
+      // like `status`'s unrecorded document, never a success-shaped one), and exit non-zero.
       const dest = storePath(cwd);
-      process.stderr.write(
-        `tamperward: could not persist the qualification to ${dest ?? 'the git-local store (no repository found)'}; ` +
-          `nothing was recorded, so \`tamperward runtime status\` will report UNQUALIFIED\n`,
-      );
+      const reason =
+        `could not persist the qualification to ${dest ?? 'the git-local store (no repository found)'}; ` +
+        'nothing was recorded, so `tamperward runtime status` will report UNQUALIFIED';
+      const failure: RuntimeQualificationReport = {
+        ...report,
+        recorded: false,
+        capabilities: [],
+        in_loop_protection: 'NONE',
+        note: reason,
+      };
+      emit(failure, opts, cwd);
+      process.stderr.write(`tamperward: ${reason}\n`);
       return 1;
     }
+    emit(report, opts, cwd);
     return 0;
   }
 

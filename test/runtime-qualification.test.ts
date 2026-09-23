@@ -578,6 +578,30 @@ describe('runtime CLI end-to-end (#599)', () => {
     const r = runFail(cwd, ['runtime', 'verify', '--runtime', 'claude-code', '--json'], { TAMPERWARD_RUNTIME_VERSION: '1.0.0' });
     expect(r.status).not.toBe(0);
     expect(r.stderr).toMatch(/could not persist the qualification/);
+    // The blocker (comment 5800297319): stdout must NOT claim `recorded: true` when nothing was
+    // persisted — a machine consumer parsing stdout would otherwise retain the opposite state from
+    // the (empty) store. stdout is either absent or an explicit `recorded: false` failure document.
+    if (r.stdout.trim()) {
+      const doc = JSON.parse(r.stdout);
+      expect(doc.recorded).toBe(false);
+      expect(doc.subcommand).toBe('verify');
+      expect(doc.capabilities).toEqual([]);
+      expect(doc.in_loop_protection).toBe('NONE');
+      // Schema-valid even in the failure shape.
+      expect(validator()(doc)).toBe(true);
+    }
+    // And never a success-claiming document, regardless of formatting.
+    expect(r.stdout).not.toMatch(/"recorded"\s*:\s*true/);
+  });
+
+  it('finding 4: the human (non-JSON) write-failure path prints no success-shaped output', () => {
+    const cwd = initRepo();
+    writeFileSync(join(cwd, '.git', 'tamperward'), 'not a directory');
+    const r = runFail(cwd, ['runtime', 'verify', '--runtime', 'claude-code'], { TAMPERWARD_RUNTIME_VERSION: '1.0.0' });
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toMatch(/could not persist the qualification/);
+    // The text render for an unrecorded document is the UNQUALIFIED block, not a capability table.
+    expect(r.stdout).toMatch(/UNQUALIFIED/);
   });
 
   it('finding 6: refuses to qualify an absent runtime (no --runtime, nothing detected) at exit 2, recording nothing', () => {
