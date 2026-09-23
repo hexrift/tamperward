@@ -367,8 +367,52 @@ function onlyFields(raw: unknown, allowed: readonly string[], where: string): vo
   }
 }
 
+/** The shape of a treatment envelope that may travel: the v1 run document
+ *  (`schemas/run-v1.schema.json`, emitted by `tamperward run --json`), field by
+ *  field. Every named field is a scalar unless it is spelled out as an object or
+ *  an array of objects here, so the envelope has no place a foreign value can
+ *  hide. `treatmentFrom` keeps the envelope as an opaque object for local use;
+ *  this projection is what the bundle boundary requires. */
+type PortableSpec = 'scalar' | { fields: Map<string, PortableSpec> } | { items: Map<string, PortableSpec> };
+const fields = (entries: Array<[string, PortableSpec]>): PortableSpec => ({ fields: new Map(entries) });
+const items = (entries: Array<[string, PortableSpec]>): PortableSpec => ({ items: new Map(entries) });
+const RUN_DOCUMENT_FIELDS: Map<string, PortableSpec> = new Map<string, PortableSpec>([
+  ['schema_version', 'scalar'], ['verdict', 'scalar'], ['exit_code', 'scalar'], ['complete', 'scalar'],
+  ['base', 'scalar'], ['head', 'scalar'], ['reason', 'scalar'],
+  ['agent', fields([['exit_code', 'scalar'], ['timed_out', 'scalar'], ['lifecycle_owned', 'scalar'], ['budget_secs', 'scalar']])],
+  ['checks', fields([['diff', 'scalar'], ['worktree', 'scalar'], ['verify', 'scalar']])],
+  ['verifier_backend', fields([
+    ['kind', 'scalar'], ['trust', 'scalar'], ['available', 'scalar'], ['image', 'scalar'], ['engine', 'scalar'], ['reason', 'scalar'],
+    ['resources', fields([['memory_bytes', 'scalar'], ['memory_swap_bytes', 'scalar'], ['cpus', 'scalar'], ['pids', 'scalar']])],
+  ])],
+  ['dependency_environment', fields([
+    ['status', 'scalar'], ['fingerprint', 'scalar'], ['reason', 'scalar'], ['image', 'scalar'],
+    ['roots', items([['kind', 'scalar'], ['path', 'scalar']])],
+    ['diagnostics', fields([['full_snapshots', 'scalar'], ['reused_snapshots', 'scalar'], ['total_ms', 'scalar']])],
+  ])],
+  ['observer', fields([['enabled', 'scalar'], ['blocking', 'scalar']])],
+]);
+
+function portableObject(raw: unknown, spec: Map<string, PortableSpec>, where: string): void {
+  if (!isRecord(raw)) bad(`${where} is not an object`);
+  for (const [key, value] of Object.entries(raw)) {
+    const field = spec.get(key);
+    const at = `${where}.${key}`;
+    if (field === undefined) bad(`${at} is not a field of the v1 run document; refusing to carry it as portable evidence`);
+    if (field === 'scalar') {
+      if (value !== null && typeof value === 'object') bad(`${at} is not a scalar; refusing to carry it as portable evidence`);
+    } else if ('items' in field) {
+      if (!Array.isArray(value)) bad(`${at} is not an array`);
+      value.forEach((item, i) => portableObject(item, field.items, `${at}[${i}]`));
+    } else {
+      portableObject(value, field.fields, at);
+    }
+  }
+}
+
 /** Prove a parsed document is a v1 pair record that carries nothing outside the
- *  contract, at every level. This is the reader for evidence that will travel. */
+ *  contract, at every level, the treatment envelope included. This is the reader
+ *  for evidence that will travel. */
 export function portablePairRecordFrom(raw: unknown, where = 'record'): PairRecord {
   onlyFields(raw, PAIR_FIELDS, where);
   if (isRecord(raw)) {
@@ -382,6 +426,9 @@ export function portablePairRecordFrom(raw: unknown, where = 'record'): PairReco
         if (isRecord(trajectory)) {
           onlyFields(trajectory.agent, AGENT_FIELDS, `${at}.agent`);
           onlyFields(trajectory.treatment, TREATMENT_FIELDS, `${at}.treatment`);
+          if (isRecord(trajectory.treatment) && trajectory.treatment.envelope !== null && trajectory.treatment.envelope !== undefined) {
+            portableObject(trajectory.treatment.envelope, RUN_DOCUMENT_FIELDS, `${at}.treatment.envelope`);
+          }
           onlyFields(trajectory.outcome, OUTCOME_FIELDS, `${at}.outcome`);
         }
       }

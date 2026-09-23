@@ -20,6 +20,9 @@ const BUNDLE_VERSION = 1;
  *  the evidence it claims to" (#663). */
 const TOP_LEVEL_ENTRIES = new Set(['summary.json', 'report.txt', 'provenance.json', 'manifest.json']);
 const PAIR_ENTRY_RE = /^ledger\/pairs\/[^/]+\.json$/;
+/** A ustar header stores at most 99 bytes of name; a longer name would be cut or
+ *  collide, so it is refused before anything is written rather than truncated. */
+const TAR_NAME_MAX = 99;
 
 interface Entry { name: string; bytes: Buffer }
 
@@ -29,8 +32,10 @@ function octal(value: number, width: number): string {
 
 function tarEntry(name: string, bytes: Buffer): Buffer {
   const header = Buffer.alloc(BLOCK, 0);
-  const safe = name.replace(/^\/+/, '').slice(0, 99);
-  header.write(safe, 0, 'utf8');
+  if (name.startsWith('/') || Buffer.byteLength(name, 'utf8') > TAR_NAME_MAX) {
+    throw new ResearchError(`archive entry name ${name} cannot be stored byte for byte in a ustar header`);
+  }
+  header.write(name, 0, 'utf8');
   header.write(octal(0o644, 8), 100, 'ascii');
   header.write(octal(0, 8), 108, 'ascii');
   header.write(octal(0, 8), 116, 'ascii');
@@ -91,8 +96,13 @@ function packagedRecords(ledger: string): { records: PairRecord[]; entries: Entr
       throw new ResearchError(`ledger record ${f.path} is not valid JSON: ${e instanceof Error ? e.message : String(e)}`);
     }
     const record = portablePairRecordFrom(raw, f.path);
+    const archiveName = `ledger/pairs/${f.name}`;
+    const nameBytes = Buffer.byteLength(archiveName, 'utf8');
+    if (nameBytes > TAR_NAME_MAX) {
+      throw new ResearchError(`pair record name ${f.name} is too long for the archive (${nameBytes} bytes as ${archiveName}; the limit is ${TAR_NAME_MAX})`);
+    }
     records.push(record);
-    entries.push({ name: `ledger/pairs/${f.name}`, bytes: jsonBytes(record) });
+    entries.push({ name: archiveName, bytes: jsonBytes(record) });
   }
   return { records, entries };
 }

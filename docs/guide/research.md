@@ -182,12 +182,15 @@ and agent output are never bundled.
 
 That guarantee is enforced at the packaging boundary, not just described. Only a
 regular file placed directly in `pairs/` is read: a `pairs/` directory that is a
-symlink, a symlinked entry (into a workspace or anywhere else) and any non-regular
-file are refused before anything is written, and the same reader serves
+symlink, a symlinked or hard-linked entry (into a workspace or anywhere else) and any
+non-regular file are refused before anything is written, and the same reader serves
 `research summarize`. A record carrying a field outside the v1 pair contract, at
-any level, is refused rather than packaged, and the archive holds the canonical
-serialization of each proved record, never the raw file bytes. The validator holds
-an archive to the same rules: only the evidence entries above (plus the optional
+any level, is refused rather than packaged; the gated arm's treatment envelope is
+held to the v1 run document field by field, with every named field a scalar unless
+the document defines it as an object. The archive holds the canonical serialization
+of each proved record, never the raw file bytes, and a record name the archive
+cannot store byte for byte is refused rather than truncated. The validator holds an
+archive to the same rules: only the evidence entries above (plus the optional
 manifest) may be present, no entry may repeat, and every pair record must be
 canonical.
 

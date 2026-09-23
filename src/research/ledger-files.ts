@@ -44,6 +44,12 @@ function readRegularFile(path: string, realPairsDir: string, name: string): Buff
   if (!listed.isFile()) {
     throw new ResearchError(`ledger record ${path} is ${kindOf(listed)}; only a regular file placed directly in pairs/ is read`);
   }
+  // A hard link passes every check above (a regular file, this very name, the
+  // listed inode) while naming an inode that also lives outside pairs/, so only a
+  // singly linked file is read; a platform that cannot report the count fails closed.
+  if (listed.nlink !== 1) {
+    throw new ResearchError(`ledger record ${path} has ${listed.nlink} links; a hard link can name a file outside pairs/, so only a singly linked regular file is read`);
+  }
   // Defence in depth on the path itself: the entry must resolve to this very
   // name directly under the resolved pairs directory, nowhere else.
   const real = realpathSync.native(path);
@@ -63,7 +69,7 @@ function readRegularFile(path: string, realPairsDir: string, name: string): Buff
   try {
     const opened = fstatSync(fd);
     const sameInode = process.platform === 'win32' || (opened.dev === listed.dev && opened.ino === listed.ino);
-    if (!opened.isFile() || !sameInode) {
+    if (!opened.isFile() || !sameInode || opened.nlink !== 1) {
       throw new ResearchError(`ledger record ${path} changed between listing and reading; refusing to read it`);
     }
     return readFileSync(fd);
