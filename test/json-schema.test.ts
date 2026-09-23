@@ -28,13 +28,21 @@ import {
   MATERIALIZATION_FAILURE_REASONS,
   RUN_CANNOT_ADJUDICATE_REASONS,
   RUN_VERDICTS,
+  STATUS_AUTHORITY_STATES,
+  STATUS_CHANGED_INPUTS,
+  STATUS_INTERVENTION_STATES,
+  STATUS_VERIFICATION_STATES,
   VERIFY_CANNOT_VERIFY_REASONS,
   VERIFY_VERDICTS,
 } from '../src/machine-output';
+import {
+  BINDING_INPUTS,
+  VERIFICATION_STATES,
+} from '../src/verification-state';
 
 const ROOT = resolve(__dirname, '..');
 const dirs: string[] = [];
-const SCHEMA_NAMES = ['check', 'verify', 'run', 'doctor', 'research', 'audit', 'stats'] as const;
+const SCHEMA_NAMES = ['check', 'verify', 'run', 'doctor', 'research', 'audit', 'stats', 'status'] as const;
 type SchemaName = typeof SCHEMA_NAMES[number];
 type NpmPackEntry = { filename: string; files?: Array<{ path: string }> };
 
@@ -564,6 +572,15 @@ describe('machine-readable schema v1 (#333)', () => {
     const run = schemaFrom(ROOT, 'run');
     expect(run.properties.verdict.enum).toEqual([...RUN_VERDICTS]);
     expect(run.properties.reason.enum).toEqual([...RUN_CANNOT_ADJUDICATE_REASONS]);
+    const status = schemaFrom(ROOT, 'status');
+    expect(status.properties.authority.properties.state.enum).toEqual([...STATUS_AUTHORITY_STATES]);
+    expect(status.properties.intervention.properties.state.enum).toEqual([...STATUS_INTERVENTION_STATES]);
+    expect(status.properties.verification.properties.state.enum).toEqual([...STATUS_VERIFICATION_STATES]);
+    expect(status.properties.verification.properties.changed_input.enum).toEqual([...STATUS_CHANGED_INPUTS]);
+    // The published contract, the machine-output constants and the state-machine
+    // module must all agree on the vocabularies (single source, no drift).
+    expect([...STATUS_VERIFICATION_STATES]).toEqual([...VERIFICATION_STATES]);
+    expect([...STATUS_CHANGED_INPUTS]).toEqual([...BINDING_INPUTS]);
     for (const name of SCHEMA_NAMES) {
       expect(schemaFrom(ROOT, name).properties.schema_version).toEqual({ const: MACHINE_SCHEMA_VERSION });
     }

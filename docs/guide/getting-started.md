@@ -281,6 +281,7 @@ parsing: what follows it is handed to the wrapped command byte for byte.
 | `trace-verify` | Linux-only advisory discovery: `--base <rev>` · `--cmd <suite command>` · `--budget <seconds>` · `--runs <N>` (default 2) · `--json` · `--cwd <dir>` |
 | `run` | `--base <rev>` · `--cmd <suite command>` · `--budget <seconds>` (per verifier suite) · `--agent-budget <seconds>` (optional wrapped-agent wall clock) · `--json` (one versioned final envelope document) · `--observe-transients` (start a session-scoped transient observer) · `--allow-dirty` · `--settle <seconds>` · `--allow-dep-drift` · `--cwd <dir>` · then `-- <agent command...>` |
 | `doctor` | `--base <rev>` (trusted policy revision) · `--workflow <path>` · `--cwd <dir>` · `--json` · `--github` · `--repo <owner/repo>` · `--branch <name>` — read-only installation/authority posture plus CI verifier outer-time validation |
+| `status` | `--json` (the versioned three-lane document) · `--cwd <dir>` — read-only verification posture: **Authority** / **Intervention** / **Verification**, answering whether the exact current state is still the independently verified one ([`status`](../reference/cli.md#verification-posture-status)) |
 | `research run` / `research summarize` | paired ungated/gated evaluation; flags and exit codes on [the research guide](./research.md) |
 | `stats` | `--file <audit.jsonl>` · `--since <30d|12h|90m|ISO-time>` · `--json` · `--cwd <dir>` — see [Audit history & stats](./audit.md) |
 | `allow` | `<rule>` · `--file <path>` · `--reason "<why>"` (required) · `--cwd <dir>` |
@@ -298,6 +299,7 @@ Exit codes are part of the public surface:
 | `verify` | `VERIFIED`, or a `MASKED_FAILURE` cleared by a compact `tw1:<digest>` or legacy `verify@<full-sha>` approval | `MASKED_FAILURE` or `SUITE_RED` | cannot verify — fails closed | — |
 | `trace-verify` | every requested trace run completed green | one or more traced verifier runs were non-zero/incomplete; report still emitted | unsupported platform, missing tooling, bad trusted base/policy/options, or tracing failure | — |
 | `doctor` | configured verify job(s) have sufficient static outer time for the trusted policy | — | missing/invalid workflow, no verify job, missing/malformed/insufficient timeout, or trusted policy cannot be loaded | — |
+| `status` | posture printed — the three lanes and the verification state (`CURRENT` / `STALE` / `VERIFYING` / `BROKEN` / `UNVERIFIED`), whatever they are | — | not a git repository the gate can read — one clean `tamperward: …` line on stderr | — |
 | `run` | enforcement clean and the agent exited 0 (a non-zero agent exit is passed through) | any blocking finding or masked failure, including a non-quiescent process after timeout | cannot adjudicate: dirty start, policy error, verify cannot run | `AGENT_TIMEOUT`: `--agent-budget` expired and post-timeout enforcement was clean |
 | `research run` / `research summarize` | every requested pair recorded (or already was); summary printed | — | cannot start or set a trajectory up (bad manifest, unknown adapter, root/unsupported platform, unclonable repository, invalid ledger) — the agent's own exit is data, never the research exit | — |
 | `stats` | audit events validated and summary printed | — | explicit file missing, malformed/unknown event, bad `--since`, or no default store can be resolved | — |
@@ -329,6 +331,7 @@ Draft 2020-12 documents in the npm package and repository:
 - [`schemas/research-v1.schema.json`](https://github.com/hexrift/tamperward/blob/main/schemas/research-v1.schema.json) — from **2.23.0**, the `pair` records `research run` writes and the `summary` document `research summarize` prints
 - [`schemas/audit-v1.schema.json`](https://github.com/hexrift/tamperward/blob/main/schemas/audit-v1.schema.json) — from **2.26.0**, the privacy-safe structured event under `TAMPERWARD_AUDIT_LOG` (JSONL, one event per line)
 - [`schemas/stats-v1.schema.json`](https://github.com/hexrift/tamperward/blob/main/schemas/stats-v1.schema.json) — the aggregate document from `tamperward stats --json`
+- [`schemas/status-v1.schema.json`](https://github.com/hexrift/tamperward/blob/main/schemas/status-v1.schema.json) — from **2.34.0**, the three-lane verification posture from `tamperward status --json` (Authority / Intervention / Verification)
 
 Schema major **1** is deliberately additive: consumers should ignore fields they do
 not understand, and adding new evidence/diagnostic fields does not require a bump.
