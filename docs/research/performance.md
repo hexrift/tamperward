@@ -8,8 +8,8 @@ Series-wide caveats: [limitations](../blog/limitations.md). Corrections:
 ## What exists
 
 Two measurements are committed. Both are CI-runner or single-machine timings of
-one component, **not universal performance guarantees**, and neither is an
-end-to-end cost of `check`, `verify` or `run` on a real repository.
+one component, **not universal performance guarantees**, and neither is an end-to-end cost of `check`, `verify` or `run` against a real repository. The
+controlled synthetic end-to-end suite is documented separately in [Performance budgets](../PERF.md).
 
 ### Dependency-snapshot cost (2.16.3)
 
@@ -56,10 +56,12 @@ PreToolUse denial.
 
 ## What does not exist
 
-- **No end-to-end timing** of `tamperward check --staged`, `check --diff`,
-  `verify` or `run` across real repositories. The verifier's cost is the cost
-  of running the project's suite twice (visible and pristine) plus
-  materialisation and hashing; it has not been benchmarked as a distribution.
+- **No end-to-end timing on real repositories** of `tamperward check --staged`,
+  `check --diff`, `verify` or `run`. The controlled synthetic suite in
+  [Performance budgets](../PERF.md) measures representative fixtures, but the
+  verifier's cost on real repositories — including each project's suite twice
+  (visible and pristine), materialisation and hashing — has not been benchmarked
+  as a distribution.
 - **No production-pilot data.** Human sign-off frequency in a live repository
   — how often a `block` interrupts real work — has not been measured. The
   closest proxies are the corpus review-trigger rates on the
