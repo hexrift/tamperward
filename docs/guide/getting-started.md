@@ -194,7 +194,15 @@ npx tamperward check --staged                # pre-commit view
 npx tamperward check --diff "main...HEAD"    # CI view — the authority for main
 npx tamperward verify --base main            # pristine-suite re-execution
 npx tamperward run -- <agent command...>     # the enforcement envelope around an agent
+npx tamperward runtime verify                # qualify the in-loop runtime's capabilities
+npx tamperward runtime status                # render the latest qualification (flags STALE)
 ```
+
+`runtime verify` reports a **version-bound, operation-specific capability model** — what is
+`PROVEN` / `PARTIAL` / `UNPROVEN` / `UNSUPPORTED` / `FAIL-OPEN` on this runtime today, rather
+than a binary "runtime detected" label. See the
+[CLI reference](../reference/cli.md#runtime-qualification-runtime-verify-runtime-status) and
+[Runtime adapters](runtime-adapters.md#qualifying-a-runtime-runtime-verify).
 
 ## Pristine verification: `tamperward verify`
 

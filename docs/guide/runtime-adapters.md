@@ -60,6 +60,41 @@ the `unsupported` outcome — **no decision, no deny wire**. The phase→hook ma
 route `post-action` to any deny-capable hook rather than silently falling through to
 PreToolUse: a post-edit observation must never be treated as a pre-execution veto.
 
+## Qualifying a runtime: `runtime verify`
+
+The `RuntimeCapabilities` declaration and the **retained real-runtime evidence** together drive
+an **honest, version-bound qualification**. `tamperward runtime verify` grades a runtime's
+capabilities against the retained probe captures (`src/adapters/evidence.ts`,
+`harness/adapters/**/evidence/`) and its declaration, and reports a **capability matrix** at a
+finer granularity than the operation kinds — one explicit state per capability:
+
+| state | derived when |
+| --- | --- |
+| `PROVEN` | a **retained real-runtime probe** observed the capability holding under the reported binding (`committed-evidence`). A static declaration alone never reaches here. |
+| `PARTIAL` | declared at the adapter/contract boundary (a kind in `preDeny`, a declared `postObserve`/`endOfTurn`, or a transport the contract fails closed), but **no retained probe** proves it holds live for this runtime/version/config |
+| `UNPROVEN` | absent from the declaration with no evidence either way — **never** read as safe |
+| `UNSUPPORTED` | the adapter declares it does not provide the capability |
+| `FAIL-OPEN` | an `unsupported` entry — or a retained probe — names/observes a failure mode that lets the operation proceed, surfaced verbatim |
+| `INCONCLUSIVE` | a retained probe reached the path but observed no authoritative resolution |
+
+So a runtime whose `preDeny` is empty reports `pre-deny:*` as `UNPROVEN`, and a runtime with a
+**full** `preDeny` declaration but no retained probe reports `pre-deny:*` as `PARTIAL` — never a
+fabricated `PROVEN`. `PROVEN` appears only when a retained probe matches the **full binding**
+(runtime name + exact version, hook-config hash, execution mode, platform, model, tested set); a
+mismatch on any field strips it back to `PARTIAL`. A runtime whose `unsupported` says a hook
+timeout *fails open* reports `transport:timeout` as `FAIL-OPEN`, which can then never aggregate
+to `FULL` in-loop protection. `Final authority` (CI / pristine `verify`) is reported as a
+constant `AVAILABLE`: it is independent of the runtime hook, so a weak in-loop capability never
+weakens adjudication.
+
+This surface **grades against committed captures**, not a live credentialed probe run here
+(those are gated, #611/#616) — it promotes no runtime and makes no qualification claim of its
+own; absent a matching capture, nothing is `PROVEN`. The result is bound to the runtime version,
+TamperWard version/commit, adapter capability hash, hook-config hash, execution mode, platform,
+model and tested capability set; `runtime status` renders the stored qualification and marks it
+**STALE** when any of those load-bearing inputs changes. See the
+[CLI reference](../reference/cli.md#runtime-qualification-runtime-verify-runtime-status).
+
 ## Mapping to the research adapter layers
 
 The research runner (`src/research/adapter.ts`) records, per gated run, a coarse `layers`

@@ -1,6 +1,6 @@
 # Changelog
 
-## [2.36.1] — 2026-09-23
+## [2.37.1] — 2026-09-23
 
 ### Fixed
 
@@ -18,6 +18,68 @@
   partitioning keeps its `events/all.jsonl` frozen and is migrated once on the next
   ingestion. Batch bytes and events and files per month have hard limits that fail
   at exit 2 naming the limit.
+
+## [2.37.0] — 2026-09-23
+
+### Added
+
+- **Runtime capability qualification** (#599). `tamperward runtime verify` turns the binary
+  "runtime detected" label into a **version-bound, operation-specific capability model**:
+  `pre-deny:{shell,native-edit,delete,rename,git-mutation,mcp}`, `post-observe`, `end-of-turn`,
+  `denial-reason-delivery`, `continue-after-denial`, `transport:{missing-executable,non-zero,
+  timeout,malformed,empty}`, `hook-not-invoked` and `detached/quiescence`, each with one
+  explicit state — `PROVEN` / `PARTIAL` / `UNPROVEN` / `UNSUPPORTED` / `FAIL-OPEN` /
+  `INCONCLUSIVE`, never a percentage score. **`PROVEN` is gated on retained real-runtime probe
+  evidence** (`src/adapters/evidence.ts`, transcribed from the committed captures under
+  `harness/adapters/**/evidence/`) that matches the **full binding** on **every evidence-defining
+  field** — runtime name + exact version, the pinned SDK/protocol **component versions**, the
+  **TamperWard version + commit** the probe ran under, the **adapter capability hash**, the
+  **tested capability set**, hook-config hash, execution mode, platform and model. A change to any
+  one is a different binding, so stale evidence can never promote across a TamperWard, adapter,
+  SDK or protocol change; the adapter capability hash is required on both sides, so a record whose
+  hash is not authentically recoverable fails closed and never promotes. A static adapter
+  declaration (contract/mock/`preDeny` membership) can **never** promote a live capability to
+  `PROVEN`: it grades at most `PARTIAL` (declared at the boundary, unproven live), and an absent
+  capability grades `UNPROVEN`/`UNSUPPORTED`. A binding mismatch strips a `PROVEN` back to
+  `PARTIAL`; a probed-but-unresolved path is `INCONCLUSIVE`; a fail-open — declared or observed —
+  is surfaced verbatim as `FAIL-OPEN` (so `In-loop protection` can never aggregate to `FULL`).
+  `Final authority` is a constant `AVAILABLE`: CI / pristine `verify` is independent of the
+  runtime hook, so a weak in-loop capability never weakens adjudication. The qualification is
+  bound to the runtime version, TamperWard version/commit, adapter capability hash, hook-config
+  hash, execution mode, platform, model, tested capability set, timestamp and a deterministic
+  evidence id, and persisted git-locally. `tamperward runtime status` renders the latest recorded
+  qualification without rerunning it and marks it **STALE** when any load-bearing input changes.
+  Machine output is published as `schemas/runtime-qualification-v1.schema.json`. Grading consults
+  committed captures only — no live credentialed probe runs here (those are gated, #611/#616),
+  no runtime is promoted, and no Round 4.1 eligibility claim is made.
+
+  Review hardening (#599): `runtime status` now **validates** the git-local store before
+  rendering it — a record whose shape does not match the published schema, or whose `evidence_id`
+  or `in_loop_protection` no longer matches a recomputation from the stored binding + states, is
+  reported `recorded: false` with the reason (a hand-edited all-`PROVEN`/`FULL` record can no
+  longer render as trusted, and a non-array `capabilities` fails safe instead of an internal
+  error). TamperWard's **own build commit** is load-bearing for staleness (it already keyed the
+  evidence match): it is sourced from TamperWard's published package metadata (`gitHead`), never
+  from the qualified repository's HEAD, so a TamperWard build change reads STALE while an unrelated
+  commit in a consumer repository does **not** — and the evidence match is keyed on the same
+  TamperWard identity, so matching and staleness stay consistent. When TamperWard's build commit is
+  not authentically available (a dev/source tree), it is honestly `null`; no repository HEAD is ever
+  substituted. The hook-config binding reuses
+  the evaluated intervention wiring (parsed `hooks` + `disableAllHooks` across the project,
+  project-local, user and user-local Claude settings), so turning hooks off now invalidates the
+  qualification; the Copilot hook config is read from its documented path
+  `.github/hooks/tamperward.json`. `--mode` is validated (exit 2 on anything but
+  `headless`/`interactive`, no silent default), and qualifying an **absent** runtime (no `--runtime`, nothing detected) is
+  refused at exit 2 so the store holds no qualifications for runtimes that are not present. On a
+  persistence failure `verify` now **writes before it emits** and gates the `recorded: true`
+  success document on the write succeeding: nothing is persisted, so it prints an explicit
+  `recorded: false` failure document (never a success-shaped `recorded: true` stdout doc), reports
+  the failure on stderr and exits non-zero — a machine consumer parsing stdout can no longer
+  retain the opposite state from the store. A **rejected** store now explains itself on the text
+  surface too: `runtime status` prints the rejection reason (`note`) in the unrecorded block, so a
+  tampered or non-reproducing record is noticed where people look, not only under `--json`. When a
+  runtime is present but ships no adapter, the refusal now reads "no adapter-backed runtime
+  detected" rather than "no runtime detected".
 
 ## [2.36.0] — 2026-09-23
 
