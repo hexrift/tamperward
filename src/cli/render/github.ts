@@ -72,7 +72,9 @@ export function mdCode(s: string): string {
 
 /** Percent-encode the characters that would terminate a markdown link target. */
 export function mdUrl(s: string): string {
-  return s.replace(/[()<> \r\n"'`\\]/g, (c) => '%' + c.charCodeAt(0).toString(16).padStart(2, '0').toUpperCase());
+  // Encode each repository path segment independently so separators remain
+  // structural while #, ?, %, spaces, parentheses, and Unicode remain data.
+  return s.split('/').map((segment) => encodeURIComponent(segment)).join('/');
 }
 
 function locationCell(f: Finding, env: NodeJS.ProcessEnv): string {
@@ -85,8 +87,8 @@ function locationCell(f: Finding, env: NodeJS.ProcessEnv): string {
   const frag = f.line ? `#L${f.line}` : '';
   // The path is repository content. cell() escapes only `|`, so a path
   // containing `)` or a backtick broke out of the link (or the code span) into
-  // the rendered job summary. Escape the label for a code span and percent-
-  // encode the URL. (P2-14, external review.)
+  // the rendered job summary. Escape the label for a code span and encode each
+  // URL path segment. (P2-14, external review.)
   return `[\`${cell(mdCode(label))}\`](${server}/${repo}/blob/${sha}/${mdUrl(f.file)}${frag})`;
 }
 

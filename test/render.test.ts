@@ -205,6 +205,22 @@ describe('github job summary', () => {
     );
   });
 
+  it('encodes reserved filename characters without changing the URL fragment', () => {
+    const file = 'tests/topic#1?.test % (✓).ts';
+    const md = renderSummary(
+      { findings: [finding({ file, line: 3 })], scanned: 1, ignoredFiles: 0 },
+      env,
+    );
+    const target = md.match(/\]\(([^)]+)\)/)?.[1];
+    expect(target).toBeTruthy();
+    const url = new URL(target!);
+    expect(url.search).toBe('');
+    expect(url.hash).toBe('#L3');
+    const encodedPath = '/blob/abc123/';
+    expect(decodeURIComponent(url.pathname.slice(url.pathname.indexOf(encodedPath) + encodedPath.length))).toBe(file);
+    expect(url.pathname).toContain('topic%231%3F.test%20%25%20%28%E2%9C%93%29.ts');
+  });
+
   it('degrades to a plain code span without that context', () => {
     const md = renderSummary({ findings: [finding()], scanned: 1, ignoredFiles: 0 }, {});
     expect(md).toContain('`src/calc.test.ts:12`');
