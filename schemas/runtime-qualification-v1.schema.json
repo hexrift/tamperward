@@ -1,0 +1,179 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/hexrift/tamperward/v1/schemas/runtime-qualification-v1.schema.json",
+  "title": "TamperWard runtime qualification JSON output v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "command",
+    "subcommand",
+    "recorded",
+    "stale",
+    "changed_inputs",
+    "runtime",
+    "tamperward",
+    "adapter",
+    "hook_config_hash",
+    "execution_mode",
+    "platform",
+    "model",
+    "tested_capabilities",
+    "timestamp",
+    "evidence_id",
+    "capabilities",
+    "in_loop_protection",
+    "final_authority",
+    "note"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "command": { "const": "runtime" },
+    "subcommand": { "enum": ["verify", "status"] },
+    "recorded": { "type": "boolean" },
+    "stale": { "type": "boolean" },
+    "changed_inputs": { "type": "array", "items": { "type": "string" } },
+    "runtime": {
+      "type": "object",
+      "required": ["id", "label", "version"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "label": { "type": "string", "minLength": 1 },
+        "version": { "type": ["string", "null"] }
+      },
+      "additionalProperties": true
+    },
+    "tamperward": {
+      "type": "object",
+      "required": ["version", "commit"],
+      "properties": {
+        "version": { "type": "string", "minLength": 1 },
+        "commit": { "type": ["string", "null"] }
+      },
+      "additionalProperties": true
+    },
+    "adapter": {
+      "type": "object",
+      "required": ["name", "capability_hash"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "capability_hash": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": true
+    },
+    "hook_config_hash": { "type": ["string", "null"] },
+    "execution_mode": { "enum": ["headless", "interactive"] },
+    "platform": { "type": "string", "minLength": 1 },
+    "model": { "type": ["string", "null"] },
+    "tested_capabilities": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "pre-deny:shell",
+          "pre-deny:native-edit",
+          "pre-deny:delete",
+          "pre-deny:rename",
+          "pre-deny:git-mutation",
+          "pre-deny:mcp",
+          "post-observe",
+          "end-of-turn",
+          "denial-reason-delivery",
+          "continue-after-denial",
+          "transport:missing-executable",
+          "transport:non-zero",
+          "transport:timeout",
+          "transport:malformed",
+          "transport:empty",
+          "hook-not-invoked",
+          "detached/quiescence"
+        ]
+      }
+    },
+    "timestamp": { "type": "string", "minLength": 1 },
+    "evidence_id": { "type": "string", "minLength": 1 },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "state", "evidence"],
+        "properties": {
+          "id": {
+            "enum": [
+              "pre-deny:shell",
+              "pre-deny:native-edit",
+              "pre-deny:delete",
+              "pre-deny:rename",
+              "pre-deny:git-mutation",
+              "pre-deny:mcp",
+              "post-observe",
+              "end-of-turn",
+              "denial-reason-delivery",
+              "continue-after-denial",
+              "transport:missing-executable",
+              "transport:non-zero",
+              "transport:timeout",
+              "transport:malformed",
+              "transport:empty",
+              "hook-not-invoked",
+              "detached/quiescence"
+            ]
+          },
+          "state": {
+            "enum": ["PROVEN", "PARTIAL", "UNPROVEN", "UNSUPPORTED", "FAIL-OPEN", "INCONCLUSIVE"]
+          },
+          "evidence": {
+            "type": "object",
+            "required": ["source", "detail"],
+            "properties": {
+              "source": {
+                "enum": ["adapter-declaration", "adapter-unsupported", "contract", "committed-evidence", "not-declared"]
+              },
+              "detail": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "in_loop_protection": { "enum": ["FULL", "PARTIAL", "NONE"] },
+    "final_authority": { "const": "AVAILABLE" },
+    "note": { "type": "string" }
+  },
+  "additionalProperties": true,
+  "description": "Emitted by `tamperward runtime verify --json` and `tamperward runtime status --json` (#599). A version-bound, operation-specific runtime capability report. `in_loop_protection` is FULL only when every required capability is PROVEN with no FAIL-OPEN/INCONCLUSIVE. `final_authority` is a constant AVAILABLE: CI / pristine verification is independent of the runtime hook. No percentage score. Additive within schema major 1.",
+  "examples": [
+    {
+      "schema_version": 1,
+      "command": "runtime",
+      "subcommand": "verify",
+      "recorded": true,
+      "stale": false,
+      "changed_inputs": [],
+      "runtime": { "id": "claude-code", "label": "Claude Code", "version": null },
+      "tamperward": { "version": "2.35.0", "commit": null },
+      "adapter": { "name": "claude-code", "capability_hash": "0123456789abcdef" },
+      "hook_config_hash": null,
+      "execution_mode": "headless",
+      "platform": "linux-x64",
+      "model": null,
+      "tested_capabilities": ["pre-deny:shell", "end-of-turn", "transport:timeout"],
+      "timestamp": "2026-09-23T00:00:00.000Z",
+      "evidence_id": "fedcba9876543210",
+      "capabilities": [
+        {
+          "id": "pre-deny:shell",
+          "state": "PROVEN",
+          "evidence": { "source": "adapter-declaration", "detail": "declared preDeny includes 'shell' (a shell/exec tool call)" }
+        },
+        {
+          "id": "transport:timeout",
+          "state": "PARTIAL",
+          "evidence": { "source": "contract", "detail": "the neutral steering contract maps this transport failure to a fail-closed deny at the adapter boundary (failsClosed); full live-runtime honoring across execution modes is not separately proven by static qualification" }
+        }
+      ],
+      "in_loop_protection": "PARTIAL",
+      "final_authority": "AVAILABLE",
+      "note": "States are derived from the shipped adapter's declared capabilities and committed evidence, not a live in-process probe."
+    }
+  ]
+}

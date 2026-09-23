@@ -181,6 +181,67 @@ tamperward doctor --github --repo owner/repo --branch main
 Postures: `READY`, `READY WITH WARNINGS`, `INCOMPLETE`, `BROKEN`. Set `GH_TOKEN` /
 `GITHUB_TOKEN` when GitHub requires authentication.
 
+## Runtime qualification: `runtime verify`, `runtime status`
+
+Turn the binary "runtime detected" label into a **version-bound, operation-specific
+capability model**. `runtime verify` reports what is *proven on this runtime/version/config*
+today; `runtime status` renders the latest recorded qualification without rerunning it and
+marks it **STALE** when a load-bearing input has changed.
+
+```bash
+tamperward runtime verify                       # qualify the detected in-loop runtime
+tamperward runtime verify --runtime claude-code --json
+tamperward runtime status                        # render the latest qualification (no rerun)
+```
+
+| flag | meaning |
+| --- | --- |
+| `--runtime <id>` | Adapter to qualify (`claude-code`, `codex`, `github-copilot-cli`, `github-copilot-sdk-hosted`; aliases `claude`, `copilot`, `copilot-sdk`). Defaults to the detected in-loop runtime, else `claude-code`. |
+| `--mode headless\|interactive` | Execution mode the qualification is bound to (default `headless`). |
+| `--model <id>` | Model/config relevant to tool routing, recorded in the binding. |
+| `--json` | Emit the `runtime-qualification` document (`schemas/runtime-qualification-v1.schema.json`). |
+| `--cwd <dir>` | Repository directory. |
+
+### The capability model
+
+Each capability carries **one explicit state** — never a percentage score:
+
+| state | meaning |
+| --- | --- |
+| `PROVEN` | The adapter structurally declares this capability (or committed evidence proves it). |
+| `PARTIAL` | Guaranteed at the adapter/contract boundary; full live-runtime honoring across modes is not separately proven. |
+| `UNPROVEN` | No evidence either way — the conservative default. **Never read as "unsupported-safe".** |
+| `UNSUPPORTED` | The adapter declares it does not provide this capability. |
+| `FAIL-OPEN` | A declared failure mode lets the operation proceed. Surfaced verbatim; can never count toward FULL support. |
+| `INCONCLUSIVE` | Evidence exists but does not resolve the state. |
+
+Capabilities reported: `pre-deny:{shell,native-edit,delete,rename,git-mutation,mcp}`,
+`post-observe`, `end-of-turn`, `denial-reason-delivery`, `continue-after-denial`,
+`transport:{missing-executable,non-zero,timeout,malformed,empty}`, `hook-not-invoked`,
+`detached/quiescence`. Every state cites its evidence source (`adapter-declaration`,
+`adapter-unsupported`, `contract`, `committed-evidence`, `not-declared`), so a negative or
+fail-open result is preserved, never hidden.
+
+`In-loop protection` aggregates to `FULL` **only** when every required capability is `PROVEN`
+with no `FAIL-OPEN`/`INCONCLUSIVE`; otherwise `PARTIAL` or `NONE`. `Final authority`
+(CI / pristine `verify`) is a constant **AVAILABLE**: it is independent of the runtime hook,
+so a weak in-loop capability never weakens adjudication. Steering and authority stay separate.
+
+This surface **reports existing facts only** — the declared adapter capabilities (#482) and
+committed evidence. It runs no live in-process probe, promotes no runtime, and makes no
+Round 4.1 eligibility claim. A deeper real-runtime conformance probe lives in
+`npm run probe:*` / `spike:*`.
+
+### Binding and staleness
+
+A qualification is bound to the inputs that make it interpretable: runtime name + exact
+version, TamperWard version/commit, adapter capability hash, hook-config hash, execution mode,
+platform, model, tested capability set, timestamp and a deterministic evidence id. The record
+is stored git-locally (`.git/tamperward/runtime-qualification.json`, uncommitted). If any
+load-bearing input changes — a new runtime version, an edited hook config, a changed adapter,
+a different platform or execution mode — `runtime status` reports the previous qualification as
+**STALE** and points at `tamperward runtime verify`.
+
 ## Observation & audit: `watch`, `stats`
 
 ### `watch`

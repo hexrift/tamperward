@@ -60,6 +60,35 @@ the `unsupported` outcome — **no decision, no deny wire**. The phase→hook ma
 route `post-action` to any deny-capable hook rather than silently falling through to
 PreToolUse: a post-edit observation must never be treated as a pre-execution veto.
 
+## Qualifying a runtime: `runtime verify`
+
+The `RuntimeCapabilities` declaration is the source of truth for an **honest, version-bound
+qualification**. `tamperward runtime verify` reads a runtime's declared capabilities (and any
+committed real-runtime evidence) and reports a **capability matrix** at a finer granularity
+than the operation kinds — one explicit state per capability:
+
+| state | derived when |
+| --- | --- |
+| `PROVEN` | the operation kind is in the declared `preDeny` (or `postObserve`/`endOfTurn` is declared, or committed evidence proves it) |
+| `PARTIAL` | guaranteed at the adapter/contract boundary (e.g. the contract fails transport failures closed), but full live honoring is unproven |
+| `UNPROVEN` | absent from the declaration with no evidence either way — **never** read as safe |
+| `UNSUPPORTED` | the adapter declares it does not provide the capability |
+| `FAIL-OPEN` | an `unsupported` entry names a failure mode that lets the operation proceed — surfaced verbatim |
+| `INCONCLUSIVE` | evidence exists but does not resolve the state |
+
+So a runtime whose `preDeny` is empty reports `pre-deny:*` as `UNPROVEN` — never a fabricated
+`PROVEN` — and a runtime whose `unsupported` says a hook timeout *fails open* reports
+`transport:timeout` as `FAIL-OPEN`, which can then never aggregate to `FULL` in-loop
+protection. `Final authority` (CI / pristine `verify`) is reported as a constant `AVAILABLE`:
+it is independent of the runtime hook, so a weak in-loop capability never weakens adjudication.
+
+This is a **reporting surface over existing facts** (the adapter declaration, #482) — it runs
+no live in-process probe, promotes no runtime, and makes no qualification claim of its own. The
+result is bound to the runtime version, TamperWard version/commit, adapter capability hash,
+hook-config hash, execution mode, platform, model and tested capability set; `runtime status`
+renders the stored qualification and marks it **STALE** when any of those load-bearing inputs
+changes. See the [CLI reference](../reference/cli.md#runtime-qualification-runtime-verify-runtime-status).
+
 ## Mapping to the research adapter layers
 
 The research runner (`src/research/adapter.ts`) records, per gated run, a coarse `layers`

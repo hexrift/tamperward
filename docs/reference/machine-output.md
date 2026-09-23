@@ -126,6 +126,17 @@ Full contract:
 | `doctor --json` | Installation + authority posture. | [`schemas/doctor-v1.schema.json`](https://github.com/hexrift/tamperward/blob/main/schemas/doctor-v1.schema.json) |
 | `research run --json` / `research summarize` | Paired records and the aggregate summary (from **2.23.0**). | [`schemas/research-v1.schema.json`](https://github.com/hexrift/tamperward/blob/main/schemas/research-v1.schema.json) |
 | `stats --json` | Aggregate audit document. | [`schemas/stats-v1.schema.json`](https://github.com/hexrift/tamperward/blob/main/schemas/stats-v1.schema.json) |
+| `runtime verify --json` / `runtime status --json` | Version-bound, operation-specific runtime capability qualification (from **2.35.0**). | [`schemas/runtime-qualification-v1.schema.json`](https://github.com/hexrift/tamperward/blob/main/schemas/runtime-qualification-v1.schema.json) |
+
+The `runtime-qualification` document reports **one explicit state per capability**
+(`PROVEN` \| `PARTIAL` \| `UNPROVEN` \| `UNSUPPORTED` \| `FAIL-OPEN` \| `INCONCLUSIVE`) with
+its evidence source — never a percentage score. `in_loop_protection` is `FULL` only when every
+required capability is `PROVEN` with no `FAIL-OPEN`/`INCONCLUSIVE`; `final_authority` is a
+constant `AVAILABLE` (CI / pristine `verify` is independent of the runtime hook). The result is
+bound to the runtime version, TamperWard version/commit, adapter capability hash, hook-config
+hash, execution mode, platform, model, tested capability set and a deterministic evidence id;
+`status` marks a stored qualification `stale` when any load-bearing input changed. See
+[Runtime qualification](cli.md#runtime-qualification-runtime-verify-runtime-status).
 
 ## The audit event
 
