@@ -172,5 +172,29 @@ describe('evidence-branch git choreography (#518)', () => {
     expect(readFileSync(join(check, 'events', '2026', '10', 'second.jsonl'), 'utf8')).toBe(event(3));
     expect(readFileSync(join(check, 'ingested', 'batches.jsonl'), 'utf8').trim().split('\n')).toHaveLength(2);
     expect(JSON.parse(readFileSync(join(check, 'summaries', 'all-time.json'), 'utf8'))).toMatchObject({ events: 3 });
+
+    // A stale shard file committed on the branch (as a corrupted index would be)
+    // is removed by a full-checkout rebuild, and the deletion is staged and pushed.
+    writeFileSync(join(check, 'ids', 'fe.jsonl'), JSON.stringify({ id: 'sha256:fe' + 'a'.repeat(30), content_sha256: 'c'.repeat(64) }) + '\n');
+    git(check, 'add', '-A');
+    git(check, 'commit', '--quiet', '-m', 'stale shard');
+    git(check, 'push', '--quiet', 'origin', 'HEAD:refs/heads/tamperward-audit');
+    const full = join(work, 'full');
+    expect(choreography('clone-store', url, full, '--full').status).toBe(0);
+    expect(existsSync(join(full, 'ids', 'fe.jsonl'))).toBe(true);
+    const none = join(work, 'none');
+    mkdirSync(none);
+    const changedFull = join(work, 'changed-full.txt');
+    const rebuilt = publish(full, none, changedFull, true);
+    expect(rebuilt.status, rebuilt.stderr).toBe(0);
+    expect(readFileSync(changedFull, 'utf8')).toContain('ids/fe.jsonl');
+    expect(existsSync(join(full, 'ids', 'fe.jsonl'))).toBe(false);
+    expect(choreography('stage', full, changedFull).stdout.trim()).toBe('staged');
+    git(full, 'commit', '--quiet', '-m', 'rebuild');
+    git(full, 'push', '--quiet', 'origin', 'HEAD:refs/heads/tamperward-audit');
+    const after = join(work, 'after');
+    git(work, 'clone', '--quiet', '--branch', 'tamperward-audit', '--single-branch', url, after);
+    expect(existsSync(join(after, 'ids', 'fe.jsonl'))).toBe(false);
+    expect(readFileSync(join(after, 'events', '2026', '10', 'second.jsonl'), 'utf8')).toBe(event(3));
   });
 });

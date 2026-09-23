@@ -285,6 +285,49 @@ describe('partitioned evidence store (#518)', () => {
     expect(existsSync(join(store, 'events', '2026', '09', 'one-more.jsonl'))).toBe(false);
   });
 
+  it('a rebuild removes shard files the partitions no longer account for and judges later events against the rebuilt truth', () => {
+    const { store } = legacyStore();
+    expect(publish(store, candidates({ 'batch-a': lines([event(4)]) })).status).toBe(0);
+    // Entries no partition holds, as a corrupted or forged index would leave
+    // behind, in prefixes no stored event uses. One prefix receives a real event
+    // in the same run; the other stays empty.
+    const ghostId = 'sha256:ff' + 'a'.repeat(30);
+    const ghostSession = 'sha256:ff' + 'b'.repeat(22);
+    const staleHash = 'c'.repeat(64);
+    writeFileSync(join(store, 'ids', 'ff.jsonl'), JSON.stringify({ id: ghostId, content_sha256: staleHash }) + '\n');
+    writeFileSync(join(store, 'sessions', 'ff.txt'), ghostSession + '\n');
+    writeFileSync(join(store, 'ids', 'fe.jsonl'), JSON.stringify({ id: 'sha256:fe' + 'a'.repeat(30), content_sha256: staleHash }) + '\n');
+    writeFileSync(join(store, 'sessions', 'fe.txt'), 'sha256:fe' + 'b'.repeat(22) + '\n');
+
+    // Without the rebuild the ghost id would be a phantom conflict and the ghost
+    // session an uncounted duplicate.
+    const changed = join(tempDir(), 'changed.txt');
+    const real = event(5, { id: ghostId, session: ghostSession });
+    const result = publish(store, candidates({ 'batch-b': lines([real]) }), { rebuild: true, changed });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stderr).toContain('4 stale shard file(s) removed');
+
+    const written = readFileSync(changed, 'utf8').trim().split('\n');
+    for (const rel of ['ids/ff.jsonl', 'sessions/ff.txt', 'ids/fe.jsonl', 'sessions/fe.txt']) expect(written).toContain(rel);
+    expect(existsSync(join(store, 'ids', 'fe.jsonl'))).toBe(false);
+    expect(existsSync(join(store, 'sessions', 'fe.txt'))).toBe(false);
+    const ffIds = readFileSync(join(store, 'ids', 'ff.jsonl'), 'utf8').trim().split('\n');
+    expect(ffIds).toHaveLength(1);
+    expect(ffIds[0]).toContain(`"id":"${ghostId}"`);
+    expect(ffIds[0]).not.toContain(staleHash);
+    expect(readFileSync(join(store, 'sessions', 'ff.txt'), 'utf8')).toBe(ghostSession + '\n');
+    const entry = ledgerOf(store).find((e) => e.batch_id === 'batch-b')!;
+    expect(entry).toMatchObject({ event_count: 1, stored_events: 1 });
+    expect(summaryOf(store)).toEqual(summarizeAudit(parseAuditJsonl(lines([event(1), event(2), event(3), event(4), real]))));
+
+    // The rebuilt store is consistent: the next run folds forward and changes nothing.
+    const before = snapshot(store);
+    const again = publish(store, candidates({ 'batch-b': lines([real]) }));
+    expect(again.status, again.stderr).toBe(0);
+    expect(again.stderr).not.toContain('rebuilt');
+    expect(changedBetween(before, snapshot(store))).toEqual([]);
+  });
+
   it('handles a large synthetic history: a 20,000-event batch, then a rebuild that reproduces it', () => {
     const { store } = legacyStore();
     // Real event ids are hashes, so they spread over all 256 shards.

@@ -418,6 +418,11 @@ export class Shards {
  * id and session shards and the fold state. Memory is bounded by one line plus
  * the largest shard: ids and sessions are first spooled into 256 temporary
  * shard files each, then each shard is sorted and checked on its own.
+ *
+ * The shard directories are wholly derived, so a rebuild also names every
+ * existing shard file the partitions no longer account for (`removed`): a
+ * stale entry left behind would later reject a valid event as a phantom
+ * conflict, swallow it as a phantom duplicate, or undercount sessions.
  */
 export function rebuild(storeDir, ledger, validateEvent, tmpDir) {
   rmSync(tmpDir, { recursive: true, force: true });
@@ -496,7 +501,21 @@ export function rebuild(storeDir, ledger, validateEvent, tmpDir) {
     }
   }
   rmSync(tmpDir, { recursive: true, force: true });
-  return { state, shards };
+
+  const regenerated = new Set(shards.map((shard) => shard.rel));
+  const removed = [];
+  for (const [kind, pattern] of [['ids', /^[0-9a-f]{2}\.jsonl$/], ['sessions', /^[0-9a-f]{2}\.txt$/]]) {
+    const dir = join(storeDir, kind);
+    if (!existsSync(dir)) continue;
+    if (!lstatSync(dir).isDirectory()) throw new Error(`audit-publish: ${kind} directory is not a directory`);
+    for (const file of readdirSync(dir).sort()) {
+      const rel = `${kind}/${file}`;
+      if (!pattern.test(file)) throw new Error(`audit-publish: ${rel} is not a shard file; the ${kind} directory holds only derived shards`);
+      refuseSymlink(join(dir, file), rel);
+      if (!regenerated.has(rel)) removed.push(rel);
+    }
+  }
+  return { state, shards, removed };
 }
 
 /**

@@ -16,8 +16,9 @@
 #       remote has none yet.
 #   audit-store-git.sh stage <dir> <changed-paths-file>
 #       Stages exactly the store-relative paths listed in the file (one per
-#       line), including new partition files outside the sparse cone. Prints
-#       "staged" or "nothing".
+#       line): new partition files outside the sparse cone, rewritten shards,
+#       and shard files a rebuild deleted (a listed path that no longer exists
+#       stages its removal). Prints "staged" or "nothing".
 set -euo pipefail
 
 BRANCH=tamperward-audit

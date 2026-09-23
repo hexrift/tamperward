@@ -151,8 +151,10 @@ takes a sparse clone that holds the ledger, the shards and the summaries but no
 partition. A store written before partitioning keeps its `events/all.jsonl`
 frozen; the first ingestion after the upgrade streams it once to build the shards
 and the state. Dispatching the workflow with `rebuild: true` regenerates every
-derived file by streaming all partitions from a full checkout; the publisher
-also rebuilds on its own whenever the derived state disagrees with the ledger.
+derived file by streaming all partitions from a full checkout (a shard file the
+partitions no longer account for is removed, so the index is exactly what the
+partitions say); the publisher also rebuilds on its own whenever the derived
+state disagrees with the ledger.
 
 Hard limits, each an exit-2 refusal that names the limit: one event line is at
 most 16 KiB, one batch at most 16 MiB and 50,000 events, and one month holds at

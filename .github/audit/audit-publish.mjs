@@ -11,12 +11,12 @@
 //          [--rebuild] [--changed-paths <file>]
 //   --rebuild        stream every stored partition and regenerate shards and state
 //                    before ingesting (also what happens when the state is unusable)
-//   --changed-paths  write the store-relative paths this run created or rewrote,
-//                    one per line, for the caller to stage
+//   --changed-paths  write the store-relative paths this run created, rewrote or
+//                    deleted, one per line, for the caller to stage
 // Exit 0: done (possibly nothing new). Exit 1: integrity refusal, nothing
 // written. Exit 2: a hard limit exceeded or bad usage, nothing written.
 
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { loadAuditSchema, validateAuditJsonl } from './audit-verify.mjs';
@@ -91,12 +91,13 @@ try {
   // ---- derived state: fold forward when it agrees with the ledger, else rebuild.
   let state = options.rebuild ? null : parseState(readTextIfPresent(statePath, paths.state));
   let rebuiltShards = [];
+  let staleShards = [];
   let rebuilt = false;
   if (options.rebuild || !stateIsConsistent(storeDir, state, ledger)) {
     const hasEvents = existsSync(join(storeDir, paths.legacyEvents)) || ledger.entries.some((entry) => entry.partition);
     if (hasEvents || options.rebuild) {
       const tmp = join(tmpdir(), `tamperward-audit-rebuild-${process.pid}`);
-      ({ state, shards: rebuiltShards } = rebuild(storeDir, ledger, validateEvent, tmp));
+      ({ state, shards: rebuiltShards, removed: staleShards } = rebuild(storeDir, ledger, validateEvent, tmp));
       rebuilt = true;
     } else {
       state = emptyState();
@@ -104,7 +105,14 @@ try {
   }
   const shards = new Shards(storeDir);
   // A rebuild replaces every shard: seed the lazy loader from the regenerated
-  // content so ingestion below never reads a stale shard from disk.
+  // content so ingestion below never reads a stale shard from disk. A shard the
+  // partitions no longer account for is seeded empty here and deleted in the
+  // write phase, so a candidate that hashes into it is judged against the
+  // rebuilt truth, never against the stale file.
+  for (const rel of staleShards) {
+    if (rel.startsWith('ids/')) shards.ids.set(rel, new Map());
+    else shards.sessions.set(rel, new Set());
+  }
   for (const shard of rebuiltShards) {
     if (shard.rel.startsWith('ids/')) {
       const map = new Map();
@@ -202,6 +210,12 @@ try {
     writeFileSync(path, content);
     changed.push(rel);
   };
+  for (const rel of staleShards) {
+    const path = join(storeDir, rel);
+    refuseSymlink(path, rel);
+    rmSync(path, { force: true });
+    changed.push(rel);
+  }
   for (const partition of newPartitions) {
     if (existsSync(join(storeDir, partition.rel))) throw new Error(`audit-publish: partition ${partition.rel} already exists`);
     write(partition.rel, partition.content);
@@ -218,7 +232,8 @@ try {
   if (options.changedPaths) writeFileSync(options.changedPaths, changed.map((rel) => rel + '\n').join(''));
   console.error(
     `audit-publish: ${candidateFiles.length} candidate(s), ${appendedLedger.length} new batch(es), ${newEvents} new event(s), ` +
-    `${ledger.entries.length} total batch(es), ${state.events} stored event(s)${rebuilt ? ', derived state rebuilt from the partitions' : ''}`,
+    `${ledger.entries.length} total batch(es), ${state.events} stored event(s)${rebuilt ? ', derived state rebuilt from the partitions' : ''}` +
+    (staleShards.length ? `, ${staleShards.length} stale shard file(s) removed` : ''),
   );
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
