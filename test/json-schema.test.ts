@@ -35,6 +35,12 @@ import {
 const ROOT = resolve(__dirname, '..');
 const dirs: string[] = [];
 const SCHEMA_NAMES = ['check', 'verify', 'run', 'doctor', 'research', 'audit', 'stats'] as const;
+const PUBLISHED_SCHEMA_COMMIT = '097b8042884ede38c19a0e3b1730f5db9dc33fbb';
+const PUBLISHED_SCHEMA_BASE = 'https://raw.githubusercontent.com/hexrift/tamperward/' + PUBLISHED_SCHEMA_COMMIT + '/schemas';
+const PUBLISHED_SCHEMA_FILES = [
+  ...SCHEMA_NAMES.map((name) => name + '-v1.schema.json'),
+  'research-stdio-v1.schema.json',
+] as const;
 type SchemaName = typeof SCHEMA_NAMES[number];
 type NpmPackEntry = { filename: string; files?: Array<{ path: string }> };
 
@@ -276,10 +282,17 @@ describe('machine-readable schema v1 (#333)', () => {
     ).toBe(false);
   });
 
+  it('every published v1 schema uses a content-pinned canonical ID (#662)', () => {
+    for (const filename of PUBLISHED_SCHEMA_FILES) {
+      const schema = JSON.parse(readFileSync(join(ROOT, 'schemas', filename), 'utf8')) as { $id?: unknown };
+      expect(schema.$id).toBe(PUBLISHED_SCHEMA_BASE + '/' + filename);
+    }
+  });
+
   it('v1 schemas have stable IDs and self-validating examples (#425)', () => {
     for (const name of SCHEMA_NAMES) {
       const schema = schemaFrom(ROOT, name);
-      expect(schema.$id).toBe(`https://raw.githubusercontent.com/hexrift/tamperward/v1/schemas/${name}-v1.schema.json`);
+      expect(schema.$id).toBe(PUBLISHED_SCHEMA_BASE + '/' + name + '-v1.schema.json');
       expect(schema.examples).toEqual(expect.any(Array));
       expect(schema.examples.length).toBeGreaterThan(0);
       for (const example of schema.examples) {
