@@ -13,6 +13,16 @@ updates:
       actions:
         patterns:
           - "*"
+    ignore:
+      # `upload-artifact` and `download-artifact` share an artifact format, so
+      # `test/workflow-pins.test.ts` requires the pair on ONE major everywhere. Their majors
+      # do not ship in lockstep (#476 put upload on v7 and download on v8), so a grouped
+      # major bump splits the pair and fails the guard. Hold both majors here and move the
+      # pair together by hand (#629); patch and minor updates still flow.
+      - dependency-name: "actions/upload-artifact"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "actions/download-artifact"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: npm
     directory: /
     schedule:
