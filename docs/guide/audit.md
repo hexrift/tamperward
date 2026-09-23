@@ -168,6 +168,13 @@ gh workflow run tamperward-audit.yml --ref main \
   -f batch="$(tail -n 100 "$AUDIT")"
 ```
 
+The dispatch candidate filename is `dispatch-${GITHUB_RUN_ID}.jsonl`. The run id is
+unique for each logical workflow dispatch and remains stable when that same run is
+retried, so two uploads at one `GITHUB_SHA` coexist while a retry remains
+idempotent. The ledger records that `GITHUB_SHA` separately as `source_sha`, which
+identifies the trusted repository revision that produced the upload; it is not the
+batch identity.
+
 Only submit the structured `TAMPERWARD_AUDIT_LOG`. Workflow-dispatch inputs become
 GitHub data before the job can validate them, so the workflow cannot make an unsafe
 input private after the fact.
