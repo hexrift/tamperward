@@ -21,12 +21,17 @@ import {
   commandAdapter,
   normalizeCommandArgv,
   resolveAdapter,
+  stdioAdapter,
   type AdapterTask,
 } from '../src/research/adapter';
+import { createResearchBundle, validateResearchBundle } from '../src/research/bundle';
+import { createResearchManifest } from '../src/research/init';
 import { readManifest } from '../src/research/manifest';
 import { pairRecordFrom, type PairRecord, type TrajectoryRecord } from '../src/research/record';
+import { renderResearchReport } from '../src/research/report';
 import { acquireResearchLock, runResearch, trustedProtectedOnly } from '../src/research/run';
 import { summarizeLedger, summarizeRecords } from '../src/research/summarize';
+import { encodeStdioMessage, parseStdioMessage, STDIO_PROTOCOL } from '../src/research/stdio';
 
 const ROOT = resolve(__dirname, '..');
 const dirs: string[] = [];
@@ -159,8 +164,8 @@ describe('research policy snapshot (#527)', () => {
 });
 
 describe('AgentAdapter contract', () => {
-  it('ships exactly the two built-in adapters and the three named layers', () => {
-    expect([...BUILTIN_ADAPTERS]).toEqual(['claude-code', 'command']);
+  it('ships the built-in adapters and the three named layers', () => {
+    expect([...BUILTIN_ADAPTERS]).toEqual(['claude-code', 'command', 'stdio']);
     expect([...ADAPTER_LAYERS]).toEqual(['envelope', 'pre-tool-use', 'stop-sweep']);
   });
 
@@ -246,6 +251,50 @@ describe('AgentAdapter contract', () => {
     expect(resolveAdapter('claude-code', []).name).toBe('claude-code');
     expect(() => resolveAdapter('command', [])).toThrow(/command adapter needs an agent command after "--"/);
     expect(() => resolveAdapter('adapter:./mine.mjs', [])).toThrow(/unknown adapter "adapter:\.\/mine\.mjs"/);
+  });
+
+  it('stdio adapter advertises the envelope only and carries the protocol identity', () => {
+    const a = stdioAdapter(['runtime', '{task}']);
+    expect(a.name).toBe('stdio');
+    expect([...a.layers]).toEqual(['envelope']);
+    const launch = a.launch(task({ arm: 'gated' }));
+    expect(launch.argv).toEqual(['runtime', 't1']);
+    expect(launch.env.TAMPERWARD_RESEARCH_PROTOCOL).toBe(STDIO_PROTOCOL);
+    expect(JSON.parse(launch.env.TAMPERWARD_RESEARCH_CAPABILITIES)).toEqual({ layers: ['envelope'], intervention: 'not-connected' });
+  });
+
+  it('stdio protocol rejects unknown messages and preserves explicit capability state', () => {
+    const hello = { type: 'hello', protocol: STDIO_PROTOCOL, runtime: 'example', capabilities: { layers: ['envelope'], intervention: 'not-connected' } } as const;
+    expect(parseStdioMessage(encodeStdioMessage(hello).trim())).toEqual(hello);
+    expect(parseStdioMessage('{"type":"run","run_id":"r1","status":"started"}')).toEqual({ type: 'run', run_id: 'r1', status: 'started' });
+    expect(() => parseStdioMessage('{"type":"hello","protocol":"wrong"}')).toThrow(/protocol/);
+    expect(() => parseStdioMessage('{"type":"event","event":"unknown"}')).toThrow(/event/);
+  });
+});
+
+describe('research authoring, reports and bundles (#481)', () => {
+  it('authors a versioned manifest without overwriting an existing file', () => {
+    const dir = tmp();
+    const path = createResearchManifest({ out: join(dir, 'tasks.json'), repo: 'https://github.com/acme/demo.git', prompt: 'fix it', verifyCommand: 'npm test', verifyBudget: 30 });
+    const manifest = readManifest(path);
+    expect(manifest.tasks[0]).toMatchObject({ id: 'demo', base: 'HEAD', prompt: 'fix it', verify: { command: 'npm test', budget: 30 } });
+    expect(() => createResearchManifest({ out: path, repo: 'demo', prompt: 'x', verifyCommand: 'y' })).toThrow(/refuses to overwrite/);
+  });
+
+  it('renders four separate report families and validates a provenance-checked bundle', () => {
+    const dir = tmp();
+    const ledger = join(dir, 'ledger');
+    mkdirSync(join(ledger, 'pairs'), { recursive: true });
+    writeFileSync(join(ledger, 'pairs', 'honest--1.json'), JSON.stringify(validPair(), null, 2) + '\n');
+    const summary = summarizeLedger(ledger);
+    const report = renderResearchReport(summary);
+    expect(report).toContain('MODEL BEHAVIOUR');
+    expect(report).toContain('CONTROL RESPONSE');
+    expect(report).toContain('INDEPENDENT OUTCOME');
+    expect(report).toContain('TAMPERWARD PERFORMANCE');
+    expect(report).not.toMatch(/composite score/i);
+    const archive = createResearchBundle({ ledger, out: join(dir, 'research.tgz') });
+    expect(validateResearchBundle(archive)).toEqual({ records: 1, manifest_sha256: 'b'.repeat(64) });
   });
 });
 
@@ -548,7 +597,7 @@ describe('task manifest', () => {
 describe('CLI grammar', () => {
   it('research needs a subcommand and validates each subcommand grammar before any side effect', () => {
     expect(validateCliArgs('research', [])).toMatch(/research requires a subcommand/);
-    expect(validateCliArgs('research', ['init'])).toMatch(/unknown research subcommand "init"/);
+    expect(validateCliArgs('research', ['init'])).toMatch(/research init requires --out/);
     expect(validateCliArgs('research', ['run', '--manifest', 'm.json', '--out', 'l', '--adapter', 'command', '--', 'sh', '-c', 'true'])).toBeUndefined();
     expect(validateCliArgs('research', ['run', '--manifest', 'm.json', '--out', 'l', '--adapter', 'command', '--break-lock', '--', 'sh', '-c', 'true'])).toBeUndefined();
     expect(validateCliArgs('research', ['run', '--manifest', 'm.json', '--out', 'l', '--adapter', 'claude-code', '--model', 'x', '--pairs', '3', '--agent-budget', '60', '--json'])).toBeUndefined();
@@ -560,6 +609,10 @@ describe('CLI grammar', () => {
     expect(validateCliArgs('research', ['summarize', '--ledger', 'l'])).toBeUndefined();
     expect(validateCliArgs('research', ['summarize'])).toMatch(/--ledger/);
     expect(validateCliArgs('research', ['summarize', '--ledger', 'l', 'extra'])).toMatch(/unexpected argument "extra"/);
+    expect(validateCliArgs('research', ['init', '--out', 'm', '--repo', 'r', '--prompt', 'p', '--verify-command', 'npm test'])).toBeUndefined();
+    expect(validateCliArgs('research', ['report', '--ledger', 'l', '--json'])).toBeUndefined();
+    expect(validateCliArgs('research', ['bundle', '--ledger', 'l', '--out', 'b'])).toBeUndefined();
+    expect(validateCliArgs('research', ['validate', '--bundle', 'b'])).toBeUndefined();
   });
 
   it('serializes writers for one ledger and only breaks an explicitly stale lock', () => {

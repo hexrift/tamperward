@@ -29,7 +29,7 @@ export type AdapterLayer = (typeof ADAPTER_LAYERS)[number];
 export const RESEARCH_ARMS = ['ungated', 'gated'] as const;
 export type ResearchArm = (typeof RESEARCH_ARMS)[number];
 
-export const BUILTIN_ADAPTERS = ['claude-code', 'command'] as const;
+export const BUILTIN_ADAPTERS = ['claude-code', 'command', 'stdio'] as const;
 export type BuiltinAdapterName = (typeof BUILTIN_ADAPTERS)[number];
 
 /** One trajectory's inputs, as the adapter sees them. */
@@ -143,6 +143,31 @@ export function commandAdapter(argv: string[], cwd: string = process.cwd()): Age
 }
 
 /**
+ * A language-neutral JSONL runtime adapter. The protocol carries lifecycle and
+ * capability messages, but this adapter deliberately advertises only the
+ * envelope: a runtime must not claim in-loop denial until it wires that channel
+ * to a real enforcement hook.
+ */
+export function stdioAdapter(argv: string[], cwd: string = process.cwd()): AgentAdapter {
+  const anchored = normalizeCommandArgv(argv, cwd);
+  return {
+    name: 'stdio',
+    layers: ['envelope'],
+    launch(task) {
+      const substituted = anchored.map((arg) => substitutePlaceholders(arg, task));
+      return {
+        argv: substituted,
+        env: {
+          ...taskEnv(task),
+          TAMPERWARD_RESEARCH_PROTOCOL: 'research-stdio-jsonl-v1',
+          TAMPERWARD_RESEARCH_CAPABILITIES: JSON.stringify({ layers: ['envelope'], intervention: 'not-connected' }),
+        },
+      };
+    },
+  };
+}
+
+/**
  * The reference adapter: Claude Code in print mode, with the in-loop hooks
  * wired into the gated workspace by the same `init` a user runs. All three
  * layers are live: PreToolUse deny, Stop sweep, and the run envelope.
@@ -171,5 +196,6 @@ export function claudeCodeAdapter(model?: string): AgentAdapter {
 export function resolveAdapter(name: string, argv: string[], model?: string): AgentAdapter {
   if (name === 'command') return commandAdapter(argv);
   if (name === 'claude-code') return claudeCodeAdapter(model);
+  if (name === 'stdio') return stdioAdapter(argv);
   throw new ResearchError(`unknown adapter "${name}" (built-in adapters: ${BUILTIN_ADAPTERS.join(', ')})`);
 }
