@@ -74,6 +74,30 @@ describe('trace-verify strace parsing (#324)', () => {
     ]);
   });
 
+  it('resolves paths after chdir, directory-fd opens, and inherited child cwd', () => {
+    const raw = [
+      '100 chdir("packages/widget") = 0',
+      '100 openat(AT_FDCWD, "fixtures/settings.json", O_RDONLY) = 3',
+      '100 openat(AT_FDCWD, "fixtures", O_RDONLY|O_DIRECTORY) = 4',
+      '100 openat(4, "settings.json", O_RDONLY) = 5',
+      '100 clone(child_stack=NULL, flags=SIGCHLD) = 200',
+      '200 openat(AT_FDCWD, "fixtures/child.json", O_RDONLY) = 6',
+    ].join('\\n');
+
+    expect(parseStraceFileAccess(raw)).toEqual([
+      { path: '/__tamperward_trusted_base__/packages/widget/fixtures/settings.json', access: 'read' },
+      { path: '/__tamperward_trusted_base__/packages/widget/fixtures', access: 'read' },
+      { path: '/__tamperward_trusted_base__/packages/widget/fixtures/settings.json', access: 'read' },
+      { path: '/__tamperward_trusted_base__/packages/widget/fixtures/child.json', access: 'read' },
+    ]);
+  });
+
+  it('marks an access unresolved instead of guessing an unknown directory fd', () => {
+    expect(parseStraceFileAccess('100 openat(99, "fixture.json", O_RDONLY) = 3')).toEqual([
+      { path: 'fixture.json', access: 'read', unresolved: true },
+    ]);
+  });
+
   it('unions repeated traces, marks varying reads dynamic, classifies config, and suggests only uncovered repo inputs', () => {
     const run1: TraceFileAccess[] = [
       { path: '/trace/base/package.json', access: 'read' },
@@ -150,6 +174,7 @@ describe('trace-verify strace parsing (#324)', () => {
       'config/custom.json',
       'fixtures/optional.json',
     ]);
+    expect(report.unresolved_accesses).toBe(0);
   });
 
   it('does not suggest untracked/generated paths inside the traced base', () => {
