@@ -52,6 +52,15 @@ export const VERIFY_CANNOT_VERIFY_REASONS = [
   'PATH_CASE_COLLISION',
 ] as const;
 export type VerifyCannotVerifyReason = (typeof VERIFY_CANNOT_VERIFY_REASONS)[number];
+/** Machine-actionable detail for a MATERIALIZATION_FAILED verify result. */
+export const MATERIALIZATION_FAILURE_REASONS = [
+  'TRACKED_NODE_MODULES_CONFLICT',
+  'SYMLINK_ESCAPE',
+  'SPECIAL_FILE',
+  'RACING_DELETION',
+  'UNKNOWN',
+] as const;
+export type MaterializationFailureReason = (typeof MATERIALIZATION_FAILURE_REASONS)[number];
 
 /** `run --json` top-level verdicts. */
 export const RUN_VERDICTS = [
