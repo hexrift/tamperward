@@ -22,7 +22,7 @@ import { assertRev } from '../git/build';
 import { trustedGitEnv } from '../git/trusted';
 import { defaultPolicy } from '../policy';
 import { loadPolicyAt } from '../policy-load';
-import { verifierCoveredInputs } from './verify';
+import { suiteEnv, verifierCoveredInputs } from './verify';
 
 export interface TraceVerifyOpts {
   cwd?: string;
@@ -424,7 +424,7 @@ function straceOnce(
       ],
       {
         cwd: root,
-        env: process.env,
+        env: suiteEnv(traceDir),
         encoding: 'utf8',
         maxBuffer: 64 * 1024 * 1024,
       },
