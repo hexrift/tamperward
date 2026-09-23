@@ -79,6 +79,7 @@ import { oobFromEnv, oobHeadFromEnv, oobToken } from '../signoff';
 import {
   beginVerifying,
   endVerifying,
+  invalidateVerificationRecordIfCurrent,
   recordVerification,
   type VerificationInputs,
 } from '../verification-state';
@@ -1671,9 +1672,22 @@ function runVerifyImpl(opts: VerifyOpts): number {
         budget_source: opts.budget !== undefined ? 'flag' : 'policy',
         budget,
       };
-      recordVerification(cwd, inputs);
+      // Reuse the tree fingerprint proved unchanged above (finding 6): the record
+      // binds the same tree without a second full read of the worktree.
+      recordVerification(cwd, inputs, treeBefore);
     } catch {
       // Evidence only. Recording must never change the verification verdict.
+    }
+  } else {
+    // A non-VERIFIED adjudication of this SAME state — a flaky SUITE_RED, a
+    // MASKED_FAILURE, or budget exhaustion — must not leave a prior VERIFIED
+    // record standing at CURRENT (#600 finding 3). Invalidate it when its binding
+    // still matches the live state; a record for a different state is left as
+    // STALE. Evidence only: a failure here never changes the verdict.
+    try {
+      invalidateVerificationRecordIfCurrent(cwd);
+    } catch {
+      // Evidence only. Reconciliation must never change the verification verdict.
     }
   }
 

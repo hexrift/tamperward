@@ -205,6 +205,109 @@ describe.skipIf(skipUnlessPosix)('verification state machine (#600)', () => {
     expect(doc.verification.state).toBe('UNVERIFIED');
   });
 
+  it('flips to STALE naming dependencies when the dependency environment changes with an unchanged tree (#600 finding 2)', () => {
+    // node_modules is git-ignored, so it is never part of the `tree` fingerprint;
+    // a dependency change would keep CURRENT unless it is a bound input of its own.
+    const cwd = repo();
+    writeFileSync(join(cwd, '.gitignore'), 'node_modules/\n');
+    mkdirSync(join(cwd, 'node_modules', 'left-pad'), { recursive: true });
+    writeFileSync(join(cwd, 'node_modules', 'left-pad', 'package.json'), '{"version":"1.0.0"}\n');
+    git(cwd, ['add', '-A']);
+    git(cwd, ['commit', '-qm', 'ignore node_modules']);
+
+    expect(verify(cwd)).toBe(0);
+    expect(statusJson(cwd).verification.state).toBe('CURRENT');
+
+    // Same tree (node_modules is ignored), different installed dependency bytes.
+    writeFileSync(join(cwd, 'node_modules', 'left-pad', 'package.json'), '{"version":"1.3.0"}\n');
+    const doc = statusJson(cwd);
+    expect(doc.verification.state).toBe('STALE');
+    expect(doc.verification.changed_input).toBe('dependencies');
+    expect(doc.verification.binding.dependencies).toEqual(expect.any(String));
+  });
+
+  it('a red verify at the SAME tree after a green one reports UNVERIFIED, not CURRENT (#600 finding 3)', () => {
+    // The suite's outcome depends on an environment variable, so the tree, base,
+    // policy, verifier, surface, wiring and dependencies are all identical between
+    // the green run and the later red one — only the record must not survive it.
+    const cwd = mkdtempSync(join(tmpdir(), 'tw-status-flaky-'));
+    dirs.push(cwd);
+    git(cwd, ['init', '-q']);
+    git(cwd, ['config', 'user.name', 't']);
+    git(cwd, ['config', 'user.email', 't@b']);
+    mkdirSync(join(cwd, 'test'), { recursive: true });
+    writeFileSync(
+      join(cwd, 'test', 'check.test.js'),
+      "if(process.env.TW_FLAKY_FAIL==='1'){console.error('flaked');process.exit(1)}\nprocess.exit(0)\n",
+    );
+    writeFileSync(
+      join(cwd, '.tamperward.yml'),
+      ['version: 1', 'verify:', '  command: node test/check.test.js', '  budget: 30', '  backend: local', ''].join('\n'),
+    );
+    git(cwd, ['add', '-A']);
+    git(cwd, ['commit', '-qm', 'base']);
+
+    // Green verify at tree T ⇒ CURRENT.
+    expect(verify(cwd)).toBe(0);
+    expect(statusJson(cwd).verification.state).toBe('CURRENT');
+    expect(existsSync(verificationRecordPath(cwd)!)).toBe(true);
+
+    // The identical tree now fails the suite (a flaky/environment-dependent red).
+    try {
+      process.env.TW_FLAKY_FAIL = '1';
+      expect(verify(cwd)).toBe(1); // SUITE_RED at the same bound state
+    } finally {
+      delete process.env.TW_FLAKY_FAIL;
+    }
+    // The record the earlier green run wrote must not survive a red one at the same
+    // state: status is UNVERIFIED, never a stale CURRENT.
+    expect(existsSync(verificationRecordPath(cwd)!)).toBe(false);
+    const doc = statusJson(cwd);
+    expect(doc.verification.state).toBe('UNVERIFIED');
+  });
+
+  it('binds the EVALUATED user-level hook wiring, not just the repository file (#600 finding 4)', () => {
+    // The runtime reads hooks from the user-level settings too; a hook removed
+    // there is a real loss of steering. Reading only the repo file kept CURRENT.
+    const home = mkdtempSync(join(tmpdir(), 'tw-status-home-'));
+    dirs.push(home);
+    const userSettings = join(home, 'settings.json');
+    const wired = {
+      disableAllHooks: false,
+      hooks: {
+        PreToolUse: [
+          { matcher: 'Bash|Edit|Write|MultiEdit|NotebookEdit', hooks: [{ type: 'command', command: 'npx --yes tamperward hook claude' }] },
+        ],
+      },
+    };
+    writeFileSync(userSettings, JSON.stringify(wired));
+    const cwd = repo();
+    try {
+      process.env.CLAUDE_CONFIG_DIR = home;
+      // The user-level file is NOT in the repository tree, so nothing else moves.
+      expect(verify(cwd)).toBe(0);
+      expect(statusJson(cwd).verification.state).toBe('CURRENT');
+
+      // Remove the user-level hook: effective steering changed.
+      rmSync(userSettings, { force: true });
+      const doc = statusJson(cwd);
+      expect(doc.verification.state).toBe('STALE');
+      expect(doc.verification.changed_input).toBe('intervention');
+    } finally {
+      delete process.env.CLAUDE_CONFIG_DIR;
+    }
+  });
+
+  it('names the runtime agent from the evaluated wiring, not the mere presence of a settings file (#600 finding 4)', () => {
+    const cwd = repo();
+    verify(cwd);
+    // A settings file with no TamperWard PreToolUse hook steers nothing.
+    mkdirSync(join(cwd, '.claude'), { recursive: true });
+    writeFileSync(join(cwd, '.claude', 'settings.json'), JSON.stringify({ hooks: {} }));
+    const doc = statusJson(cwd);
+    expect(doc.runtime.agent).toBe('none');
+  });
+
   it('is BROKEN when the recorded authority wiring can no longer be evaluated', () => {
     const cwd = repo();
     verify(cwd);

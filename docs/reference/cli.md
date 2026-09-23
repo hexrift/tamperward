@@ -234,8 +234,14 @@ Reason  candidate tree changed since verification
 candidate worktree (`tree`), HEAD (`head`), the trusted base commit (`base`), the
 TamperWard policy (`policy`), the verifier contract — command, budget, inputs and
 backend (`verifier`), the protected verification surface at the base (`surface`),
-and the local runtime steering wiring (`intervention`). A mere exit-0 never keeps
-`CURRENT`: change any bound input and the state becomes `STALE`.
+the local runtime steering wiring (`intervention`), and the dependency environment
+(`dependencies`) — the attested dependency fingerprint `verify` refuses
+`DEPENDENCY_DRIFT` against, or the digest-pinned image for a container backend, so
+an `npm install` of a different version with an unchanged tree is caught. A mere
+exit-0 never keeps `CURRENT`: change any bound input and the state becomes `STALE`.
+A later `verify` of the same state that does not reach `VERIFIED` (a flaky red
+suite, a masked failure) invalidates the record, so `status` reports `UNVERIFIED`
+rather than a stale `CURRENT`.
 
 State is persisted under `.git/tamperward/` — a **non-candidate authority**, never
 the tracked, candidate-writable tree — and bound to hashes rather than mutable path

@@ -62,7 +62,8 @@
             "policy",
             "verifier",
             "surface",
-            "intervention"
+            "intervention",
+            "dependencies"
           ]
         },
         "detail": {
@@ -92,7 +93,8 @@
             "policy",
             "verifier",
             "surface",
-            "intervention"
+            "intervention",
+            "dependencies"
           ],
           "properties": {
             "tree": { "type": "string" },
@@ -101,7 +103,8 @@
             "policy": { "type": "string" },
             "verifier": { "type": "string" },
             "surface": { "type": "string" },
-            "intervention": { "type": "string" }
+            "intervention": { "type": "string" },
+            "dependencies": { "type": "string" }
           },
           "additionalProperties": true
         }
@@ -126,7 +129,8 @@
                   "policy",
                   "verifier",
                   "surface",
-                  "intervention"
+                  "intervention",
+                  "dependencies"
                 ]
               }
             }
@@ -167,7 +171,8 @@
           "policy": "aaaa",
           "verifier": "bbbb",
           "surface": "cccc",
-          "intervention": "dddd"
+          "intervention": "dddd",
+          "dependencies": "eeee"
         }
       },
       "runtime": { "agent": "claude-code" }

@@ -34,7 +34,8 @@ import { treeFingerprint } from './fingerprint';
 import { isProtected, matchesAny, defaultPolicy } from './policy';
 import { loadPolicy, loadPolicyAt } from './policy-load';
 import { repoContext, repoRoot } from './repo-context';
-import { TW_VERSION } from './wiring';
+import { claudeConfigDir, TW_VERSION } from './wiring';
+import { discoverDependencyEnvironment } from './dependency-env';
 import type { Policy } from './types';
 
 /** Independent of the machine-output `schema_version`: the on-disk record format
@@ -64,6 +65,7 @@ export const BINDING_INPUTS = [
   'verifier',
   'surface',
   'intervention',
+  'dependencies',
 ] as const;
 export type BindingInput = (typeof BINDING_INPUTS)[number];
 
@@ -76,6 +78,7 @@ export const STALE_REASON: Record<BindingInput, string> = {
   verifier: 'verifier configuration changed since verification',
   surface: 'protected verification surface changed since verification',
   intervention: 'runtime steering wiring changed since verification',
+  dependencies: 'dependency environment changed since verification',
 };
 
 /** Stable fingerprints of every load-bearing input, as of a successful verify. */
@@ -94,6 +97,11 @@ export interface VerificationBinding {
   surface: string;
   /** Digest of local runtime steering wiring (the agent hook configuration). */
   intervention: string;
+  /** Digest of the dependency environment `verify` froze as load-bearing: the
+   *  local backend's attested dependency fingerprint (the same identity `verify`
+   *  computes and refuses `DEPENDENCY_DRIFT` against), or, for the isolated
+   *  container backend, the digest-pinned verifier image that owns them. */
+  dependencies: string;
 }
 
 /** How the recorded verify resolved its inputs, so `status` recomputes the SAME
@@ -204,14 +212,57 @@ function surfacePaths(base: string, cwd: string, policy: Policy): string[] {
 }
 
 /** Local runtime steering wiring: the agent hook configuration that lets
- *  TamperWard intervene on a tool call before it runs. Its exact bytes are the
- *  fingerprint — a widened matcher or a changed hook command is a change. */
-function interventionWiring(cwd: string): string {
-  try {
-    return readFileSync(join(cwd, '.claude', 'settings.json'), 'utf8');
-  } catch {
-    return '';
+ *  TamperWard intervene on a tool call before it runs. The identity is the
+ *  EVALUATED wiring, not raw bytes: the PARSED `hooks` and `disableAllHooks`
+ *  canonicalised across every Claude Code settings source the runtime actually
+ *  reads hooks from — the project file and its local override, and the user-level
+ *  file and its local override (`$CLAUDE_CONFIG_DIR`, else `~/.claude`). Reading
+ *  bytes of the project file alone flipped STALE on a whitespace-only reformat and
+ *  stayed CURRENT when a hook was removed at the user level (`isClaudeSettings`
+ *  recognises all these sources); parsing what the runtime steers on binds the
+ *  wiring that actually intervenes. Managed settings are not read from a system
+ *  path in this hot recompute (a documented follow-up). */
+function interventionWiring(cwd: string): unknown {
+  const dir = claudeConfigDir();
+  const sources: Array<[string, string]> = [
+    ['repo', join(cwd, '.claude', 'settings.json')],
+    ['repo.local', join(cwd, '.claude', 'settings.local.json')],
+    ['user', join(dir, 'settings.json')],
+    ['user.local', join(dir, 'settings.local.json')],
+  ];
+  return sources.map(([source, path]) => {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(readFileSync(path, 'utf8'));
+    } catch {
+      return { source, present: false };
+    }
+    if (!isRecord(parsed)) return { source, present: true, shape: 'non-object' };
+    return {
+      source,
+      present: true,
+      hooks: parsed.hooks ?? null,
+      disableAllHooks: parsed.disableAllHooks ?? null,
+    };
+  });
+}
+
+/** The dependency environment `verify` treats as load-bearing, as a digest
+ *  `status` can recompute deterministically. For the local backend this reuses
+ *  the SAME discovery/fingerprint `verify` runs (and refuses `DEPENDENCY_DRIFT`
+ *  against), so an `npm install` of a different version with an unchanged tree —
+ *  `node_modules` is git-ignored and never in the `tree` fingerprint — flips
+ *  STALE naming `dependencies`. For the isolated container backend the
+ *  dependencies are verifier-owned, so the digest-pinned image that actually runs
+ *  is their identity. `backend` is included so a local↔container switch is bound
+ *  here too. */
+function dependenciesBinding(root: string, policy: Policy, command: string): string {
+  const backend = policy.verify?.backend ?? 'local';
+  if (backend === 'container') {
+    return digest({ backend, image: policy.verify?.image ?? null });
   }
+  const dep = discoverDependencyEnvironment(root, command);
+  return digest({ backend, status: dep.status, fingerprint: dep.fingerprint ?? null });
 }
 
 /**
@@ -221,7 +272,11 @@ function interventionWiring(cwd: string): string {
  * a verifier command that is no longer configured) — the caller maps that to
  * BROKEN. Never returns a partial binding.
  */
-export function computeBinding(cwd: string, inputs: VerificationInputs): VerificationBinding {
+export function computeBinding(
+  cwd: string,
+  inputs: VerificationInputs,
+  precomputed?: { tree?: string },
+): VerificationBinding {
   const root = repoRoot(cwd);
   const head = git(['rev-parse', '--verify', 'HEAD^{commit}'], root).trim();
   const base = resolveBaseRev(inputs.base_ref, root);
@@ -239,7 +294,14 @@ export function computeBinding(cwd: string, inputs: VerificationInputs): Verific
 
   const protectedIgnored = (rel: string): boolean => isProtected(rel, policy);
   return {
-    tree: treeFingerprint(root, protectedIgnored),
+    // NOTE (#500/#600 follow-up): `tree` hashes every tracked and ignored-protected
+    // file and `dependencies` walks the attested dependency roots, on EVERY call.
+    // Right for `verify` (once per run) and reused there via `precomputed.tree`,
+    // but `status` is meant to be polled continuously by a status bar/dashboard,
+    // where a large repository makes each poll a full read. A stat-cache identity
+    // (git's index plus hashing only what changed) is a deliberate follow-up, not
+    // built here.
+    tree: precomputed?.tree ?? treeFingerprint(root, protectedIgnored),
     head,
     base,
     policy: digest(policy),
@@ -252,6 +314,7 @@ export function computeBinding(cwd: string, inputs: VerificationInputs): Verific
     }),
     surface: digest(surfacePaths(base, root, policy)),
     intervention: digest(interventionWiring(root)),
+    dependencies: dependenciesBinding(root, policy, command),
   };
 }
 
@@ -276,10 +339,21 @@ export function verifyingMarkerPath(cwd: string): string | null {
 /** Snapshot the live binding under `inputs` and persist it. Best-effort: the
  *  record is evidence, so a write failure must never change a verify verdict.
  *  Returns whether a record was written. */
-export function recordVerification(cwd: string, inputs: VerificationInputs): boolean {
+export function recordVerification(
+  cwd: string,
+  inputs: VerificationInputs,
+  treeFingerprintValue?: string,
+): boolean {
   const path = verificationRecordPath(cwd);
   if (!path) return false;
-  const binding = computeBinding(repoRoot(cwd), inputs);
+  // `verify` passes the tree fingerprint it has already taken and just proved
+  // unchanged (finding 6): the record binds the same identity without a second
+  // full tree read per verification.
+  const binding = computeBinding(
+    repoRoot(cwd),
+    inputs,
+    treeFingerprintValue ? { tree: treeFingerprintValue } : undefined,
+  );
   const record: VerificationRecord = {
     schema_version: VERIFICATION_STATE_SCHEMA_VERSION,
     verdict: 'VERIFIED',
@@ -291,6 +365,45 @@ export function recordVerification(cwd: string, inputs: VerificationInputs): boo
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, JSON.stringify(record) + '\n');
   return true;
+}
+
+/**
+ * Invalidate a recorded verification when a fresh verification of that SAME
+ * bound state did not reach VERIFIED (#600). Only VERIFIED writes a record and
+ * nothing removed one, so after a green verify at tree T a later `SUITE_RED`,
+ * `MASKED_FAILURE` or budget exhaustion under the same inputs (a flaky or
+ * environment-dependent suite) left `status` reporting CURRENT off a record the
+ * later run disproved. This removes the record IFF its binding still matches the
+ * live state, so `status` reports UNVERIFIED with no successful verification —
+ * never a false CURRENT.
+ *
+ * Fail-safe and evidence-only:
+ *  - a record bound to a DIFFERENT state (any binding mismatch) is left in place,
+ *    so `status` still reports STALE for it rather than losing that information;
+ *  - authority wiring that can no longer be evaluated is left for the BROKEN
+ *    path (computeBinding throws) rather than deleted;
+ *  - a delete failure never changes a verify verdict.
+ *
+ * Returns whether a record was removed.
+ */
+export function invalidateVerificationRecordIfCurrent(cwd: string): boolean {
+  const record = readVerificationRecord(cwd);
+  if (!record) return false;
+  let live: VerificationBinding;
+  try {
+    live = computeBinding(cwd, record.inputs);
+  } catch {
+    return false; // unevaluable authority → status reports BROKEN, not CURRENT
+  }
+  if (firstMismatch(record.binding, live)) return false; // different state → STALE stands
+  const path = verificationRecordPath(cwd);
+  if (!path) return false;
+  try {
+    rmSync(path, { force: true });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -432,6 +545,7 @@ const MISMATCH_PRIORITY: readonly BindingInput[] = [
   'verifier',
   'surface',
   'intervention',
+  'dependencies',
   'policy',
   'tree',
 ];

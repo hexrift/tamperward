@@ -9,14 +9,25 @@
   fingerprints of every load-bearing input it judged: the candidate worktree, HEAD,
   the trusted base commit, the TamperWard policy, the verifier contract
   (command/budget/inputs/backend), the protected verification surface at the base,
-  and the local runtime steering wiring. The new **`tamperward status`** (and
-  `status --json`) answers, continuously, whether the exact current state is still
-  the state that was independently verified, in three **distinct** lanes — Authority
-  (repository/final adjudication), Intervention (runtime steering) and Verification —
-  as a first-class state machine: `CURRENT`, `STALE` (with the changed input named),
-  `VERIFYING`, `BROKEN`, `UNVERIFIED`. A mere exit-0 never keeps `CURRENT`: any
-  load-bearing change deterministically invalidates it, and a malformed or missing
-  record fails safe to `UNVERIFIED`, never `CURRENT`. The `--json` document is a new
+  the local runtime steering wiring, and the dependency environment. The
+  `dependencies` input reuses the same attested dependency fingerprint `verify`
+  refuses `DEPENDENCY_DRIFT` against (the digest-pinned image for a container
+  backend), so an `npm install` of a different version with an unchanged tree is
+  caught rather than kept `CURRENT`. The runtime-wiring input digests the
+  **evaluated** hook wiring — the parsed `hooks`/`disableAllHooks` across the Claude
+  Code settings sources the runtime reads (project, its local override, and the
+  user-level files) — so a whitespace-only reformat is not a change and a hook
+  removed at the user level is; `runtime.agent` is likewise named from that
+  evaluated wiring, not the mere presence of a settings file. The new
+  **`tamperward status`** (and `status --json`) answers, continuously, whether the
+  exact current state is still the state that was independently verified, in three
+  **distinct** lanes — Authority (repository/final adjudication), Intervention
+  (runtime steering) and Verification — as a first-class state machine: `CURRENT`,
+  `STALE` (with the changed input named), `VERIFYING`, `BROKEN`, `UNVERIFIED`. A mere
+  exit-0 never keeps `CURRENT`: any load-bearing change deterministically invalidates
+  it; a later `verify` of the same state that does not reach `VERIFIED` (a flaky red
+  suite, a masked failure) removes the record; and a malformed or missing record
+  fails safe to `UNVERIFIED`, never `CURRENT`. The `--json` document is a new
   versioned machine-output surface (`schemas/status-v1.schema.json`) for the #500 VS
   Code panel, WardOS, CI job summaries and dashboards, so consumers read the
   enumerated state instead of scraping `doctor`/`verify` prose. Local `CURRENT` is

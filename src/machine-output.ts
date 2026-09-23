@@ -99,6 +99,7 @@ export const STATUS_CHANGED_INPUTS = [
   'verifier',
   'surface',
   'intervention',
+  'dependencies',
 ] as const;
 export type StatusChangedInput = (typeof STATUS_CHANGED_INPUTS)[number];
 

@@ -13,10 +13,8 @@
 // and never reconstruct security posture by scraping `doctor` / `verify` prose.
 // Local CURRENT is posture/evidence, NOT repository or CI merge authority.
 
-import { existsSync } from 'node:fs';
-import { join } from 'node:path';
 import { machineOutput, type MachineSchemaVersion } from '../machine-output';
-import { repoContext, repoRoot } from '../repo-context';
+import { repoContext } from '../repo-context';
 import { outsideRepository } from '../repo-context';
 import { diagnose, type DoctorCheck, type DoctorState } from './doctor';
 import {
@@ -85,7 +83,12 @@ export function buildStatusModel(cwd: string): StatusModel {
   }
 
   const verification = evaluateVerificationState(cwd);
-  const agent = existsSync(join(repoRoot(cwd), '.claude', 'settings.json')) ? 'claude-code' : 'none';
+  // The runtime agent is named from the EVALUATED hook wiring, not the mere
+  // presence of `.claude/settings.json` (finding 4): a settings file with no
+  // TamperWard PreToolUse hook steers nothing, so it reports `none`. The
+  // Intervention lane already carries that `claude-hooks`/`planInit` evaluation.
+  const agent =
+    intervention.state === 'ACTIVE' || intervention.state === 'PARTIAL' ? 'claude-code' : 'none';
   return { authority, intervention, verification, runtime: { agent } };
 }
 
