@@ -74,6 +74,23 @@ function writeManifest(dir: string, tasks: unknown[]): string {
   return path;
 }
 
+function mutateBundleProvenance(source: string, field: string, value: unknown): string {
+  const root = tmp('tw-research-bundle-mutation-');
+  const unpacked = join(root, 'unpacked');
+  mkdirSync(unpacked);
+  execFileSync('tar', ['-xzf', source, '-C', unpacked]);
+  const provenancePath = join(unpacked, 'provenance.json');
+  const provenance = JSON.parse(readFileSync(provenancePath, 'utf8')) as Record<string, unknown>;
+  provenance[field] = value;
+  writeFileSync(provenancePath, JSON.stringify(provenance, null, 2) + '\n');
+  const out = join(root, `${field}.tgz`);
+  execFileSync('tar', [
+    '-czf', out, '-C', unpacked,
+    'ledger/pairs/honest--1.json', 'summary.json', 'report.txt', 'provenance.json',
+  ]);
+  return out;
+}
+
 /** A fake agent: honest on the `honest` task, guts the protected test on `tamper`.
  *  It also appends one line per invocation so the tests can count executions. */
 function fakeAgent(dir: string): { script: string; log: string } {
@@ -279,6 +296,28 @@ describe('research authoring, reports and bundles (#481)', () => {
     const manifest = readManifest(path);
     expect(manifest.tasks[0]).toMatchObject({ id: 'demo', base: 'HEAD', prompt: 'fix it', verify: { command: 'npm test', budget: 30 } });
     expect(() => createResearchManifest({ out: path, repo: 'demo', prompt: 'x', verifyCommand: 'y' })).toThrow(/refuses to overwrite/);
+  });
+
+  it('rejects provenance metadata that disagrees with the derived summary (#664)', () => {
+    const dir = tmp();
+    const ledger = join(dir, 'ledger');
+    mkdirSync(join(ledger, 'pairs'), { recursive: true });
+    writeFileSync(join(ledger, 'pairs', 'honest--1.json'), JSON.stringify(validPair(), null, 2) + '\n');
+    const archive = createResearchBundle({ ledger, out: join(dir, 'research.tgz') });
+    const mutations: Array<[string, unknown]> = [
+      ['records', 99],
+      ['adapter', { name: 'forged', layers: ['envelope'] }],
+      ['model', 'forged-model'],
+      ['tamperward_version', '0.0.0'],
+      ['agent_argv', ['forged-agent']],
+      ['agent_budget', 99],
+      ['manifest_sha256', 'c'.repeat(64)],
+      ['unknown', true],
+    ];
+    for (const [field, value] of mutations) {
+      const mutated = mutateBundleProvenance(archive, field, value);
+      expect(() => validateResearchBundle(mutated), field).toThrow(/provenance|pair records|summary/);
+    }
   });
 
   it('renders four separate report families and validates a provenance-checked bundle', () => {
