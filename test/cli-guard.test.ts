@@ -227,6 +227,18 @@ describe('strict CLI argument boundary (#312)', () => {
     expect(run(['check', '--staged', '--format=json', '--cwd='+d, '--']).code).toBe(0);
   });
 
+  it('hook-service --dir that cannot be resolved is refused before any socket is touched', () => {
+    const missing = join(tmp(), 'no-such-repo');
+    for (const sub of ['status', 'stop', 'start']) {
+      const r = run(['hook-service', sub, '--dir', missing]);
+      expect(r.code).toBe(2);
+      // The service subsystem prefixes its usage errors like its neighbours do.
+      expect(r.err).toMatch(/^tamperward hook-service: [^\n]+\n$/);
+      expect(r.err).toMatch(/cannot resolve --dir|unsupported on this platform/);
+      expect(r.err).not.toMatch(/at .*\.(ts|js):\d+/);
+    }
+  });
+
   it('preserves valid command grammars', () => {
     const d = repo();
     expect(run(['check', '--staged', '--cwd', d]).code).toBe(0);
