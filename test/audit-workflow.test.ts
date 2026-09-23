@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parse } from 'yaml';
 
@@ -82,6 +84,47 @@ describe('GitHub audit store workflow', () => {
     expect(publish).not.toMatch(/HEAD:refs\/heads\/main\b/);
     // Never commit the privacy-unsafe deny log here.
     expect(workflowText).toContain('never TAMPERWARD_DENYLOG');
+  });
+
+  it('uses a per-run dispatch identity while retaining source SHA provenance', () => {
+    expect(workflowText.match(/dispatch-\$\{GITHUB_RUN_ID\}\.jsonl/g)).toHaveLength(2);
+    expect(workflowText).not.toContain('dispatch-${GITHUB_SHA}.jsonl');
+    expect(runText('publish')).toContain('"${GITHUB_SHA}"');
+
+    const dir = mkdtempSync(resolve(root, '.tw-audit-dispatch-'));
+    const candidates = resolve(dir, 'candidates');
+    const ledger = resolve(dir, 'batches.jsonl');
+    const output = resolve(dir, 'new-batches.txt');
+    mkdirSync(candidates);
+    const batchA = '{"schema_version":1,"id":"a"}\n';
+    const batchB = '{"schema_version":1,"id":"b"}\n';
+    const writeBatch = (id: string, content: string): void =>
+      writeFileSync(resolve(candidates, `dispatch-${id}.jsonl`), content);
+    const runPrescan = (): void => {
+      execFileSync(process.execPath, [
+        resolve(root, '.github', 'audit', 'audit-prescan.mjs'),
+        candidates,
+        ledger,
+        output,
+      ], { encoding: 'utf8', stdio: 'pipe' });
+    };
+    try {
+      writeBatch('100', batchA);
+      writeBatch('101', batchB);
+      runPrescan();
+      expect(readFileSync(output, 'utf8').split(/\r?\n/).filter(Boolean)).toHaveLength(2);
+
+      const hashA = createHash('sha256').update(batchA).digest('hex');
+      writeFileSync(ledger, JSON.stringify({ batch_id: 'dispatch-100', content_sha256: hashA }) + '\n');
+      runPrescan();
+      expect(readFileSync(output, 'utf8')).toContain('dispatch-101.jsonl');
+      expect(readFileSync(output, 'utf8')).not.toContain('dispatch-100.jsonl');
+
+      writeBatch('100', batchA + '{"schema_version":1,"id":"changed"}\n');
+      expect(runPrescan).toThrow(/immutable batches must never be rewritten/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('ingests only new, immutable batches and rejects conflicting or rewritten evidence', () => {

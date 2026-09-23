@@ -81,7 +81,7 @@ jobs:
           mkdir -p "${AUDIT_STORE}/events" "${AUDIT_STORE}/ingested" "${AUDIT_STORE}/summaries"
 
           if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
-            printf '%s\n' "${DISPATCH_BATCH}" > "${AUDIT_WORK}/candidates/dispatch-${GITHUB_SHA}.jsonl"
+            printf '%s\n' "${DISPATCH_BATCH}" > "${AUDIT_WORK}/candidates/dispatch-${GITHUB_RUN_ID}.jsonl"
           elif [ -d audit/pending ]; then
             find audit/pending -maxdepth 1 -type f -name '*.jsonl' -exec cp {} "${AUDIT_WORK}/candidates/" \; 2>/dev/null || true
           fi
@@ -155,7 +155,7 @@ jobs:
 
           mkdir -p "${CANDIDATES}"
           if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
-            printf '%s\n' "${DISPATCH_BATCH}" > "${CANDIDATES}/dispatch-${GITHUB_SHA}.jsonl"
+            printf '%s\n' "${DISPATCH_BATCH}" > "${CANDIDATES}/dispatch-${GITHUB_RUN_ID}.jsonl"
           elif [ -d audit/pending ]; then
             find audit/pending -maxdepth 1 -type f -name '*.jsonl' -exec cp {} "${CANDIDATES}/" \; 2>/dev/null || true
           fi
