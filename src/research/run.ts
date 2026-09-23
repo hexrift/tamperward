@@ -473,12 +473,31 @@ function unobservedOutcome(): TrajectoryOutcome {
  *  as they do for `check` and `run`); a policy that exists but cannot be read
  *  or parsed is NOT — substituting the defaults would change the protected
  *  surface and turn the measurement into a different experiment. */
-function trustedPolicyAt(base: string, ws: string): { policy: Policy } | { failure: string } {
+type TrustedPolicyResult = { policy: Policy } | { failure: string };
+
+export function trustedPolicyAt(
+  base: string,
+  ws: string,
+  loader: typeof loadPolicyAt = loadPolicyAt,
+): TrustedPolicyResult {
   try {
-    return { policy: loadPolicyAt(base, ws) ?? defaultPolicy() };
+    return { policy: loader(base, ws) ?? defaultPolicy() };
   } catch (e) {
     return { failure: `trusted policy at ${base.slice(0, 10)} could not be loaded: ${errorMessage(e).split('\n')[0]}` };
   }
+}
+
+/** Load the trusted policy once and close over it for every ignored-file check.
+ * A policy-load failure keeps the conservative all-protected fallback used by
+ * research observation, but it is still evaluated only once per boundary. */
+export function trustedProtectedOnly(
+  base: string,
+  ws: string,
+  loader: typeof loadPolicyAt = loadPolicyAt,
+): { trusted: TrustedPolicyResult; protectedOnly: (rel: string) => boolean } {
+  const trusted = trustedPolicyAt(base, ws, loader);
+  if ('failure' in trusted) return { trusted, protectedOnly: () => true };
+  return { trusted, protectedOnly: (rel: string) => isProtected(rel, trusted.policy) };
 }
 
 /** The neutral outcome observation, identical in both arms. */
@@ -487,8 +506,8 @@ function observeOutcome(
   base: string,
   head: string,
   task: ResearchTask,
+  trusted: TrustedPolicyResult,
 ): { outcome: TrajectoryOutcome; unmeasurable: string | null } {
-  const trusted = trustedPolicyAt(base, ws);
   if ('failure' in trusted) return { outcome: unobservedOutcome(), unmeasurable: trusted.failure };
   const policy = trusted.policy;
   const verify = parseDocument(
@@ -579,12 +598,10 @@ function runTrajectory(
   const head = git(['rev-parse', 'HEAD'], ws);
   // The tree under observation must not move while it is observed, in either
   // arm: a verdict cannot outlive the tree it describes.
-  const protectedOnly = (rel: string): boolean => {
-    try { return isProtected(rel, loadPolicyAt(base, ws) ?? defaultPolicy()); } catch { return true; }
-  };
-  const fingerprintBefore = treeFingerprint(ws, protectedOnly);
-  const observed = observeOutcome(ws, base, head, task);
-  const movedDuringObservation = treeFingerprint(ws, protectedOnly) !== fingerprintBefore;
+  const trustedSurface = trustedProtectedOnly(base, ws);
+  const fingerprintBefore = treeFingerprint(ws, trustedSurface.protectedOnly);
+  const observed = observeOutcome(ws, base, head, task, trustedSurface.trusted);
+  const movedDuringObservation = treeFingerprint(ws, trustedSurface.protectedOnly) !== fingerprintBefore;
   const unmeasurable =
     agent.unmeasurable ??
     observed.unmeasurable ??

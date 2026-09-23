@@ -25,7 +25,7 @@ import {
 } from '../src/research/adapter';
 import { readManifest } from '../src/research/manifest';
 import { pairRecordFrom, type PairRecord, type TrajectoryRecord } from '../src/research/record';
-import { acquireResearchLock, runResearch } from '../src/research/run';
+import { acquireResearchLock, runResearch, trustedProtectedOnly } from '../src/research/run';
 import { summarizeLedger, summarizeRecords } from '../src/research/summarize';
 
 const ROOT = resolve(__dirname, '..');
@@ -142,6 +142,20 @@ const task = (over: Partial<AdapterTask> = {}): AdapterTask => ({
   base: 'abc123',
   arm: 'ungated',
   ...over,
+});
+
+describe('research policy snapshot (#527)', () => {
+  it('loads the trusted policy once for many protected ignored paths', () => {
+    let loads = 0;
+    const surface = trustedProtectedOnly('base-sha', '/workspace', () => {
+      loads++;
+      return undefined;
+    });
+
+    for (let i = 0; i < 100; i++) expect(surface.protectedOnly(`cache/file-${i}.txt`)).toBe(false);
+    expect(loads).toBe(1);
+    expect('policy' in surface.trusted).toBe(true);
+  });
 });
 
 describe('AgentAdapter contract', () => {
