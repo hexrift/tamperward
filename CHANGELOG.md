@@ -1,5 +1,30 @@
 # Changelog
 
+## [2.37.2] — 2026-09-23
+
+### Fixed
+
+- **Research bundles carry only the evidence they claim to** (#663). `research
+  summarize` and `research bundle` now share one ledger reader that lists `pairs/` with
+  `lstat`, refuses a `pairs/` directory that is a symlink and any entry that is not a
+  regular file placed directly in it (a symlink into a workspace or outside the ledger,
+  a hard link to an inode that also lives elsewhere, a directory, a FIFO), opens each
+  file without following links and checks that the opened inode is the listed, singly
+  linked one, and refuses a path that resolves anywhere else. A pair record carrying a
+  field outside the v1 pair contract, at any level, is refused before it becomes
+  portable evidence; the gated arm's treatment envelope is held to the v1 run document
+  field by field, every named field a scalar unless the document defines it as an
+  object, so nothing foreign can ride inside it. The archive holds the canonical
+  serialization of each proved record rather than the raw file bytes, so a duplicate key
+  or stray bytes cannot travel either, and a record name the ustar header cannot store
+  byte for byte is refused rather than truncated. `research validate` holds an archive
+  to the same rules: only the evidence entries may be present, a duplicate or nested
+  entry is refused, every pair record must be canonical, and the archive must be exactly
+  what the writer emits (one ustar header form with no prefix, link, owner or device
+  fields, zero padding, and nothing after the two end-of-archive blocks), so a tar
+  reader and the validator agree on every path and byte. A refusal happens before any
+  output is written.
+
 ## [2.37.1] — 2026-09-23
 
 ### Fixed

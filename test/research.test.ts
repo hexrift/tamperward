@@ -7,7 +7,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import Ajv2020 from 'ajv/dist/2020.js';
 import { execFileSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { gunzipSync, gzipSync } from 'node:zlib';
 import { hostname, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { validateCliArgs } from '../src/cli/main';
@@ -1051,4 +1052,263 @@ describe.skipIf(process.platform !== 'linux' || !trustedLinuxPython().path)('res
     expect(second.arms.ungated.base).toBe(pinned);
     expect(second.arms.gated.base).toBe(pinned);
   }, 180_000);
+});
+
+// ————————————————————————————————————————————————————————————————————————
+// #663: a bundle carries only regular pair files placed directly under the
+// ledger's pairs/ directory, and only the v1 pair contract, in canonical form.
+// ————————————————————————————————————————————————————————————————————————
+
+function ledgerWith(dir: string, files: Record<string, string>): string {
+  const ledger = join(dir, 'ledger');
+  mkdirSync(join(ledger, 'pairs'), { recursive: true });
+  for (const [name, text] of Object.entries(files)) writeFileSync(join(ledger, 'pairs', name), text);
+  return ledger;
+}
+const pairText = (doc: unknown): string => JSON.stringify(doc, null, 2) + '\n';
+
+/** A minimal ustar reader and writer, so a test can look inside an archive and craft one. */
+function tarEntries(archive: string): Array<{ name: string; bytes: Buffer }> {
+  const bytes = gunzipSync(readFileSync(archive));
+  const out: Array<{ name: string; bytes: Buffer }> = [];
+  for (let off = 0; off + 512 <= bytes.length; ) {
+    const h = bytes.subarray(off, off + 512);
+    if (h.every((b) => b === 0)) break;
+    const name = h.subarray(0, 100).toString('utf8').replace(/\0.*$/, '');
+    const size = Number.parseInt(h.subarray(124, 136).toString('ascii').replace(/\0.*$/, '').trim() || '0', 8);
+    out.push({ name, bytes: Buffer.from(bytes.subarray(off + 512, off + 512 + size)) });
+    off += 512 + Math.ceil(size / 512) * 512;
+  }
+  return out;
+}
+interface TarCraft {
+  /** Edit a header before its checksum is computed (an attack keeps a valid checksum). */
+  mutate?: (name: string, header: Buffer) => void;
+  /** Bytes to place in an entry's padding instead of zeros. */
+  padding?: (name: string) => Buffer | undefined;
+  /** Bytes appended after the two end-of-archive blocks. */
+  trailing?: Buffer;
+}
+function tarArchive(path: string, entries: Array<{ name: string; bytes: Buffer }>, craft: TarCraft = {}): string {
+  const blocks = entries.map(({ name, bytes }) => {
+    const h = Buffer.alloc(512, 0);
+    h.write(name, 0, 'utf8');
+    h.write('0000644\0', 100, 'ascii');
+    h.write('0000000\0', 108, 'ascii');
+    h.write('0000000\0', 116, 'ascii');
+    h.write(bytes.length.toString(8).padStart(11, '0') + '\0', 124, 'ascii');
+    h.write('00000000000\0', 136, 'ascii');
+    h.fill(0x20, 148, 156);
+    h[156] = 0x30;
+    h.write('ustar', 257, 'ascii');
+    h.write('00', 263, 'ascii');
+    craft.mutate?.(name, h);
+    const sum = h.reduce((acc, b) => acc + b, 0);
+    h.write(sum.toString(8).padStart(7, '0') + '\0', 148, 'ascii');
+    const pad = Buffer.alloc((512 - (bytes.length % 512)) % 512, 0);
+    const custom = craft.padding?.(name);
+    if (custom) custom.copy(pad, 0, 0, Math.min(custom.length, pad.length));
+    return Buffer.concat([h, bytes, pad]);
+  });
+  writeFileSync(path, gzipSync(Buffer.concat([...blocks, Buffer.alloc(1024, 0), craft.trailing ?? Buffer.alloc(0)])));
+  return path;
+}
+
+describe('research bundle reads only regular pair files and carries only the pair contract (#663)', () => {
+  function refusesBoth(ledger: string, out: string, re: RegExp): void {
+    expect(() => summarizeLedger(ledger)).toThrow(re);
+    expect(() => createResearchBundle({ ledger, out })).toThrow(re);
+    expect(existsSync(out)).toBe(false);
+  }
+
+  it('refuses a symlink from pairs/ into a workspace below the ledger, before any archive is written', () => {
+    const dir = tmp();
+    const ledger = ledgerWith(dir, { 'honest--1.json': pairText(validPair()) });
+    const workspace = join(ledger, 'workspaces', 'honest--1--gated');
+    mkdirSync(workspace, { recursive: true });
+    writeFileSync(join(workspace, 'notes.json'), pairText(validPair({ task: 'leak' })));
+    symlinkSync(join(workspace, 'notes.json'), join(ledger, 'pairs', 'leak--1.json'));
+    refusesBoth(ledger, join(dir, 'out.tgz'), /leak--1\.json is a symlink/);
+  });
+
+  it('refuses a symlink from pairs/ to a file outside the ledger', () => {
+    const dir = tmp();
+    const ledger = ledgerWith(dir, { 'honest--1.json': pairText(validPair()) });
+    const outside = tmp('tw-research-outside-');
+    writeFileSync(join(outside, 'credentials.json'), pairText(validPair({ task: 'leak' })));
+    symlinkSync(join(outside, 'credentials.json'), join(ledger, 'pairs', 'honest--2.json'));
+    refusesBoth(ledger, join(dir, 'out.tgz'), /honest--2\.json is a symlink/);
+  });
+
+  it('refuses a hard link in pairs/ that names an inode outside the ledger', () => {
+    const dir = tmp();
+    const ledger = ledgerWith(dir, { 'honest--1.json': pairText(validPair()) });
+    const outside = tmp('tw-research-outside-');
+    writeFileSync(join(outside, 'credentials.json'), pairText(validPair({ task: 'leak' })));
+    // A hard link is a regular file, resolves to this very name and opens to the
+    // listed inode, so it passes every symlink check; only the link count tells.
+    linkSync(join(outside, 'credentials.json'), join(ledger, 'pairs', 'leak--1.json'));
+    refusesBoth(ledger, join(dir, 'out.tgz'), /leak--1\.json has 2 links/);
+  });
+
+  it('refuses a pairs/ directory that is itself a symlink', () => {
+    const dir = tmp();
+    const elsewhere = tmp('tw-research-elsewhere-');
+    writeFileSync(join(elsewhere, 'honest--1.json'), pairText(validPair()));
+    const ledger = join(dir, 'ledger');
+    mkdirSync(ledger);
+    symlinkSync(elsewhere, join(ledger, 'pairs'), 'dir');
+    refusesBoth(ledger, join(dir, 'out.tgz'), /pairs directory .* is a symlink/);
+  });
+
+  it('refuses an entry in pairs/ that is not a regular file', () => {
+    const dir = tmp();
+    const ledger = ledgerWith(dir, { 'honest--1.json': pairText(validPair()) });
+    mkdirSync(join(ledger, 'pairs', 'honest--2.json'));
+    refusesBoth(ledger, join(dir, 'out.tgz'), /honest--2\.json is a directory/);
+    rmSync(join(ledger, 'pairs', 'honest--2.json'), { recursive: true });
+    if (process.platform !== 'win32') {
+      execFileSync('mkfifo', [join(ledger, 'pairs', 'honest--3.json')]);
+      refusesBoth(ledger, join(dir, 'out.tgz'), /honest--3\.json is a FIFO/);
+    }
+  });
+
+  it('refuses to package a record carrying a field outside the v1 pair contract, at any level', () => {
+    const dir = tmp();
+    const ledger = ledgerWith(dir, { 'honest--1.json': pairText({ ...validPair(), api_key: 'sk-live-secret' }) });
+    // Local aggregation tolerates a field it does not know (a later minor release may add one)...
+    expect(() => summarizeLedger(ledger)).not.toThrow();
+    // ...but portable evidence refuses it, before anything is written.
+    const out = join(dir, 'out.tgz');
+    expect(() => createResearchBundle({ ledger, out })).toThrow(/\.api_key is not a field of the v1 pair record/);
+    expect(existsSync(out)).toBe(false);
+    writeFileSync(join(ledger, 'pairs', 'honest--1.json'), pairText(edited('arms.gated.agent.token', 'ghp_secret')));
+    expect(() => createResearchBundle({ ledger, out })).toThrow(/arms\.gated\.agent\.token is not a field of the v1 pair record/);
+    expect(existsSync(out)).toBe(false);
+  });
+
+  it('refuses to package a treatment envelope carrying anything outside the v1 run document', () => {
+    const dir = tmp();
+    const out = join(dir, 'out.tgz');
+    const ledger = ledgerWith(dir, {
+      'honest--1.json': pairText(edited('arms.gated.treatment.envelope', { schema_version: 1, api_key: 'sk-live-secret' })),
+    });
+    // Local aggregation keeps the envelope opaque; portable evidence does not.
+    expect(() => summarizeLedger(ledger)).not.toThrow();
+    expect(() => createResearchBundle({ ledger, out })).toThrow(/treatment\.envelope\.api_key is not a field of the v1 run document/);
+    expect(existsSync(out)).toBe(false);
+    // A known scalar field carrying an object is refused too: no place to hide a value.
+    writeFileSync(
+      join(ledger, 'pairs', 'honest--1.json'),
+      pairText(edited('arms.gated.treatment.envelope', { schema_version: 1, verifier_backend: { kind: 'local', reason: { token: 'sk-live-secret' } } })),
+    );
+    expect(() => createResearchBundle({ ledger, out })).toThrow(/treatment\.envelope\.verifier_backend\.reason is not a scalar/);
+    expect(existsSync(out)).toBe(false);
+    // A real run document, nested reports included, travels and validates.
+    const runDocument = {
+      schema_version: 1,
+      verdict: 'VERIFIED',
+      exit_code: 0,
+      complete: true,
+      base: 'a'.repeat(40),
+      head: 'a'.repeat(40),
+      agent: { exit_code: 0, timed_out: false, lifecycle_owned: true, budget_secs: 30 },
+      checks: { diff: 0, worktree: 0, verify: 0 },
+      verifier_backend: { kind: 'local', trust: 'checkpointed-local', available: true },
+      dependency_environment: { status: 'attested', roots: [{ kind: 'node_modules', path: 'node_modules' }], fingerprint: 'f'.repeat(64) },
+      observer: { enabled: false, blocking: false },
+    };
+    writeFileSync(join(ledger, 'pairs', 'honest--1.json'), pairText(edited('arms.gated.treatment.envelope', runDocument)));
+    const archive = createResearchBundle({ ledger, out });
+    expect(validateResearchBundle(archive)).toEqual({ records: 1, manifest_sha256: 'b'.repeat(64) });
+    const entry = tarEntries(archive).find((e) => e.name === 'ledger/pairs/honest--1.json');
+    expect(JSON.parse(entry!.bytes.toString('utf8')).arms.gated.treatment.envelope).toEqual(runDocument);
+  });
+
+  it('refuses a pair name the archive cannot store byte for byte, before anything is written', () => {
+    const dir = tmp();
+    const out = join(dir, 'out.tgz');
+    // ledger/pairs/ is 13 bytes and a ustar name holds 99, so a basename may be 86 bytes.
+    const tooLong = `${'t'.repeat(90)}--1.json`;
+    const ledger = ledgerWith(dir, { [tooLong]: pairText(validPair({ task: 't'.repeat(90) })) });
+    expect(() => createResearchBundle({ ledger, out })).toThrow(/is too long for the archive/);
+    expect(existsSync(out)).toBe(false);
+    rmSync(join(ledger, 'pairs', tooLong));
+    // Bytes, not characters: 45 two-byte characters plus the suffix is 53 characters but 98 bytes.
+    const wide = `${'é'.repeat(45)}--1.json`;
+    writeFileSync(join(ledger, 'pairs', wide), pairText(validPair({ task: 'é'.repeat(45) })));
+    expect(() => createResearchBundle({ ledger, out })).toThrow(/is too long for the archive/);
+    expect(existsSync(out)).toBe(false);
+    rmSync(join(ledger, 'pairs', wide));
+    // Exactly at the limit is stored byte for byte and round-trips.
+    const atLimit = `${'t'.repeat(78)}--1.json`;
+    writeFileSync(join(ledger, 'pairs', atLimit), pairText(validPair({ task: 't'.repeat(78) })));
+    const archive = createResearchBundle({ ledger, out });
+    expect(tarEntries(archive).some((e) => e.name === `ledger/pairs/${atLimit}`)).toBe(true);
+    expect(validateResearchBundle(archive)).toEqual({ records: 1, manifest_sha256: 'b'.repeat(64) });
+  });
+
+  it('archives the canonical serialization of each proved record, never the raw file bytes', () => {
+    const dir = tmp();
+    // Raw bytes with tabs and a duplicate key: JSON.parse keeps the last value, the
+    // archive must not keep the first.
+    const doc = validPair();
+    const tabbed = JSON.stringify(doc, null, '\t').replace('"task": "honest"', '"task": "sk-live-secret",\n\t"task": "honest"');
+    expect(tabbed).toContain('sk-live-secret');
+    const ledger = ledgerWith(dir, { 'honest--1.json': tabbed });
+    const archive = createResearchBundle({ ledger, out: join(dir, 'out.tgz') });
+    const entry = tarEntries(archive).find((e) => e.name === 'ledger/pairs/honest--1.json');
+    expect(entry).toBeDefined();
+    expect(entry!.bytes.toString('utf8')).not.toContain('sk-live-secret');
+    expect(entry!.bytes.equals(Buffer.from(pairText(pairRecordFrom(doc)), 'utf8'))).toBe(true);
+    expect(validateResearchBundle(archive)).toEqual({ records: 1, manifest_sha256: 'b'.repeat(64) });
+  });
+
+  it('validate holds an archive to the same rules: evidence entries only, canonical records, no duplicates', () => {
+    const dir = tmp();
+    const ledger = ledgerWith(dir, { 'honest--1.json': pairText(validPair()) });
+    const good = createResearchBundle({ ledger, out: join(dir, 'good.tgz') });
+    const entries = tarEntries(good);
+    const record = entries.find((e) => e.name === 'ledger/pairs/honest--1.json');
+    expect(record).toBeDefined();
+    const others = entries.filter((e) => e !== record);
+    const secret = { name: 'workspaces/honest--1--gated/.env', bytes: Buffer.from('TOKEN=x\n', 'utf8') };
+    expect(() => validateResearchBundle(tarArchive(join(dir, 'extra.tgz'), [...entries, secret]))).toThrow(/not evidence: workspaces\/honest--1--gated\/\.env/);
+    expect(() => validateResearchBundle(tarArchive(join(dir, 'nested.tgz'), [...others, { name: 'ledger/pairs/sub/honest--1.json', bytes: record!.bytes }]))).toThrow(/not evidence: ledger\/pairs\/sub\/honest--1\.json/);
+    const compact = Buffer.from(JSON.stringify(JSON.parse(record!.bytes.toString('utf8'))), 'utf8');
+    expect(() => validateResearchBundle(tarArchive(join(dir, 'compact.tgz'), [...others, { name: record!.name, bytes: compact }]))).toThrow(/not the canonical serialization of its pair record/);
+    const extra = Buffer.from(pairText({ ...JSON.parse(record!.bytes.toString('utf8')), api_key: 'x' }), 'utf8');
+    expect(() => validateResearchBundle(tarArchive(join(dir, 'extra-field.tgz'), [...others, { name: record!.name, bytes: extra }]))).toThrow(/\.api_key is not a field of the v1 pair record/);
+    expect(() => validateResearchBundle(tarArchive(join(dir, 'dup.tgz'), [...entries, entries[0]]))).toThrow(/duplicate archive entry/);
+    expect(validateResearchBundle(good)).toEqual({ records: 1, manifest_sha256: 'b'.repeat(64) });
+  });
+
+  it('validate accepts only the exact ustar header form the writer emits, and nothing after the archive end', () => {
+    const dir = tmp();
+    const ledger = ledgerWith(dir, { 'honest--1.json': pairText(validPair()) });
+    const good = createResearchBundle({ ledger, out: join(dir, 'good.tgz') });
+    const entries = tarEntries(good);
+    // A standards-compliant ustar prefix would make a tar reader see
+    // workspaces/private/summary.json where the old parser saw the allowed summary.json.
+    expect(() => validateResearchBundle(tarArchive(join(dir, 'prefix.tgz'), entries, {
+      mutate: (name, h) => { if (name === 'summary.json') h.write('workspaces/private', 345, 'utf8'); },
+    }))).toThrow(/workspaces\/private\/summary\.json uses a ustar prefix/);
+    // A symlink entry (type flag 2) is not a regular file entry.
+    expect(() => validateResearchBundle(tarArchive(join(dir, 'symlink-entry.tgz'), entries, {
+      mutate: (name, h) => { if (name === 'ledger/pairs/honest--1.json') h[156] = 0x32; },
+    }))).toThrow(/honest--1\.json is not a regular file entry/);
+    // Any other deviation from the canonical header (here an owner name), even with a valid checksum, is refused.
+    expect(() => validateResearchBundle(tarArchive(join(dir, 'owner.tgz'), entries, {
+      mutate: (name, h) => { if (name === 'report.txt') h.write('root', 265, 'ascii'); },
+    }))).toThrow(/report\.txt has a header this bundle format does not write/);
+    // Bytes hidden in an entry's padding, or after the two end-of-archive blocks, are refused.
+    expect(() => validateResearchBundle(tarArchive(join(dir, 'padding.tgz'), entries, {
+      padding: (name) => (name === 'provenance.json' ? Buffer.from('TOKEN=x', 'utf8') : undefined),
+    }))).toThrow(/provenance\.json carries bytes in its padding/);
+    expect(() => validateResearchBundle(tarArchive(join(dir, 'trailing.tgz'), entries, {
+      trailing: Buffer.from('TOKEN=x', 'utf8'),
+    }))).toThrow(/bytes after its end-of-archive blocks/);
+    // The same writer, untouched, still produces an archive the validator accepts.
+    expect(validateResearchBundle(tarArchive(join(dir, 'rebuilt.tgz'), entries))).toEqual({ records: 1, manifest_sha256: 'b'.repeat(64) });
+  });
 });
