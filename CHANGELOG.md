@@ -1,5 +1,27 @@
 # Changelog
 
+## [2.34.0] — 2026-09-23
+
+### Added
+
+- **First-class verification state and `tamperward status`** (#600). A successful
+  `verify` now records, under a non-candidate authority (`.git/tamperward/`), stable
+  fingerprints of every load-bearing input it judged: the candidate worktree, HEAD,
+  the trusted base commit, the TamperWard policy, the verifier contract
+  (command/budget/inputs/backend), the protected verification surface at the base,
+  and the local runtime steering wiring. The new **`tamperward status`** (and
+  `status --json`) answers, continuously, whether the exact current state is still
+  the state that was independently verified, in three **distinct** lanes — Authority
+  (repository/final adjudication), Intervention (runtime steering) and Verification —
+  as a first-class state machine: `CURRENT`, `STALE` (with the changed input named),
+  `VERIFYING`, `BROKEN`, `UNVERIFIED`. A mere exit-0 never keeps `CURRENT`: any
+  load-bearing change deterministically invalidates it, and a malformed or missing
+  record fails safe to `UNVERIFIED`, never `CURRENT`. The `--json` document is a new
+  versioned machine-output surface (`schemas/status-v1.schema.json`) for the #500 VS
+  Code panel, WardOS, CI job summaries and dashboards, so consumers read the
+  enumerated state instead of scraping `doctor`/`verify` prose. Local `CURRENT` is
+  posture/evidence, not repository or CI merge authority.
+
 ## [2.33.0] — 2026-09-22
 
 ### Added

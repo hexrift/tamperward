@@ -1,0 +1,501 @@
+// First-class verification state (#600).
+//
+// The question this answers, continuously and mechanically: is the EXACT
+// candidate state a viewer is looking at still the state that was independently
+// verified? A `tamperward verify` that reached VERIFIED records, under a
+// non-candidate authority (`.git/tamperward/`), stable fingerprints of every
+// load-bearing input it judged. `tamperward status` recomputes those same
+// fingerprints from the live tree and reports:
+//
+//   CURRENT     every bound input matches the last successful verification
+//   STALE       a load-bearing input changed since that verification
+//   VERIFYING   a verification is in progress (a live process holds the marker)
+//   BROKEN      the recorded authority wiring can no longer be evaluated
+//   UNVERIFIED  no applicable successful verification exists
+//
+// A mere exit-0 is NOT enough to stay CURRENT: the record binds the candidate
+// tree, the trusted entry/base commit, HEAD, the TamperWard policy, the verifier
+// command/budget/inputs/backend, the protected verification surface at the base,
+// and the local runtime steering wiring. Change any of them and CURRENT is lost.
+//
+// This module is deliberately free of CLI/rendering concerns and never imports
+// the verify engine, so `verify` can persist a record without an import cycle.
+// The stored record is EVIDENCE/posture, never repository or CI merge authority
+// (#600 non-goals): a malformed or missing record fails safe to UNVERIFIED, and
+// authority wiring that cannot be evaluated fails safe to BROKEN — never CURRENT.
+
+import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { assertRev } from './git/build';
+import { trustedGitEnv } from './git/trusted';
+import { treeFingerprint } from './fingerprint';
+import { isProtected, matchesAny, defaultPolicy } from './policy';
+import { loadPolicy, loadPolicyAt } from './policy-load';
+import { repoContext, repoRoot } from './repo-context';
+import { TW_VERSION } from './wiring';
+import type { Policy } from './types';
+
+/** Independent of the machine-output `schema_version`: the on-disk record format
+ *  under `.git/tamperward/`. A record whose version this binary does not
+ *  understand is treated as absent (fail safe to UNVERIFIED). */
+export const VERIFICATION_STATE_SCHEMA_VERSION = 1 as const;
+
+/** The first-class verification states (#600). Stable, machine-readable
+ *  vocabulary shared by the CLI, editor integrations and dashboards, so no
+ *  consumer re-derives security state by scraping prose. */
+export const VERIFICATION_STATES = [
+  'CURRENT',
+  'STALE',
+  'VERIFYING',
+  'BROKEN',
+  'UNVERIFIED',
+] as const;
+export type VerificationState = (typeof VERIFICATION_STATES)[number];
+
+/** The load-bearing inputs CURRENT is bound to. When STALE, exactly one of these
+ *  names the first input that changed. */
+export const BINDING_INPUTS = [
+  'tree',
+  'head',
+  'base',
+  'policy',
+  'verifier',
+  'surface',
+  'intervention',
+] as const;
+export type BindingInput = (typeof BINDING_INPUTS)[number];
+
+/** Human, stable reason for each STALE cause. */
+export const STALE_REASON: Record<BindingInput, string> = {
+  tree: 'candidate tree changed since verification',
+  head: 'HEAD commit changed since verification',
+  base: 'trusted base commit changed since verification',
+  policy: 'TamperWard policy changed since verification',
+  verifier: 'verifier configuration changed since verification',
+  surface: 'protected verification surface changed since verification',
+  intervention: 'runtime steering wiring changed since verification',
+};
+
+/** Stable fingerprints of every load-bearing input, as of a successful verify. */
+export interface VerificationBinding {
+  /** Filesystem fingerprint of the candidate worktree (content + mode + type). */
+  tree: string;
+  /** HEAD commit object id. */
+  head: string;
+  /** Resolved trusted entry/base commit object id. */
+  base: string;
+  /** Digest of the effective TamperWard policy. */
+  policy: string;
+  /** Digest of the verifier contract: command, budget, inputs, backend, image. */
+  verifier: string;
+  /** Digest of the protected verification surface (base files the policy protects). */
+  surface: string;
+  /** Digest of local runtime steering wiring (the agent hook configuration). */
+  intervention: string;
+}
+
+/** How the recorded verify resolved its inputs, so `status` recomputes the SAME
+ *  identity without the original argv. */
+export interface VerificationInputs {
+  /** The revision `verify` resolved its base from (`HEAD` or an explicit --base). */
+  base_ref: string;
+  /** Whether the policy came from the base commit (--base) or the worktree. */
+  explicit_base: boolean;
+  /** Whether the verifier command was a --cmd override or the policy's. */
+  command_source: 'policy' | 'flag';
+  command: string;
+  /** Whether the budget was a --budget override or the policy's. */
+  budget_source: 'policy' | 'flag';
+  budget: number;
+}
+
+export interface VerificationRecord {
+  schema_version: typeof VERIFICATION_STATE_SCHEMA_VERSION;
+  /** Only a genuine VERIFIED result is ever recorded — never a masked failure. */
+  verdict: 'VERIFIED';
+  verified_at: string;
+  tw_version: string;
+  inputs: VerificationInputs;
+  binding: VerificationBinding;
+}
+
+/** A verification that is currently running: a live process holds this marker. */
+export interface VerifyingMarker {
+  schema_version: typeof VERIFICATION_STATE_SCHEMA_VERSION;
+  pid: number;
+  started_at: string;
+}
+
+/** What `evaluateVerificationState` concluded. */
+export interface VerificationEvaluation {
+  state: VerificationState;
+  /** Human explanation for STALE / BROKEN / UNVERIFIED / VERIFYING. */
+  reason?: string;
+  /** For STALE: the first load-bearing input that changed. */
+  changed_input?: BindingInput;
+  /** Machine-actionable detail for BROKEN. */
+  detail?: string;
+  /** Present whenever a record exists. */
+  verified_at?: string;
+  /** Live resolved base/head object ids, when computable. */
+  base?: string;
+  head?: string;
+  /** The verifier command the record was taken under, when a record exists. */
+  verifier_command?: string;
+  record?: VerificationRecord;
+}
+
+function git(args: string[], cwd: string): string {
+  return execFileSync('git', args, {
+    cwd,
+    encoding: 'utf8',
+    maxBuffer: 1 << 28,
+    env: trustedGitEnv(),
+  });
+}
+
+/** merge-base semantics like `verify` and `check --diff base...head`: the base a
+ *  PR cannot dodge by being behind. Falls back to the rev itself. */
+function resolveBaseRev(baseRef: string, cwd: string): string {
+  assertRev(baseRef);
+  const rev = git(['rev-parse', '--verify', `${baseRef}^{commit}`], cwd).trim();
+  try {
+    return git(['merge-base', rev, 'HEAD'], cwd).trim();
+  } catch {
+    return rev;
+  }
+}
+
+/** Deterministic JSON with recursively sorted object keys, so a digest depends on
+ *  content and not on key insertion order. */
+function canonicalJson(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null';
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  const entries = Object.entries(value)
+    .filter(([, v]) => v !== undefined)
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonicalJson(v)}`).join(',')}}`;
+}
+
+function digest(value: unknown): string {
+  return createHash('sha256').update(canonicalJson(value)).digest('hex');
+}
+
+/** The concrete protected verification surface at the base: every base-tracked
+ *  file the policy protects, plus any declared verify.inputs. This is what
+ *  `verify` restores from the trusted base, so a change to that set — a protected
+ *  test added, removed or renamed at the base, or the protected/verify.inputs
+ *  globs themselves changing — is a load-bearing change. */
+function surfacePaths(base: string, cwd: string, policy: Policy): string[] {
+  let listing: string;
+  try {
+    listing = git(['ls-tree', '-r', '--name-only', '-z', base], cwd);
+  } catch {
+    return [];
+  }
+  const inputs = policy.verify?.inputs ?? [];
+  return listing
+    .split('\0')
+    .filter(Boolean)
+    .filter((p) => isProtected(p, policy) || matchesAny(p, inputs))
+    .sort();
+}
+
+/** Local runtime steering wiring: the agent hook configuration that lets
+ *  TamperWard intervene on a tool call before it runs. Its exact bytes are the
+ *  fingerprint — a widened matcher or a changed hook command is a change. */
+function interventionWiring(cwd: string): string {
+  try {
+    return readFileSync(join(cwd, '.claude', 'settings.json'), 'utf8');
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Recompute the binding fingerprints for the CURRENT live state, using the same
+ * input resolution the recorded verify used. Throws when the recorded authority
+ * wiring can no longer be evaluated (an unresolvable base, an invalid policy, or
+ * a verifier command that is no longer configured) — the caller maps that to
+ * BROKEN. Never returns a partial binding.
+ */
+export function computeBinding(cwd: string, inputs: VerificationInputs): VerificationBinding {
+  const root = repoRoot(cwd);
+  const head = git(['rev-parse', '--verify', 'HEAD^{commit}'], root).trim();
+  const base = resolveBaseRev(inputs.base_ref, root);
+  const policy = inputs.explicit_base
+    ? (loadPolicyAt(base, root) ?? defaultPolicy())
+    : loadPolicy(root);
+
+  const command =
+    inputs.command_source === 'flag' ? inputs.command : (policy.verify?.command ?? '');
+  if (!command) {
+    throw new Error('no verifier command is configured for the recorded verification');
+  }
+  const budget =
+    inputs.budget_source === 'flag' ? inputs.budget : (policy.verify?.budget ?? 300);
+
+  const protectedIgnored = (rel: string): boolean => isProtected(rel, policy);
+  return {
+    tree: treeFingerprint(root, protectedIgnored),
+    head,
+    base,
+    policy: digest(policy),
+    verifier: digest({
+      command,
+      budget,
+      inputs: policy.verify?.inputs ?? [],
+      backend: policy.verify?.backend ?? 'local',
+      image: policy.verify?.image ?? null,
+    }),
+    surface: digest(surfacePaths(base, root, policy)),
+    intervention: digest(interventionWiring(root)),
+  };
+}
+
+/** `.git/tamperward/` for this repository, or null outside a repository. State
+ *  lives under the git directory — a non-candidate authority — never in the
+ *  tracked, candidate-writable tree. */
+function stateDir(cwd: string): string | null {
+  const ctx = repoContext(cwd);
+  return ctx ? join(ctx.gitDir, 'tamperward') : null;
+}
+
+export function verificationRecordPath(cwd: string): string | null {
+  const dir = stateDir(cwd);
+  return dir ? join(dir, 'verification-state.json') : null;
+}
+
+export function verifyingMarkerPath(cwd: string): string | null {
+  const dir = stateDir(cwd);
+  return dir ? join(dir, 'verifying.json') : null;
+}
+
+/** Snapshot the live binding under `inputs` and persist it. Best-effort: the
+ *  record is evidence, so a write failure must never change a verify verdict.
+ *  Returns whether a record was written. */
+export function recordVerification(cwd: string, inputs: VerificationInputs): boolean {
+  const path = verificationRecordPath(cwd);
+  if (!path) return false;
+  const binding = computeBinding(repoRoot(cwd), inputs);
+  const record: VerificationRecord = {
+    schema_version: VERIFICATION_STATE_SCHEMA_VERSION,
+    verdict: 'VERIFIED',
+    verified_at: new Date().toISOString(),
+    tw_version: TW_VERSION,
+    inputs,
+    binding,
+  };
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, JSON.stringify(record) + '\n');
+  return true;
+}
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+function isBinding(v: unknown): v is VerificationBinding {
+  if (!isRecord(v)) return false;
+  return BINDING_INPUTS.every((k) => {
+    const val = v[k];
+    return typeof val === 'string' && val.length > 0;
+  });
+}
+
+/** Parse and validate a persisted record. A record that does not validate is
+ *  rejected (the caller treats a rejected record as absent → UNVERIFIED), so a
+ *  malformed or truncated record can never present as CURRENT. */
+export function parseVerificationRecord(value: unknown): VerificationRecord | null {
+  if (!isRecord(value)) return null;
+  if (value.schema_version !== VERIFICATION_STATE_SCHEMA_VERSION) return null;
+  if (value.verdict !== 'VERIFIED') return null;
+  if (typeof value.verified_at !== 'string') return null;
+  if (typeof value.tw_version !== 'string') return null;
+  const inputs = value.inputs;
+  if (!isRecord(inputs)) return null;
+  if (typeof inputs.base_ref !== 'string' || inputs.base_ref.length === 0) return null;
+  if (typeof inputs.explicit_base !== 'boolean') return null;
+  if (inputs.command_source !== 'policy' && inputs.command_source !== 'flag') return null;
+  if (typeof inputs.command !== 'string') return null;
+  if (inputs.budget_source !== 'policy' && inputs.budget_source !== 'flag') return null;
+  if (typeof inputs.budget !== 'number' || !Number.isFinite(inputs.budget)) return null;
+  if (!isBinding(value.binding)) return null;
+  return {
+    schema_version: VERIFICATION_STATE_SCHEMA_VERSION,
+    verdict: 'VERIFIED',
+    verified_at: value.verified_at,
+    tw_version: value.tw_version,
+    inputs: {
+      base_ref: inputs.base_ref,
+      explicit_base: inputs.explicit_base,
+      command_source: inputs.command_source,
+      command: inputs.command,
+      budget_source: inputs.budget_source,
+      budget: inputs.budget,
+    },
+    binding: value.binding,
+  };
+}
+
+/** The stored record, or null when there is none or it fails to validate. Any
+ *  read/parse fault fails safe to null (→ UNVERIFIED), never to CURRENT. */
+export function readVerificationRecord(cwd: string): VerificationRecord | null {
+  const path = verificationRecordPath(cwd);
+  if (!path) return null;
+  let raw: string;
+  try {
+    raw = readFileSync(path, 'utf8');
+  } catch {
+    return null;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  return parseVerificationRecord(parsed);
+}
+
+/** True when `pid` names a process this host can signal (alive), best-effort.
+ *  EPERM means it exists but is owned by another user — still alive. */
+function pidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    // EPERM means the process exists but is owned by another user — still alive.
+    return isRecord(e) && e.code === 'EPERM';
+  }
+}
+
+/** Mark that a verification is in progress. Best-effort; returns whether written. */
+export function beginVerifying(cwd: string): boolean {
+  const path = verifyingMarkerPath(cwd);
+  if (!path) return false;
+  try {
+    const marker: VerifyingMarker = {
+      schema_version: VERIFICATION_STATE_SCHEMA_VERSION,
+      pid: process.pid,
+      started_at: new Date().toISOString(),
+    };
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, JSON.stringify(marker) + '\n');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Clear the in-progress marker. Best-effort. */
+export function endVerifying(cwd: string): void {
+  const path = verifyingMarkerPath(cwd);
+  if (!path) return;
+  try {
+    rmSync(path, { force: true });
+  } catch {
+    /* nothing to clear */
+  }
+}
+
+/** The in-progress marker, but only when a live process still holds it. A stale
+ *  marker (the verify process is gone, or the file is malformed) is ignored so
+ *  status never sticks at VERIFYING after a crash. */
+export function readVerifyingMarker(cwd: string): VerifyingMarker | null {
+  const path = verifyingMarkerPath(cwd);
+  if (!path) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(path, 'utf8'));
+  } catch {
+    return null;
+  }
+  if (!isRecord(parsed)) return null;
+  if (parsed.schema_version !== VERIFICATION_STATE_SCHEMA_VERSION) return null;
+  if (typeof parsed.pid !== 'number' || !Number.isInteger(parsed.pid) || parsed.pid <= 0) return null;
+  if (typeof parsed.started_at !== 'string') return null;
+  if (!pidAlive(parsed.pid)) return null;
+  return { schema_version: VERIFICATION_STATE_SCHEMA_VERSION, pid: parsed.pid, started_at: parsed.started_at };
+}
+
+// Report the MOST SPECIFIC cause first. A verify-config edit, a protected-glob
+// edit and a policy edit all also move the worktree file they live in, so a plain
+// `tree` mismatch is the least informative answer: the specific inputs are checked
+// before it, and `tree` is the fall-through for an ordinary source/test edit that
+// changed nothing else.
+const MISMATCH_PRIORITY: readonly BindingInput[] = [
+  'head',
+  'base',
+  'verifier',
+  'surface',
+  'intervention',
+  'policy',
+  'tree',
+];
+
+/** The first binding input (in most-specific-first priority order) whose recorded
+ *  fingerprint differs from the live one, or null when every input matches. */
+function firstMismatch(recorded: VerificationBinding, live: VerificationBinding): BindingInput | null {
+  for (const input of MISMATCH_PRIORITY) {
+    if (recorded[input] !== live[input]) return input;
+  }
+  return null;
+}
+
+/**
+ * The verification-state machine (#600). Order of precedence:
+ *   VERIFYING   a live process holds the in-progress marker;
+ *   UNVERIFIED  no valid record exists (or it failed to validate);
+ *   BROKEN      the recorded authority wiring can no longer be evaluated;
+ *   STALE       a load-bearing input changed;
+ *   CURRENT     every load-bearing input still matches.
+ */
+export function evaluateVerificationState(cwd: string): VerificationEvaluation {
+  if (readVerifyingMarker(cwd)) {
+    return { state: 'VERIFYING', reason: 'a verification is in progress' };
+  }
+  const record = readVerificationRecord(cwd);
+  if (!record) {
+    return {
+      state: 'UNVERIFIED',
+      reason: 'no successful verification has been recorded for this repository',
+    };
+  }
+  let live: VerificationBinding;
+  try {
+    live = computeBinding(cwd, record.inputs);
+  } catch (e) {
+    return {
+      state: 'BROKEN',
+      reason: 'verification authority wiring is invalid or unavailable',
+      detail: e instanceof Error ? e.message : String(e),
+      verified_at: record.verified_at,
+      verifier_command: record.inputs.command,
+      record,
+    };
+  }
+  const changed = firstMismatch(record.binding, live);
+  if (!changed) {
+    return {
+      state: 'CURRENT',
+      verified_at: record.verified_at,
+      base: live.base,
+      head: live.head,
+      verifier_command: record.inputs.command,
+      record,
+    };
+  }
+  return {
+    state: 'STALE',
+    changed_input: changed,
+    reason: STALE_REASON[changed],
+    verified_at: record.verified_at,
+    base: live.base,
+    head: live.head,
+    verifier_command: record.inputs.command,
+    record,
+  };
+}

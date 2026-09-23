@@ -77,6 +77,39 @@ export const RUN_VERDICTS = [
 ] as const;
 export type RunVerdict = (typeof RUN_VERDICTS)[number];
 
+/** `status --json` verification-state vocabulary (#600). The single source for
+ *  the emitter and the published schema. Kept in step with
+ *  `VERIFICATION_STATES` / `BINDING_INPUTS` in src/verification-state.ts by
+ *  test/json-schema.test.ts. */
+export const STATUS_VERIFICATION_STATES = [
+  'CURRENT',
+  'STALE',
+  'VERIFYING',
+  'BROKEN',
+  'UNVERIFIED',
+] as const;
+export type StatusVerificationState = (typeof STATUS_VERIFICATION_STATES)[number];
+
+/** For a STALE verification, the load-bearing input that changed. */
+export const STATUS_CHANGED_INPUTS = [
+  'tree',
+  'head',
+  'base',
+  'policy',
+  'verifier',
+  'surface',
+  'intervention',
+] as const;
+export type StatusChangedInput = (typeof STATUS_CHANGED_INPUTS)[number];
+
+/** Repository/final-adjudication authority posture (`status` Authority lane). */
+export const STATUS_AUTHORITY_STATES = ['ACTIVE', 'PARTIAL', 'BROKEN', 'UNKNOWN'] as const;
+export type StatusAuthorityState = (typeof STATUS_AUTHORITY_STATES)[number];
+
+/** Runtime steering capability posture (`status` Intervention lane). */
+export const STATUS_INTERVENTION_STATES = ['ACTIVE', 'PARTIAL', 'INACTIVE', 'UNKNOWN'] as const;
+export type StatusInterventionState = (typeof STATUS_INTERVENTION_STATES)[number];
+
 /** Why a `run` document carries `verdict: "CANNOT_ADJUDICATE"`. */
 export const RUN_CANNOT_ADJUDICATE_REASONS = [
   'AGENT_LIFECYCLE_NOT_OWNED',

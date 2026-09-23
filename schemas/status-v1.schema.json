@@ -1,0 +1,200 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/hexrift/tamperward/v1/schemas/status-v1.schema.json",
+  "title": "TamperWard status JSON output v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "command",
+    "authority",
+    "intervention",
+    "verification",
+    "runtime"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "command": {
+      "const": "status"
+    },
+    "authority": {
+      "type": "object",
+      "required": ["state"],
+      "properties": {
+        "state": {
+          "enum": ["ACTIVE", "PARTIAL", "BROKEN", "UNKNOWN"]
+        },
+        "detail": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "intervention": {
+      "type": "object",
+      "required": ["state"],
+      "properties": {
+        "state": {
+          "enum": ["ACTIVE", "PARTIAL", "INACTIVE", "UNKNOWN"]
+        },
+        "detail": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "verification": {
+      "type": "object",
+      "required": ["state"],
+      "properties": {
+        "state": {
+          "enum": ["CURRENT", "STALE", "VERIFYING", "BROKEN", "UNVERIFIED"]
+        },
+        "reason": {
+          "type": "string"
+        },
+        "changed_input": {
+          "enum": [
+            "tree",
+            "head",
+            "base",
+            "policy",
+            "verifier",
+            "surface",
+            "intervention"
+          ]
+        },
+        "detail": {
+          "type": "string"
+        },
+        "verified_at": {
+          "type": "string"
+        },
+        "base": {
+          "type": "string"
+        },
+        "head": {
+          "type": "string"
+        },
+        "verifier_command": {
+          "type": "string"
+        },
+        "tree": {
+          "type": "string"
+        },
+        "binding": {
+          "type": "object",
+          "required": [
+            "tree",
+            "head",
+            "base",
+            "policy",
+            "verifier",
+            "surface",
+            "intervention"
+          ],
+          "properties": {
+            "tree": { "type": "string" },
+            "head": { "type": "string" },
+            "base": { "type": "string" },
+            "policy": { "type": "string" },
+            "verifier": { "type": "string" },
+            "surface": { "type": "string" },
+            "intervention": { "type": "string" }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "state": { "const": "STALE" }
+            },
+            "required": ["state"]
+          },
+          "then": {
+            "required": ["changed_input"],
+            "properties": {
+              "changed_input": {
+                "enum": [
+                  "tree",
+                  "head",
+                  "base",
+                  "policy",
+                  "verifier",
+                  "surface",
+                  "intervention"
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "runtime": {
+      "type": "object",
+      "required": ["agent"],
+      "properties": {
+        "agent": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true,
+  "description": "Emitted by `tamperward status --json` (#600). Three distinct lanes: `authority` (repository/final-adjudication posture), `intervention` (runtime steering capability) and `verification` (whether the last successful verify still applies to the exact current state). A STALE verification names the load-bearing input that changed in `changed_input`. Local CURRENT is posture/evidence, never repository or CI merge authority. Additive within schema major 1.",
+  "examples": [
+    {
+      "schema_version": 1,
+      "command": "status",
+      "authority": { "state": "ACTIVE" },
+      "intervention": { "state": "PARTIAL", "detail": "PreToolUse hook wired" },
+      "verification": {
+        "state": "CURRENT",
+        "verified_at": "2026-09-23T12:00:00.000Z",
+        "base": "8ef12c1aaa0000000000000000000000000000aa",
+        "head": "8ef12c1aaa0000000000000000000000000000aa",
+        "verifier_command": "npm test",
+        "tree": "0123456789abcdef",
+        "binding": {
+          "tree": "0123456789abcdef",
+          "head": "8ef12c1aaa0000000000000000000000000000aa",
+          "base": "8ef12c1aaa0000000000000000000000000000aa",
+          "policy": "aaaa",
+          "verifier": "bbbb",
+          "surface": "cccc",
+          "intervention": "dddd"
+        }
+      },
+      "runtime": { "agent": "claude-code" }
+    },
+    {
+      "schema_version": 1,
+      "command": "status",
+      "authority": { "state": "BROKEN", "detail": "verifier: BROKEN" },
+      "intervention": { "state": "INACTIVE" },
+      "verification": {
+        "state": "STALE",
+        "changed_input": "tree",
+        "reason": "candidate tree changed since verification",
+        "verified_at": "2026-09-23T12:00:00.000Z"
+      },
+      "runtime": { "agent": "claude-code" }
+    },
+    {
+      "schema_version": 1,
+      "command": "status",
+      "authority": { "state": "UNKNOWN" },
+      "intervention": { "state": "UNKNOWN" },
+      "verification": {
+        "state": "UNVERIFIED",
+        "reason": "no successful verification has been recorded for this repository"
+      },
+      "runtime": { "agent": "none" }
+    }
+  ]
+}
