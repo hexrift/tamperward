@@ -38,9 +38,11 @@ off, which is a security failure by a slower route.
 
 ## What is not a vulnerability
 
-- **`assertion-weakening` and `guard-removal` shipping as `warn`.** Both are heuristic and
-  stay non-blocking until their precision is measured against a negatives corpus. This is
-  documented in SPEC §7 and in `.tamperward.yml`; a miss by a `warn` rule is expected.
+- **`assertion-weakening` shipping as `warn`.** Its committed replay corpus is
+  measured in `harness/fp-study/AW-CORPUS.md` (12 true positives, 0 false positives
+  in the recorded 20-negative/12-positive study), but the rule remains warn-only.
+  **`guard-removal` is separate: it remains reserved/unbuilt and has no measured
+  precision claim.** A miss by either non-blocking/reserved heuristic is expected.
 - **A repo weakening its own policy.** `ignore` globs, lowered severities and disabled
   rules are the owner's call. Tamperward reports the count it ignored and treats a
   weakening edit as a finding — it does not stop a maintainer who means it.
