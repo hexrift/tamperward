@@ -35,7 +35,8 @@ import { claudeAdapter } from '../src/adapters/claude/adapter';
 import { codexAdapter } from '../src/adapters/codex/adapter';
 import { copilotAdapter } from '../src/adapters/copilot/adapter';
 import { copilotSdkAdapter } from '../src/adapters/copilot-sdk/adapter';
-import { RETAINED_EVIDENCE, matchRetainedEvidence, type EvidenceMatchKey } from '../src/adapters/evidence';
+import { RETAINED_EVIDENCE, matchRetainedEvidence, evidenceBindingMatches, type EvidenceMatchKey, type RetainedRuntimeEvidence } from '../src/adapters/evidence';
+import { TW_VERSION } from '../src/wiring';
 
 const ROOT = resolve(__dirname, '..');
 const stateOf = (a: CapabilityAssessment[], id: RuntimeCapabilityId) => a.find((x) => x.id === id)!.state;
@@ -56,8 +57,9 @@ describe('capability derivation is honest (#599)', () => {
     expect(claudeAdapter.capabilities.preDeny).toEqual(OPERATION_KINDS);
     // ...and there is NO retained real-runtime probe for it, so nothing may be PROVEN.
     expect(matchRetainedEvidence({
-      runtime_id: 'claude-code', runtime_version: '9.9.9', model: null,
-      platform: `${process.platform}-${process.arch}`, execution_mode: 'headless', hook_config_hash: null,
+      runtime_id: 'claude-code', runtime_version: '9.9.9', component_versions: [],
+      tamperward_version: '2.37.0+deadbeef', adapter_capability_hash: 'abc', tested_capabilities: [],
+      model: null, platform: `${process.platform}-${process.arch}`, execution_mode: 'headless', hook_config_hash: null,
     })).toBeNull();
     const a = assessCapabilities(claudeAdapter.capabilities);
     // The maintainer's exact objection: static preDeny membership must NOT become PROVEN.
@@ -85,21 +87,139 @@ describe('capability derivation is honest (#599)', () => {
     expect(noEvidence.some((x) => x.state === 'PROVEN')).toBe(false);
   });
 
-  it('a binding mismatch (version/platform/model/mode/config) yields no evidence, so no PROVEN', () => {
+  it('the applicability match compares EVERY evidence-defining field; any one differing breaks it', () => {
     const record = RETAINED_EVIDENCE.find((r) => r.binding.runtime_id === 'github-copilot-sdk-hosted')!;
-    const match: EvidenceMatchKey = { ...record.binding };
-    expect(matchRetainedEvidence(match)).toBe(record); // exact binding matches
-    // Any single load-bearing field differing breaks the match — PROVEN cannot survive it.
-    for (const over of [
+    // A synthetic record + a current key that matches on every field — the ONLY way PROVEN is
+    // reachable in principle. `adapter_capability_hash` is concrete on both sides (a null recorded
+    // hash fails closed and can never match — see the copilot-sdk record, which stores null).
+    const synthRecord: RetainedRuntimeEvidence = {
+      ...record,
+      binding: {
+        ...record.binding,
+        tamperward_version: '9.9.9+abcdef12',
+        adapter_capability_hash: 'cap-hash-xyz',
+      },
+    };
+    const match: EvidenceMatchKey = { ...synthRecord.binding };
+    expect(evidenceBindingMatches(synthRecord.binding, match)).toBe(true); // exact binding matches
+    // Every single evidence-defining field, flipped in isolation, must break the match — the
+    // legacy fields AND the four the review required be added.
+    const overrides: Partial<EvidenceMatchKey>[] = [
+      // legacy fields
       { runtime_version: 'copilot-runtime@1.0.86' },
+      { runtime_version: null },
       { platform: 'linux-x64' },
       { model: 'gpt-6' },
-      { execution_mode: 'interactive' as const },
+      { execution_mode: 'interactive' },
       { hook_config_hash: 'deadbeef' },
-      { runtime_version: null },
-    ]) {
-      expect(matchRetainedEvidence({ ...match, ...over }), JSON.stringify(over)).toBeNull();
+      // newly-required evidence-defining fields
+      { tamperward_version: '9.9.10+abcdef12' }, // a TamperWard version bump
+      { tamperward_version: '9.9.9+ffffffff' }, // a TamperWard commit change
+      { tamperward_version: null },
+      { component_versions: ['@github/copilot-sdk@1.0.15', 'copilot-protocol@3'] }, // one component bumped
+      { component_versions: ['@github/copilot-sdk@1.0.14'] }, // a component dropped
+      { adapter_capability_hash: 'cap-hash-DIFFERENT' }, // adapter capabilities changed
+      { adapter_capability_hash: null }, // an unresolved current hash never matches
+      { tested_capabilities: [...synthRecord.binding.tested_capabilities, 'end-of-turn'] }, // tested set grew
+      { tested_capabilities: ['pre-deny:shell'] }, // tested set shrank
+    ];
+    for (const over of overrides) {
+      expect(evidenceBindingMatches(synthRecord.binding, { ...match, ...over }), JSON.stringify(over)).toBe(false);
     }
+    // Order/duplicates never affect the set-compared fields.
+    expect(evidenceBindingMatches(synthRecord.binding, {
+      ...match,
+      component_versions: ['copilot-protocol@3', '@github/copilot-sdk@1.0.14', '@github/copilot-sdk@1.0.14'],
+      tested_capabilities: [...synthRecord.binding.tested_capabilities].reverse(),
+    })).toBe(true);
+  });
+
+  it('reproduces the review concern, then shows the fix closes it (stale evidence cannot promote)', () => {
+    const record = RETAINED_EVIDENCE.find((r) => r.binding.runtime_id === 'github-copilot-sdk-hosted')!;
+    // A "current" binding that agrees with the retained capture on the OLD six match fields
+    // (runtime id/version, model, platform, mode, hook-config hash) but reflects a NEWER world:
+    // a bumped TamperWard build, changed SDK/protocol, a different adapter hash, a wider tested set.
+    const current: EvidenceMatchKey = {
+      runtime_id: record.binding.runtime_id,
+      runtime_version: record.binding.runtime_version,
+      model: record.binding.model,
+      platform: record.binding.platform,
+      execution_mode: record.binding.execution_mode,
+      hook_config_hash: record.binding.hook_config_hash,
+      // the evidence-defining fields the review said were being IGNORED, now moved on:
+      tamperward_version: '2.37.0+00000000',
+      component_versions: ['@github/copilot-sdk@1.0.20', 'copilot-protocol@4'],
+      adapter_capability_hash: 'current-adapter-hash',
+      tested_capabilities: [...RUNTIME_CAPABILITY_IDS],
+    };
+    // BEFORE the fix (legacy six-field logic) this would have MATCHED — reproduce that here:
+    const legacyMatch =
+      record.binding.runtime_id === current.runtime_id &&
+      record.binding.runtime_version === current.runtime_version &&
+      record.binding.model === current.model &&
+      record.binding.platform === current.platform &&
+      record.binding.execution_mode === current.execution_mode &&
+      record.binding.hook_config_hash === current.hook_config_hash;
+    expect(legacyMatch).toBe(true); // the old lookup WOULD have promoted stale evidence
+    // AFTER the fix: the full-binding match rejects it, so nothing is promoted.
+    expect(evidenceBindingMatches(record.binding, current)).toBe(false);
+    expect(matchRetainedEvidence(current)).toBeNull();
+  });
+
+  it('under the CURRENT repo binding (TamperWard 2.37.x) the copilot-sdk record does NOT match', () => {
+    // The concrete consequence the review asked us to assert: with the committed catalogue and a
+    // like-for-like current binding built the way the CLI builds it, nothing matches — so nothing
+    // grades PROVEN in this repo today. The capture is tamperward@2.31.0; this repo is 2.37.x.
+    expect(TW_VERSION.startsWith('2.31.0')).toBe(false);
+    const record = RETAINED_EVIDENCE.find((r) => r.binding.runtime_id === 'github-copilot-sdk-hosted')!;
+    // Build a current key that is otherwise as favourable as possible (same runtime env), differing
+    // only where the current repo genuinely differs: TamperWard build, resolved component set,
+    // adapter hash, tested surface.
+    const current: EvidenceMatchKey = {
+      runtime_id: record.binding.runtime_id,
+      runtime_version: record.binding.runtime_version,
+      model: record.binding.model,
+      platform: record.binding.platform,
+      execution_mode: record.binding.execution_mode,
+      hook_config_hash: record.binding.hook_config_hash,
+      tamperward_version: `${TW_VERSION}+00000000`,
+      component_versions: [], // no live resolver ships; the current side is the unresolved set
+      adapter_capability_hash: capabilityHash(copilotSdkAdapter.capabilities),
+      tested_capabilities: [...RUNTIME_CAPABILITY_IDS],
+    };
+    expect(matchRetainedEvidence(current)).toBeNull();
+    // And even if a caller somehow reconstructed the capture's component set and tested surface,
+    // the null recorded adapter_capability_hash alone keeps it fail-closed.
+    expect(matchRetainedEvidence({
+      ...current,
+      component_versions: [...record.binding.component_versions],
+      tamperward_version: record.binding.tamperward_version,
+      tested_capabilities: [...record.binding.tested_capabilities],
+    })).toBeNull();
+  });
+
+  it('a fully-matching synthetic record still yields PROVEN — the mechanism works when everything matches', () => {
+    // Prove reachability-in-principle with a synthetic record whose binding fully matches a
+    // synthetic current binding (concrete adapter hash on both sides). This keeps the
+    // evidence-gated-PROVEN path meaningful even though the real catalogue proves nothing today.
+    const proto = RETAINED_EVIDENCE.find((r) => r.binding.runtime_id === 'github-copilot-sdk-hosted')!;
+    const synth: RetainedRuntimeEvidence = {
+      ...proto,
+      ref: 'synthetic-fully-matching',
+      binding: {
+        ...proto.binding,
+        tamperward_version: '9.9.9+abcdef12',
+        adapter_capability_hash: 'cap-hash-xyz',
+      },
+    };
+    const current: EvidenceMatchKey = { ...synth.binding };
+    const matched = matchRetainedEvidence(current, [synth]);
+    expect(matched).toBe(synth);
+    // With the matched record in hand, the observed capabilities grade PROVEN / INCONCLUSIVE.
+    const a = assessCapabilities(copilotSdkAdapter.capabilities, matched);
+    expect(stateOf(a, 'pre-deny:shell')).toBe('PROVEN');
+    expect(stateOf(a, 'hook-not-invoked')).toBe('PROVEN');
+    expect(stateOf(a, 'transport:timeout')).toBe('INCONCLUSIVE');
   });
 
   it('a conservative adapter that declares no preDeny reports UNPROVEN, never PROVEN', () => {
@@ -291,6 +411,18 @@ describe('runtime CLI end-to-end (#599)', () => {
     // No percentage / numeric score anywhere in the rendered surface.
     expect(raw).not.toMatch(/%/);
     expect(run(cwd, ['runtime', 'verify', '--runtime', 'claude-code'], { TAMPERWARD_RUNTIME_VERSION: '9.9.9' })).not.toMatch(/%/);
+  });
+
+  it('verify for copilot-sdk reports NO PROVEN under the current repo build (stale evidence excluded)', () => {
+    // End-to-end proof of the review fix: the committed copilot-sdk capture ran under
+    // tamperward@2.31.0; this repo is 2.37.x, so the full-binding match rejects it and the real
+    // CLI promotes nothing. Every capability is PARTIAL/UNPROVEN/UNSUPPORTED — never PROVEN.
+    const cwd = initRepo();
+    const doc = JSON.parse(run(cwd, ['runtime', 'verify', '--runtime', 'copilot-sdk', '--json']));
+    expect(doc.runtime.id).toBe('github-copilot-sdk-hosted');
+    expect(doc.capabilities.some((c: { state: string }) => c.state === 'PROVEN')).toBe(false);
+    expect(doc.capabilities.every((c: { evidence: { source: string } }) => c.evidence.source !== 'committed-evidence')).toBe(true);
+    expect(doc.in_loop_protection).not.toBe('FULL');
   });
 
   it('schema enums equal the emitter constants (no drift)', () => {

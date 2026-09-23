@@ -8,12 +8,16 @@
 // under. This module holds those retained observations, transcribed verbatim from the
 // committed, sanitized probe captures under `harness/adapters/**/evidence/`.
 //
-//  - Each record carries the FULL binding the probe ran under (runtime id + exact version,
-//    component versions, model, platform, execution mode, hook-config hash). A capability is
-//    graded from a record ONLY when the current qualification binding matches ALL of those
-//    fields (`matchRetainedEvidence`). A mismatch — a bumped version, a different platform,
-//    model, mode or config — yields NO match, so nothing is proven and the honest state falls
-//    back to the static derivation (`PARTIAL`/`UNPROVEN`).
+//  - Each record carries the FULL binding the probe ran under, and the applicability match
+//    (`matchRetainedEvidence`) compares EVERY evidence-defining field: runtime id + exact
+//    version, the pinned component versions (SDK/protocol), the TamperWard version+commit the
+//    probe ran under, the adapter capability hash, the tested capability set, model, platform,
+//    execution mode and hook-config hash. A capability is graded from a record ONLY when the
+//    current qualification binding matches ALL of them. A mismatch — a bumped runtime OR
+//    TamperWard version, a changed SDK/protocol component, a different adapter capability hash,
+//    a different tested set, or a different platform/model/mode/config — yields NO match, so
+//    nothing is proven and the honest state falls back to the static derivation
+//    (`PARTIAL`/`UNPROVEN`). Stale evidence can never promote across a load-bearing change.
 //  - A record proves specific capability ids and preserves the exact observation for each,
 //    including negative (`fail-open`) and unresolved (`inconclusive`) results verbatim.
 //  - There is deliberately no evidence for a runtime we have not probed. Claude Code, for
@@ -49,8 +53,22 @@ export interface EvidenceBinding {
   runtime_id: string;
   /** Exact version the probe ran against (for a hosted runtime, the runtime component version). */
   runtime_version: string;
-  /** Additional pinned component versions that co-define the probed runtime (SDK, protocol). */
+  /** Additional pinned component versions that co-define the probed runtime (SDK, protocol),
+   *  e.g. `@github/copilot-sdk@1.0.14`, `copilot-protocol@3`. Compared order-insensitively. */
   component_versions: string[];
+  /** The exact TamperWard build the probe ran under, as `version+shortcommit`
+   *  (e.g. `2.31.0+3671a5e6`). A different TamperWard version or commit is a different build and
+   *  must not reuse this evidence — a change here breaks the match. */
+  tamperward_version: string;
+  /** The adapter capability hash the probe ran under, or `null` when it is NOT authentically
+   *  recoverable from the committed capture. A `null` here fails the match CLOSED: the match
+   *  REQUIRES a concrete hash on both sides, so a record with an unrecoverable hash can never
+   *  equal a concrete current hash and can never promote. We never fabricate a historical hash. */
+  adapter_capability_hash: string | null;
+  /** The capability ids the probe actually tested/observed. Compared order-insensitively against
+   *  the current qualification's tested set: evidence that tested a different capability surface
+   *  than the one being reported does not apply. */
+  tested_capabilities: RuntimeCapabilityId[];
   model: string | null;
   /** `${platform}-${arch}` the probe ran on. */
   platform: string;
@@ -89,6 +107,15 @@ export const RETAINED_EVIDENCE: readonly RetainedRuntimeEvidence[] = [
       runtime_id: 'github-copilot-sdk-hosted',
       runtime_version: 'copilot-runtime@1.0.85',
       component_versions: ['@github/copilot-sdk@1.0.14', 'copilot-protocol@3'],
+      // The capture's own provenance: tamperward@2.31.0+3671a5e6 (capture-2026-09-20.json).
+      tamperward_version: '2.31.0+3671a5e6',
+      // NOT authentically recoverable from the committed capture: the sanitized artifact records
+      // no adapter capability-declaration hash. We do NOT invent a historical hash. `null` makes
+      // the applicability match fail CLOSED (a null recorded hash can never equal a concrete
+      // current hash), so this record can never promote — the honest, safe outcome.
+      adapter_capability_hash: null,
+      // The capability ids the capture actually observed (the `observations` below).
+      tested_capabilities: ['pre-deny:shell', 'hook-not-invoked', 'transport:timeout'],
       model: 'gpt-5.4',
       platform: 'darwin-arm64',
       execution_mode: 'headless',
@@ -117,23 +144,45 @@ export const RETAINED_EVIDENCE: readonly RetainedRuntimeEvidence[] = [
   },
 ];
 
-/** The subset of an `EvidenceBinding` the match compares — the #599 binding fields (runtime
- *  name + exact version, model, platform, execution mode, hook-config hash). `component_versions`
- *  is retained provenance folded into the reported evidence string, not a separate match key
- *  (the exact `runtime_version` already pins the probed runtime). `runtime_version` is nullable
- *  on the current side: an unresolved live version can never match a probed concrete one. */
+/** Every evidence-defining field the applicability match compares (#599). Retained evidence
+ *  proves a capability ONLY for the exact binding it ran under, so ALL of these are load-bearing:
+ *  a change to any one is a different binding and stale evidence must not carry over.
+ *   - `runtime_id` / `runtime_version` — the probed runtime and its exact version.
+ *   - `component_versions` — pinned SDK/protocol versions (order-insensitive set).
+ *   - `tamperward_version` — the TamperWard build (`version+shortcommit`) the probe ran under.
+ *   - `adapter_capability_hash` — the adapter capability declaration hash (see below).
+ *   - `tested_capabilities` — the capability surface the probe tested (order-insensitive set).
+ *   - `model` / `platform` / `execution_mode` / `hook_config_hash` — the rest of the environment.
+ *  `runtime_version`, `tamperward_version` and `adapter_capability_hash` are nullable on the
+ *  current side: an unresolved value can never match a concrete probed one, so an unbound
+ *  runtime is never proven. */
 export interface EvidenceMatchKey {
   runtime_id: string;
   runtime_version: string | null;
+  component_versions: string[];
+  tamperward_version: string | null;
+  adapter_capability_hash: string | null;
+  tested_capabilities: string[];
   model: string | null;
   platform: string;
   execution_mode: 'headless' | 'interactive';
   hook_config_hash: string | null;
 }
 
+/** Order-insensitive set equality over string ids (dedups first, so element order and
+ *  duplicates never affect the result). */
+function sameIdSet(a: readonly string[], b: readonly string[]): boolean {
+  const ua = [...new Set(a)].sort();
+  const ub = [...new Set(b)].sort();
+  return ua.length === ub.length && ua.every((x, i) => x === ub[i]);
+}
+
 /** True when a retained record's binding matches the current qualification binding on EVERY
- *  load-bearing field. A null on either side of a field never matches a concrete value (an
- *  unresolved runtime version cannot match a probed one), so an unbound runtime is never proven. */
+ *  evidence-defining field. A null on either side of a scalar field never matches a concrete
+ *  value (an unresolved runtime/TamperWard version cannot match a probed one), so an unbound
+ *  runtime is never proven. `adapter_capability_hash` fails CLOSED: it must be concrete on BOTH
+ *  sides and equal — a record whose hash was not authentically recoverable (stored `null`) can
+ *  never promote, and we never fabricate one to force a match. */
 export function evidenceBindingMatches(record: EvidenceMatchKey, current: EvidenceMatchKey): boolean {
   return (
     record.runtime_id === current.runtime_id &&
@@ -141,7 +190,18 @@ export function evidenceBindingMatches(record: EvidenceMatchKey, current: Eviden
     record.model === current.model &&
     record.platform === current.platform &&
     record.execution_mode === current.execution_mode &&
-    record.hook_config_hash === current.hook_config_hash
+    record.hook_config_hash === current.hook_config_hash &&
+    // Pinned SDK/protocol component versions — order-insensitive set comparison.
+    sameIdSet(record.component_versions, current.component_versions) &&
+    // The TamperWard build (version+commit): a different TamperWard build is a different binding.
+    record.tamperward_version === current.tamperward_version &&
+    // Adapter capability hash — REQUIRED (fail-closed) on both sides. A `null` recorded hash
+    // (unrecoverable, never fabricated) can never equal a concrete current hash.
+    record.adapter_capability_hash !== null &&
+    current.adapter_capability_hash !== null &&
+    record.adapter_capability_hash === current.adapter_capability_hash &&
+    // The capability surface the probe tested — order-insensitive set comparison.
+    sameIdSet(record.tested_capabilities, current.tested_capabilities)
   );
 }
 

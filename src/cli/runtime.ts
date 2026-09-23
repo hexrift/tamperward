@@ -151,6 +151,22 @@ function resolveRuntimeVersion(canonicalId: string): string | null {
   }
 }
 
+/** The current TamperWard build as `version+shortcommit`, matching the shape retained evidence
+ *  records (`EvidenceBinding.tamperward_version`, e.g. `2.31.0+3671a5e6`). A different TamperWard
+ *  version OR commit yields a different tag, so retained evidence taken under one build never
+ *  applies to another — the review's requirement that a TamperWard change breaks the match. */
+function tamperwardBuildTag(version: string, commit: string | null): string {
+  return commit ? `${version}+${commit.slice(0, 8)}` : version;
+}
+
+/** The current runtime's pinned SDK/protocol component versions, for the evidence match. No live
+ *  resolver ships yet, so this is honestly the empty (unresolved) set for every shipped runtime;
+ *  an unresolved set never matches a probed non-empty one, so it fails closed. We never fabricate
+ *  a component version to force a match against retained evidence. */
+function resolveComponentVersions(_canonicalId: string): string[] {
+  return [];
+}
+
 /** Best-effort hash of the runtime's hook configuration, so a config change invalidates the
  *  qualification. Claude Code's is the `hooks` block of `.claude/settings.json`; null when none. */
 function resolveHookConfigHash(canonicalId: string, cwd: string): string | null {
@@ -188,13 +204,28 @@ function buildQualification(
   const platform = `${process.platform}-${process.arch}`;
   const model = opts.model ?? null;
   const hookConfigHash = resolveHookConfigHash(canonical, cwd);
+  const commit = headSha(cwd);
+  // The current qualification always assesses the full capability list, so THAT is the tested
+  // set this run reports; a probe that tested a different surface does not apply to it.
+  const testedRaw = [...RUNTIME_CAPABILITY_IDS];
   // Grade against RETAINED real-runtime probe evidence, and ONLY when it matches this exact
-  // binding (runtime/version/model/platform/mode/config). No match → no evidence → nothing is
-  // promoted to PROVEN; the static declaration grades PARTIAL/UNPROVEN. This is what gates
-  // PROVEN on real evidence rather than a contract/adapter declaration (#599).
+  // binding on EVERY evidence-defining field: runtime id/version, the pinned SDK/protocol
+  // component versions, the current TamperWard build (version+commit), the adapter capability
+  // hash, the tested capability set, model, platform, mode and hook-config hash. No match → no
+  // evidence → nothing is promoted to PROVEN; the static declaration grades PARTIAL/UNPROVEN.
+  // This is what gates PROVEN on real evidence for THIS exact binding rather than a
+  // contract/adapter declaration, and stops stale evidence promoting after any load-bearing
+  // change (TamperWard/adapter/SDK/protocol bump, etc.) (#599).
   const matchKey: EvidenceMatchKey = {
     runtime_id: canonical,
     runtime_version: version,
+    // No live resolver for a runtime's SDK/protocol component versions ships yet, so the
+    // current side is honestly the empty (unresolved) set. An unresolved component set never
+    // matches a probed non-empty one — it fails closed, never promotes. We do not fabricate one.
+    component_versions: resolveComponentVersions(canonical),
+    tamperward_version: tamperwardBuildTag(TW_VERSION, commit),
+    adapter_capability_hash: capHash,
+    tested_capabilities: testedRaw,
     model,
     platform,
     execution_mode: mode,
@@ -202,10 +233,9 @@ function buildQualification(
   };
   const evidence = matchRetainedEvidence(matchKey);
   const assessments = assessCapabilities(adapter.capabilities, evidence);
-  const testedRaw = assessments.map((a) => a.id);
   const base: Omit<QualificationBinding, 'timestamp' | 'evidence_id'> = {
     runtime: { id: canonical, label: labelFor(canonical), version },
-    tamperward: { version: TW_VERSION, commit: headSha(cwd) },
+    tamperward: { version: TW_VERSION, commit },
     adapter: { name: canonical, capability_hash: capHash },
     hook_config_hash: hookConfigHash,
     execution_mode: mode,

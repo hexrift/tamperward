@@ -12,8 +12,13 @@
   explicit state — `PROVEN` / `PARTIAL` / `UNPROVEN` / `UNSUPPORTED` / `FAIL-OPEN` /
   `INCONCLUSIVE`, never a percentage score. **`PROVEN` is gated on retained real-runtime probe
   evidence** (`src/adapters/evidence.ts`, transcribed from the committed captures under
-  `harness/adapters/**/evidence/`) that matches the **full binding** — runtime name + exact
-  version, hook-config hash, execution mode, platform, model and tested set. A static adapter
+  `harness/adapters/**/evidence/`) that matches the **full binding** on **every evidence-defining
+  field** — runtime name + exact version, the pinned SDK/protocol **component versions**, the
+  **TamperWard version + commit** the probe ran under, the **adapter capability hash**, the
+  **tested capability set**, hook-config hash, execution mode, platform and model. A change to any
+  one is a different binding, so stale evidence can never promote across a TamperWard, adapter,
+  SDK or protocol change; the adapter capability hash is required on both sides, so a record whose
+  hash is not authentically recoverable fails closed and never promotes. A static adapter
   declaration (contract/mock/`preDeny` membership) can **never** promote a live capability to
   `PROVEN`: it grades at most `PARTIAL` (declared at the boundary, unproven live), and an absent
   capability grades `UNPROVEN`/`UNSUPPORTED`. A binding mismatch strips a `PROVEN` back to
