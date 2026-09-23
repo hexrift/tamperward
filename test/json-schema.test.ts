@@ -22,6 +22,7 @@ import { defaultPolicy } from '../src/policy';
 import { defaultEventLog } from '../src/cli/watch';
 import {
   MACHINE_SCHEMA_VERSION,
+  MATERIALIZATION_FAILURE_REASONS,
   RUN_CANNOT_ADJUDICATE_REASONS,
   RUN_VERDICTS,
   VERIFY_CANNOT_VERIFY_REASONS,
@@ -533,6 +534,7 @@ describe('machine-readable schema v1 (#333)', () => {
     const verify = schemaFrom(ROOT, 'verify');
     expect(verify.properties.verdict.enum).toEqual([...VERIFY_VERDICTS]);
     expect(verify.properties.reason.enum).toEqual([...VERIFY_CANNOT_VERIFY_REASONS]);
+    expect(verify.properties.materialization_reason.enum).toEqual([...MATERIALIZATION_FAILURE_REASONS]);
     const run = schemaFrom(ROOT, 'run');
     expect(run.properties.verdict.enum).toEqual([...RUN_VERDICTS]);
     expect(run.properties.reason.enum).toEqual([...RUN_CANNOT_ADJUDICATE_REASONS]);

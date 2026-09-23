@@ -92,6 +92,11 @@ suite execution in flight where one was:
 `MATERIALIZATION_FAILED`, `VERIFIER_BACKEND_RUNTIME_FAILURE`, `VERIFIER_RESOURCE_EXHAUSTED`,
 `WORKTREE_CHANGED`, `PRISTINE_INTEGRITY_CHANGED`, `PATH_CASE_COLLISION`.
 
+When `reason` is `MATERIALIZATION_FAILED`, the additive `materialization_reason` field
+identifies the confirmed failure class: `TRACKED_NODE_MODULES_CONFLICT`,
+`SYMLINK_ESCAPE`, `SPECIAL_FILE`, `RACING_DELETION`, or `UNKNOWN`. It is omitted for
+other reasons and does not change the top-level fail-closed reason or exit code.
+
 A resolved (non-`CANNOT_VERIFY`) document also carries `base`, `command`, `budget_secs`,
 the `visible` and `pristine` stage records (`exit`, `secs`), `protected_restored`,
 `added_protected_removed`, the `verifier_backend` (`kind` local \| container, `trust`,

@@ -70,7 +70,11 @@ import {
   type PreparedVerifierBackend,
 } from '../verifier-backend';
 import { Policy } from '../types';
-import { MACHINE_SCHEMA_VERSION, type VerifyCannotVerifyReason } from '../machine-output';
+import {
+  MACHINE_SCHEMA_VERSION,
+  type MaterializationFailureReason,
+  type VerifyCannotVerifyReason,
+} from '../machine-output';
 import { oobFromEnv, oobHeadFromEnv, oobToken } from '../signoff';
 import {
   diagnosticLines,
@@ -310,8 +314,43 @@ function linkParts(path: string): string[] {
   return parts.filter((part) => part !== '' && part !== '.');
 }
 
+class MaterializationError extends Error {
+  constructor(
+    readonly materializationReason: MaterializationFailureReason,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'MaterializationError';
+  }
+}
+
+export function materializationFailureReason(error: unknown): MaterializationFailureReason {
+  if (error instanceof MaterializationError) return error.materializationReason;
+  const code =
+    typeof error === 'object' && error !== null && 'code' in error
+      ? (error as NodeJS.ErrnoException).code
+      : undefined;
+  const message = error instanceof Error ? error.message : String(error);
+  if (/tracked\s+node_modules|node_modules.*(?:attested|dependency).*(?:conflict|replace)/i.test(message)) {
+    return 'TRACKED_NODE_MODULES_CONFLICT';
+  }
+  if (/symlink.*(?:escape|cycle|parent directory)|escapes the materialised tree/i.test(message)) {
+    return 'SYMLINK_ESCAPE';
+  }
+  if (/(?:special file|where git expects a file)/i.test(message)) {
+    return 'SPECIAL_FILE';
+  }
+  if (code === 'ENOENT' || /(?:ENOENT|no such file|file not found)/i.test(message)) {
+    return 'RACING_DELETION';
+  }
+  return 'UNKNOWN';
+}
+
 function linkEscape(label: string, target: string): Error {
-  return new Error(`${label} is a symlink that escapes the materialised tree (${JSON.stringify(target)})`);
+  return new MaterializationError(
+    'SYMLINK_ESCAPE',
+    `${label} is a symlink that escapes the materialised tree (${JSON.stringify(target)})`,
+  );
 }
 
 function driveRelativeLinkTarget(target: string): boolean {
@@ -396,11 +435,17 @@ function validateSymlinkGraph(
     if (!st.isSymbolicLink()) continue;
 
     if (++hops > 128) {
-      throw new Error(`${label} contains a symlink cycle while materialising (${JSON.stringify(target)})`);
+      throw new MaterializationError(
+        'SYMLINK_ESCAPE',
+        `${label} contains a symlink cycle while materialising (${JSON.stringify(target)})`,
+      );
     }
     const key = `${domain}:${current}:${pending.join(sep)}`;
     if (seen.has(key)) {
-      throw new Error(`${label} contains a symlink cycle while materialising (${JSON.stringify(target)})`);
+      throw new MaterializationError(
+        'SYMLINK_ESCAPE',
+        `${label} contains a symlink cycle while materialising (${JSON.stringify(target)})`,
+      );
     }
     seen.add(key);
 
@@ -437,7 +482,10 @@ function rejectLinkedParent(cwd: string, rel: string): void {
       continue;
     }
     if (st.isSymbolicLink()) {
-      throw new Error(`${rel} has a symlinked parent directory (${relative(cwd, current)})`);
+      throw new MaterializationError(
+        'SYMLINK_ESCAPE',
+        `${rel} has a symlinked parent directory (${relative(cwd, current)})`,
+      );
     }
   }
 }
@@ -448,6 +496,15 @@ function rejectLinkedParent(cwd: string, rel: string): void {
  * deliberate same-domain dependency link until the isolated backend replaces it. */
 function materialize(cwd: string, dest: string, dependencyRoot: string | null): void {
   const listed = workingTreePaths(cwd);
+  if (
+    dependencyRoot &&
+    listed.some((rel) => rel === 'node_modules' || rel.startsWith('node_modules/'))
+  ) {
+    throw new MaterializationError(
+      'TRACKED_NODE_MODULES_CONFLICT',
+      'tracked node_modules conflicts with the attested dependency root',
+    );
+  }
   const links: Array<{ rel: string; out: string; target: string }> = [];
   for (const rel of listed) {
     const src = join(cwd, rel);
@@ -469,7 +526,10 @@ function materialize(cwd: string, dest: string, dependencyRoot: string | null): 
       cpSync(src, out, { dereference: true });
       chmodSync(out, st.mode);
     } else {
-      throw new Error(`${rel} is ${st.isDirectory() ? 'a directory' : 'a special file'} where git expects a file`);
+      throw new MaterializationError(
+        'SPECIAL_FILE',
+        `${rel} is ${st.isDirectory() ? 'a directory' : 'a special file'} where git expects a file`,
+      );
     }
   }
   // ABSOLUTE target. A relative cwd (`--cwd .`, which the envelope passes
@@ -1365,7 +1425,7 @@ export function runVerify(opts: VerifyOpts): number {
     return cannotVerify(
       'MATERIALIZATION_FAILED',
       `could not materialize (${e instanceof Error ? e.message : String(e)})`,
-      { verifier_backend: backendReport(), dependency_environment: dependencyReport(), oracle_assurance: oracleAssuranceReport() },
+      { verifier_backend: backendReport(), dependency_environment: dependencyReport(), oracle_assurance: oracleAssuranceReport(), materialization_reason: materializationFailureReason(e) },
     );
   }
 
@@ -1486,7 +1546,7 @@ export function runVerify(opts: VerifyOpts): number {
     return cannotVerify(
       'MATERIALIZATION_FAILED',
       `could not materialize pristine copy (${e instanceof Error ? e.message : String(e)})`,
-      { stage: 'pristine', verifier_backend: backendReport(), dependency_environment: dependencyReport(), oracle_assurance: oracleAssuranceReport() },
+      { stage: 'pristine', verifier_backend: backendReport(), dependency_environment: dependencyReport(), oracle_assurance: oracleAssuranceReport(), materialization_reason: materializationFailureReason(e) },
     );
   }
 

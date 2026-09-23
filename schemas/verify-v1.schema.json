@@ -95,6 +95,16 @@
     "oob_signoff": {
       "type": "string"
     },
+    "materialization_reason": {
+      "enum": [
+        "TRACKED_NODE_MODULES_CONFLICT",
+        "SYMLINK_ESCAPE",
+        "SPECIAL_FILE",
+        "RACING_DELETION",
+        "UNKNOWN"
+      ],
+      "description": "Additional fail-closed detail when reason is MATERIALIZATION_FAILED."
+    },
     "visible_dir": {
       "type": "string"
     },

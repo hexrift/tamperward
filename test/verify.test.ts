@@ -7,7 +7,13 @@ import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { parseVerify, probeFilesystemCaseSensitivity, runVerify, type RunResult } from '../src/cli/verify';
+import {
+  materializationFailureReason,
+  parseVerify,
+  probeFilesystemCaseSensitivity,
+  runVerify,
+  type RunResult,
+} from '../src/cli/verify';
 import { loadPolicy } from '../src/policy-load';
 import { policyWeakening } from '../src/detectors/policy-diff';
 import { compactOobToken } from '../src/signoff';
@@ -128,6 +134,26 @@ const breakApp = (d: string) => writeFileSync(join(d, 'app.js'), 'module.exports
 // The preload: with node:test's entry points stubbed to no-ops, `node --test`
 // collects nothing, runs nothing, and exits 0.
 const STUB = `const t = require('node:test'); for (const k of ['test', 'it', 'describe']) { try { t[k] = () => {}; } catch {} }\n`;
+
+describe('materialization failure reasons (#427)', () => {
+  it('classifies machine-actionable materialization failures', () => {
+    expect(
+      materializationFailureReason(
+        new Error('tracked node_modules conflicts with the attested dependency root'),
+      ),
+    ).toBe('TRACKED_NODE_MODULES_CONFLICT');
+    expect(
+      materializationFailureReason(new Error('x is a symlink that escapes the materialised tree')),
+    ).toBe('SYMLINK_ESCAPE');
+    expect(
+      materializationFailureReason(new Error('x is a special file where git expects a file')),
+    ).toBe('SPECIAL_FILE');
+    expect(
+      materializationFailureReason(Object.assign(new Error('ENOENT'), { code: 'ENOENT' })),
+    ).toBe('RACING_DELETION');
+    expect(materializationFailureReason(new Error('unexpected'))).toBe('UNKNOWN');
+  });
+});
 
 describe('tamperward verify', () => {
   it('MASKED_FAILURE: weakened test makes visible green, pristine red — exit 1', () => {
