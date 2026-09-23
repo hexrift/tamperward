@@ -156,6 +156,25 @@ describe('#412 verdicts are repository properties, not cwd properties', () => {
     expect(r.stdout).not.toContain('../tests');
   });
 
+  it('allow accepts a root-relative ./file spelling', () => {
+    const a = repo();
+    gut(a.root);
+    const stderr = process.stderr.write;
+    process.stderr.write = (() => true) as typeof process.stderr.write;
+    try {
+      const r = capture(() => runAllow({
+        rule: 'test-deletion',
+        file: './tests/foo.test.ts',
+        reason: 'reviewed',
+        cwd: a.root,
+      }));
+      expect(r.result).toBe(0);
+      expect(r.out).toContain('(./tests/foo.test.ts)');
+    } finally {
+      process.stderr.write = stderr;
+    }
+  });
+
   it('allow from r1/pkg records the same sign-off, in the root ledger, as from r1', () => {
     const a = repo();
     const b = repo();

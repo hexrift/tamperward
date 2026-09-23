@@ -215,6 +215,18 @@ describe('strict CLI argument boundary (#312)', () => {
       .toBe('tamperward: unexpected argument "extra"\n');
   });
 
+  it('accepts subcommand help, --name=value, and a terminal -- delimiter', () => {
+    const d = repo();
+    expect(validateCliArgs('check', ['--format=json', '--staged'])).toBeUndefined();
+    expect(validateCliArgs('check', ['--staged', '--'])).toBeUndefined();
+    expect(validateCliArgs('hook-service', ['stop', '--dir', d])).toBeUndefined();
+    expect(validateCliArgs('hook-service', ['status', '--dir', d])).toBeUndefined();
+
+    expect(run(['check', '--help']).code).toBe(0);
+    expect(run(['hook', '--help']).code).toBe(0);
+    expect(run(['check', '--staged', '--format=json', '--cwd='+d, '--']).code).toBe(0);
+  });
+
   it('preserves valid command grammars', () => {
     const d = repo();
     expect(run(['check', '--staged', '--cwd', d]).code).toBe(0);

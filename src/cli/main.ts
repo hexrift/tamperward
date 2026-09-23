@@ -124,6 +124,29 @@ function parseCheck(args: string[]): CheckOpts {
 
 type ValueRule = 'string' | 'positive' | 'positive-integer' | 'non-negative' | 'format';
 
+function splitLongOptionEquals(args: string[]): string[] {
+  const out: string[] = [];
+  for (const arg of args) {
+    if (arg.startsWith('--')) {
+      const equals = arg.indexOf('=');
+      if (equals > 2) {
+        out.push(arg.slice(0, equals), arg.slice(equals + 1));
+        continue;
+      }
+    }
+    out.push(arg);
+  }
+  return out;
+}
+
+function helpRequested(args: string[]): boolean {
+  for (const arg of args) {
+    if (arg === '--') break;
+    if (arg === '-h' || arg === '--help') return true;
+  }
+  return false;
+}
+
 interface CliGrammar {
   flags?: readonly string[];
   values?: Readonly<Record<string, ValueRule>>;
@@ -141,11 +164,17 @@ function validateFlatArgs(args: string[], grammar: CliGrammar): ValidatedArgs {
   const values = grammar.values ?? {};
   const seen = new Set<string>();
   const positionals: string[] = [];
+  let options = true;
 
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
 
-    if (flags.has(a) || Object.prototype.hasOwnProperty.call(values, a)) {
+    if (options && a === '--') {
+      options = false;
+      continue;
+    }
+
+    if (options && (flags.has(a) || Object.prototype.hasOwnProperty.call(values, a))) {
       if (seen.has(a)) {
         return { error: `option "${a}" specified more than once`, seen, positionals };
       }
@@ -189,7 +218,7 @@ function validateFlatArgs(args: string[], grammar: CliGrammar): ValidatedArgs {
       continue;
     }
 
-    if (a.startsWith('-')) {
+    if (options && a.startsWith('-')) {
       return { error: `unknown option "${a}"`, seen, positionals };
     }
 
@@ -209,6 +238,9 @@ function validateFlatArgs(args: string[], grammar: CliGrammar): ValidatedArgs {
  * only user-supplied argv is governed here.
  */
 export function validateCliArgs(cmd: string, args: string[]): string | undefined {
+  args = splitLongOptionEquals(args);
+  if (helpRequested(args)) return undefined;
+
   if (cmd === 'hook' || cmd === 'sweep') {
     if (args.length === 0) return `${cmd} requires an agent name`;
     if (args.length > 1) return `unexpected argument "${args[1]}"`;
@@ -316,7 +348,7 @@ export function validateCliArgs(cmd: string, args: string[]): string | undefined
   if (cmd === 'hook-service') {
     const sub = args[0];
     if (sub !== 'start' && sub !== 'stop' && sub !== 'status') return 'hook-service requires one of start | stop | status';
-    return validateFlatArgs(args.slice(1), sub === 'start' ? { values: { '--dir': 'string' } } : {}).error;
+    return validateFlatArgs(args.slice(1), { values: { '--dir': 'string' } }).error;
   }
 
   if (cmd === 'verify') {
@@ -528,7 +560,12 @@ Exit codes: 0 clean · 1 a blocking finding (check), MASKED_FAILURE or SUITE_RED
 export { runHookFromRaw };
 
 export function main(argv: string[]): number | Promise<number> {
-  const [cmd, ...rest] = argv;
+  const [cmd, ...rawRest] = argv;
+  const rest = splitLongOptionEquals(rawRest);
+  if (cmd !== undefined && cmd !== '-h' && cmd !== '--help' && helpRequested(rest)) {
+    printHelp();
+    return 0;
+  }
   if (cmd !== undefined && cmd !== '-h' && cmd !== '--help') {
     const invalid = validateCliArgs(cmd, rest);
     if (invalid) {

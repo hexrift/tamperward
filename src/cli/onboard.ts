@@ -344,6 +344,8 @@ export async function runOnboard(opts: OnboardOpts, io: OnboardIo = {}): Promise
     const localVerifySupported = localVerifierShell(platform, 'true') !== null;
     if (platform === 'linux' && lifecycle.state === 'OK') {
       status('OK', 'Full check / verify / run support is available.', 'ok');
+    } else if (platform === 'linux') {
+      status('LIMITED', lifecycle.detail, 'warn');
     } else if (localVerifySupported) {
       status('LIMITED', platformLabel(platform) + ': check + verify work here; `tamperward run` requires Linux in this release.', 'warn');
     } else {

@@ -472,12 +472,19 @@ export interface StopResult {
  * unrelated process). When they disagree, the socket is left intact and the
  * mismatch is reported for the operator to resolve.
  */
-export async function stopHookService(paths: ServicePaths): Promise<StopResult> {
+export async function stopHookService(paths: ServicePaths, expectedRoot?: string): Promise<StopResult> {
   const probe = await probeSocket(paths);
   const state = readServiceState(paths);
 
   if (probe.answered) {
     const st = probe.status;
+    const requestedRoot = expectedRoot === undefined ? undefined : realpathSync(repoRoot(expectedRoot));
+    if (requestedRoot !== undefined && (st === null || st.root !== requestedRoot)) {
+      const detail = st
+        ? `a listener answered on ${paths.socket} for root ${st.root}, not the requested repository ${requestedRoot}`
+        : `a listener answered on ${paths.socket} but did not report a root for the requested repository ${requestedRoot}`;
+      return { outcome: 'mismatch', pid: st?.pid ?? state?.pid, root: st?.root ?? state?.root, detail };
+    }
     const agrees =
       st !== null && state !== null && state.pid === st.pid && state.root === st.root && state.version === st.version;
     if (agrees && st.pid !== process.pid) {
@@ -515,10 +522,9 @@ export async function stopHookService(paths: ServicePaths): Promise<StopResult> 
   return { outcome: 'not-running' };
 }
 
-function parseStart(args: string[]): { dir: string } {
-  let dir = process.cwd();
-  for (let i = 0; i < args.length; i++) if (args[i] === '--dir' && args[i + 1]) dir = args[++i];
-  return { dir };
+function parseDir(args: string[]): string | undefined {
+  for (let i = 0; i < args.length; i++) if (args[i] === '--dir' && args[i + 1]) return args[++i];
+  return undefined;
 }
 
 /** The CLI. `start` returns the -1 sentinel (the event loop is the service's
@@ -526,6 +532,7 @@ function parseStart(args: string[]): { dir: string } {
  *  socket and exits itself when it has printed. */
 export function runHookService(args: string[]): number | Promise<number> {
   const sub = args[0];
+  const dir = parseDir(args.slice(1));
   const paths = servicePaths();
   if (!paths) {
     process.stderr.write(
@@ -534,8 +541,7 @@ export function runHookService(args: string[]): number | Promise<number> {
     return 2;
   }
   if (sub === 'start') {
-    const { dir } = parseStart(args.slice(1));
-    startHookService({ root: dir, paths })
+    startHookService({ root: dir ?? process.cwd(), paths })
       .then((svc) => {
         let closing = false;
         const shutdown = (): void => {
@@ -557,7 +563,7 @@ export function runHookService(args: string[]): number | Promise<number> {
     return -1;
   }
   if (sub === 'stop') {
-    return stopHookService(paths).then((res) => {
+    return stopHookService(paths, dir).then((res) => {
       if (res.outcome === 'stopped') {
         process.stdout.write(`tamperward hook-service: stopped (pid ${res.pid}); ${paths.socket} removed\n`);
         return 0;
@@ -603,6 +609,14 @@ export function runHookService(args: string[]): number | Promise<number> {
           `(possibly a different tamperward version); the state file ${state ? `records pid ${state.pid}, tamperward@${state.version}` : 'is absent or unreadable'}; ${optIn}\n`,
       );
       exitAfterFlush(0);
+      return;
+    }
+    const requestedRoot = dir === undefined ? undefined : realpathSync(repoRoot(dir));
+    if (requestedRoot !== undefined && res.root !== requestedRoot) {
+      process.stderr.write(
+        `tamperward hook-service: a listener is bound to ${res.root}, not the requested repository ${requestedRoot}; it was not treated as the requested service; ${optIn}\n`,
+      );
+      exitAfterFlush(1);
       return;
     }
     const cache = isRecord(res.cache) ? res.cache : {};
