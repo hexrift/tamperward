@@ -398,7 +398,7 @@ export interface GitHubProtectionSnapshot {
 
 export const REPOSITORY_REQUIRED_CHECKS = [
   'typecheck',
-  'test (20)',
+  'test (20.19)',
   'test (22)',
   'test (24)',
   'build',

@@ -9,6 +9,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -215,6 +216,16 @@ function buildPackExtract(): { packageRoot: string; tarball: string } {
 
   const tarball = join(tmp, packed[0].filename);
   execFileSync('tar', ['-xzf', tarball, '-C', dirname(packageRoot)]);
+  // The packed artifact intentionally excludes dependencies. Link the checkout's
+  // installed modules only into this extracted test fixture so its bundled CLI
+  // resolves external imports without putting node_modules into the tarball.
+  if (existsSync(join(ROOT, 'node_modules'))) {
+    symlinkSync(
+      join(ROOT, 'node_modules'),
+      join(packageRoot, 'node_modules'),
+      process.platform === 'win32' ? 'junction' : 'dir',
+    );
+  }
   return { packageRoot, tarball };
 }
 
