@@ -127,8 +127,10 @@ most of the call's wall time was process startup rather than gate work. Since
 tamperward hook-service start --dir /path/to/repo   # foreground; run it from a terminal,
                                                     # a SessionStart hook, or a supervisor
 TAMPERWARD_HOOK_SERVICE=1 claude                    # hooks consult the service only under this
-tamperward hook-service status                      # pid, version, served count, cache hit rate
-tamperward hook-service stop                        # SIGTERM; the socket and state file are removed
+tamperward hook-service status [--dir /path/to/repo]  # pid, version, served count, cache hit rate;
+                                                    # with --dir, a listener bound elsewhere is reported
+tamperward hook-service stop [--dir /path/to/repo]    # SIGTERM; the socket and state file are removed;
+                                                    # with --dir, a listener bound elsewhere is left alone
 ```
 
 Both halves are required: a running service is never consulted unless

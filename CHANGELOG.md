@@ -1,5 +1,39 @@
 # Changelog
 
+## [2.34.0] — 2026-09-23
+
+### Added
+
+- **CLI argument handling** (#419; #646). Every command accepts `-h` / `--help`, long
+  options take the `--name=value` spelling, and a terminal `--` ends option parsing.
+  `hook-service stop` and `status` take `--dir <repo>` and refuse to act on a listener
+  bound to a different repository (the socket is left intact and the mismatch is
+  reported). `allow --file` accepts `./`, absolute and Windows-separated spellings of
+  the finding's path; the sign-off still binds to the finding's own root-relative
+  path. On Linux, onboarding prints the lifecycle check's own diagnostic instead of
+  the generic platform line.
+- **Machine-output schemas carry examples** (#425; #648). Each published
+  `schemas/*-v1.schema.json` has one self-validating example, its `$id` moved to a
+  `/v1/` path, and the dependency-free audit verifier accepts the root `examples`
+  array while still rejecting unknown keywords.
+
+### Fixed
+
+- **`run` handed the wrapped agent a rewritten argv** (regression introduced by #646).
+  The `--name=value` splitter did not stop at `--`, so
+  `run -- node --max-old-space-size=4096 agent.js` reached the agent as
+  `--max-old-space-size 4096`, which Node rejects, and `--x=` became `--x ""` for any
+  program. The splitter now stops at the delimiter and everything after it is passed
+  through byte for byte; `research run` shares the fix.
+- **`hook-service stop | status --dir <path>` that does not exist** fails with one
+  `tamperward:` line at exit 2 before any socket is touched, instead of an unhandled
+  ENOENT from inside the status exchange (`stop`) or a raw stack trace (`status`).
+- **Envelope guard consistency** (#427; #636, #637, #638). `run --base` rejects a
+  leading-dash revision like every other trusted-base path; a visible-stage budget
+  timeout returns `BUDGET_EXCEEDED` without materialising and running the pristine
+  stage; `trace-verify` runs the traced command under the verifier's hardened suite
+  environment (startup-injection variables dropped, npm configuration pinned).
+
 ## [2.33.0] — 2026-09-22
 
 ### Added

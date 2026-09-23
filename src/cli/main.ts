@@ -126,7 +126,16 @@ type ValueRule = 'string' | 'positive' | 'positive-integer' | 'non-negative' | '
 
 function splitLongOptionEquals(args: string[]): string[] {
   const out: string[] = [];
-  for (const arg of args) {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    // A terminal `--` ends option parsing. Everything after it belongs to the
+    // wrapped command (`run -- <agent>`, `research run -- <agent>`) and is handed
+    // through byte for byte, `--name=value` tokens included: the envelope must
+    // never rewrite the argv it was asked to supervise.
+    if (arg === '--') {
+      out.push(...args.slice(i));
+      break;
+    }
     if (arg.startsWith('--')) {
       const equals = arg.indexOf('=');
       if (equals > 2) {
@@ -442,8 +451,8 @@ Formats:
   tamperward hook claude                    PreToolUse gate (reads hook JSON on stdin)
   tamperward sweep claude                   Stop sweep (re-scan the turn's working tree)
   tamperward hook-service start [--dir D]   OPT-IN persistent hook service: one warm
-  tamperward hook-service stop | status     process per user and repository that
-                                            evaluates hook/sweep requests over a
+  tamperward hook-service stop [--dir D]    process per user and repository that
+  tamperward hook-service status [--dir D]  evaluates hook/sweep requests over a
                                             private unix socket, so each tool call
                                             skips Node + bundle startup. Hooks
                                             consult it only with
