@@ -76,8 +76,19 @@ export const paths = Object.freeze({
 
 // ---- file helpers: symlinks are refused before anything is read or written ----
 
+/** lstat without throwing: null when nothing is at the path. A dangling symlink
+ *  still has an lstat entry, so it is never mistaken for an absent file. */
+export function lstatOrNull(path) {
+  try {
+    return lstatSync(path);
+  } catch {
+    return null;
+  }
+}
+
 export function refuseSymlink(path, label) {
-  if (existsSync(path) && !lstatSync(path).isFile()) throw new Error(`audit-publish: ${label} is not a regular file`);
+  const stat = lstatOrNull(path);
+  if (stat !== null && !stat.isFile()) throw new Error(`audit-publish: ${label} is not a regular file`);
 }
 
 export function ensureDirectory(path, label) {

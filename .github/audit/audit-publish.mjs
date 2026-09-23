@@ -28,6 +28,7 @@ import {
   emptyState,
   ensureDirectory,
   foldEvent,
+  lstatOrNull,
   parseState,
   partitionFileCount,
   paths,
@@ -200,27 +201,35 @@ try {
     appendedLedger.push(entry);
   }
 
+  // ---- write preconditions: every refusal happens before the first mutation,
+  // so a run that fails leaves the store exactly as it found it.
+  const shardChanges = shards.changes();
+  for (const partition of newPartitions) {
+    const path = join(storeDir, partition.rel);
+    if (lstatOrNull(path) !== null) throw new Error(`audit-publish: partition ${partition.rel} already exists`);
+    for (let dir = dirname(partition.rel); dir !== 'events' && dir !== '.'; dir = dirname(dir)) {
+      const stat = lstatOrNull(join(storeDir, dir));
+      if (stat !== null && !stat.isDirectory()) throw new Error(`audit-publish: ${dir} is not a directory`);
+    }
+  }
+  for (const shard of shardChanges) refuseSymlink(join(storeDir, shard.rel), shard.rel);
+  for (const rel of staleShards) refuseSymlink(join(storeDir, rel), rel);
+
   // ---- write phase: only new files, touched shards, the ledger tail and the derived files.
   const changed = [];
   const write = (rel, content) => {
     const path = join(storeDir, rel);
-    refuseSymlink(path, rel);
     mkdirSync(dirname(path), { recursive: true });
     if (existsSync(path) && readFileSync(path, 'utf8') === content) return;
     writeFileSync(path, content);
     changed.push(rel);
   };
   for (const rel of staleShards) {
-    const path = join(storeDir, rel);
-    refuseSymlink(path, rel);
-    rmSync(path, { force: true });
+    rmSync(join(storeDir, rel), { force: true });
     changed.push(rel);
   }
-  for (const partition of newPartitions) {
-    if (existsSync(join(storeDir, partition.rel))) throw new Error(`audit-publish: partition ${partition.rel} already exists`);
-    write(partition.rel, partition.content);
-  }
-  for (const shard of shards.changes()) write(shard.rel, shard.content);
+  for (const partition of newPartitions) write(partition.rel, partition.content);
+  for (const shard of shardChanges) write(shard.rel, shard.content);
   if (appendedLedger.length) {
     const separator = existingLedgerRaw.length > 0 && !existingLedgerRaw.endsWith('\n') ? '\n' : '';
     write(paths.ledger, existingLedgerRaw + separator + appendedLedger.map((entry) => JSON.stringify(entry)).join('\n') + '\n');

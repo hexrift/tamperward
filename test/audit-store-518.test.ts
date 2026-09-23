@@ -4,7 +4,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
 import { parseAuditJsonl, summarizeAudit } from '../src/cli/audit';
@@ -326,6 +326,32 @@ describe('partitioned evidence store (#518)', () => {
     expect(again.status, again.stderr).toBe(0);
     expect(again.stderr).not.toContain('rebuilt');
     expect(changedBetween(before, snapshot(store))).toEqual([]);
+  });
+
+  it('refuses a candidate whose partition path already exists before any mutation, stale shards included', () => {
+    const { store } = legacyStore();
+    expect(publish(store, candidates({ 'batch-a': lines([event(4)]) })).status).toBe(0);
+    // An orphaned partition file the ledger does not know, at the path the
+    // candidate would take, plus a stale shard a rebuild would remove.
+    mkdirSync(join(store, 'events', '2026', '09'), { recursive: true });
+    writeFileSync(join(store, 'events', '2026', '09', 'batch-b.jsonl'), 'orphan\n');
+    writeFileSync(join(store, 'ids', 'fe.jsonl'), JSON.stringify({ id: 'sha256:fe' + 'a'.repeat(30), content_sha256: 'c'.repeat(64) }) + '\n');
+    const before = snapshot(store);
+    const changed = join(tempDir(), 'changed.txt');
+    for (const rebuild of [true, false]) {
+      const result = publish(store, candidates({ 'batch-b': lines([event(5)]) }), { rebuild, changed });
+      expect(result.status, result.stderr).toBe(1);
+      expect(result.stderr).toMatch(/partition events\/2026\/09\/batch-b\.jsonl already exists/);
+      expect(changedBetween(before, snapshot(store))).toEqual([]);
+      expect(existsSync(changed)).toBe(false);
+    }
+    // A dangling symlink at the target path is "exists" too, never written through.
+    rmSync(join(store, 'events', '2026', '09', 'batch-b.jsonl'));
+    symlinkSync(join(store, 'nowhere.jsonl'), join(store, 'events', '2026', '09', 'batch-b.jsonl'));
+    const dangling = publish(store, candidates({ 'batch-b': lines([event(5)]) }));
+    expect(dangling.status).toBe(1);
+    expect(dangling.stderr).toMatch(/already exists/);
+    expect(existsSync(join(store, 'nowhere.jsonl'))).toBe(false);
   });
 
   it('handles a large synthetic history: a 20,000-event batch, then a rebuild that reproduces it', () => {
