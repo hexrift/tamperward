@@ -9,7 +9,7 @@
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
-const ROOT_METADATA = new Set(['$schema', '$id', 'title']);
+const ROOT_METADATA = new Set(['$schema', '$id', 'title', 'examples']);
 const CONSTRAINTS = new Set([
   'type',
   'additionalProperties',
@@ -42,7 +42,14 @@ export function assertSupportedSchema(schema, path = 'schema', root = true) {
     if (!CONSTRAINTS.has(keyword) && !(root && ROOT_METADATA.has(keyword))) unsupported(keyword, path);
   }
   for (const keyword of ROOT_METADATA) {
-    if (keyword in schema && typeof schema[keyword] !== 'string') {
+    if (!(keyword in schema)) continue;
+    if (keyword === 'examples') {
+      if (!Array.isArray(schema[keyword])) {
+        throw new Error(`audit-verify: ${path}.examples must be an array`);
+      }
+      continue;
+    }
+    if (typeof schema[keyword] !== 'string') {
       throw new Error(`audit-verify: ${path}.${keyword} must be a string`);
     }
   }

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/hexrift/tamperward/main/schemas/verify-v1.schema.json",
+  "$id": "https://raw.githubusercontent.com/hexrift/tamperward/v1/schemas/verify-v1.schema.json",
   "title": "TamperWard verify JSON output v1",
   "type": "object",
   "required": [
@@ -617,5 +617,12 @@
       "additionalProperties": true
     }
   },
-  "additionalProperties": true
+  "additionalProperties": true,
+  "examples": [
+    {
+      "schema_version": 1,
+      "verdict": "CANNOT_VERIFY",
+      "reason": "INVALID_ARGUMENTS"
+    }
+  ]
 }

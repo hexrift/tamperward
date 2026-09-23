@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/hexrift/tamperward/blob/main/schemas/stats-v1.schema.json",
+  "$id": "https://raw.githubusercontent.com/hexrift/tamperward/v1/schemas/stats-v1.schema.json",
   "title": "TamperWard audit stats v1",
   "type": "object",
   "additionalProperties": false,
@@ -115,5 +115,19 @@
     "interpretation": {
       "const": "finding-is-not-proof-of-intent"
     }
-  }
+  },
+  "examples": [
+    {
+      "schema_version": 1,
+      "events": 0,
+      "blocked": 0,
+      "warnings": 0,
+      "sessions": 0,
+      "first_event": null,
+      "last_event": null,
+      "by_rule": [],
+      "by_surface": [],
+      "interpretation": "finding-is-not-proof-of-intent"
+    }
+  ]
 }

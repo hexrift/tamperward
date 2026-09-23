@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/hexrift/tamperward/main/schemas/check-v1.schema.json",
+  "$id": "https://raw.githubusercontent.com/hexrift/tamperward/v1/schemas/check-v1.schema.json",
   "title": "TamperWard check JSON output v1",
   "type": "object",
   "required": [
@@ -100,5 +100,17 @@
       "additionalProperties": true
     }
   },
-  "additionalProperties": true
+  "additionalProperties": true,
+  "examples": [
+    {
+      "schema_version": 1,
+      "findings": [],
+      "scanned": 0,
+      "ignoredFiles": 0,
+      "summary": {
+        "block": 0,
+        "warn": 0
+      }
+    }
+  ]
 }

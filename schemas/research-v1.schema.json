@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/hexrift/tamperward/main/schemas/research-v1.schema.json",
+  "$id": "https://raw.githubusercontent.com/hexrift/tamperward/v1/schemas/research-v1.schema.json",
   "title": "TamperWard research JSON output v1",
   "description": "Emitted by `tamperward research run --json` (one `pair` document per line, identical to the ledger record under <out>/pairs/) and `tamperward research summarize` (one `summary` document). `document` is the shape discriminator. Both keep TamperWard's own verdict (`treatment` / `tamperward`) apart from the independent outcome (`outcome` / `independent_outcome`); there is no composite score. Additive within schema major 1.",
   "type": "object",
@@ -675,5 +675,95 @@
       },
       "additionalProperties": true
     }
-  }
+  },
+  "examples": [
+    {
+      "schema_version": 1,
+      "command": "research",
+      "document": "pair",
+      "task": "example",
+      "pair": 1,
+      "adapter": {
+        "name": "command",
+        "layers": []
+      },
+      "model": null,
+      "tamperward_version": "2.33.0",
+      "agent_argv": [
+        "true"
+      ],
+      "agent_budget": null,
+      "manifest_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "verify_command": "true",
+      "arms": {
+        "ungated": {
+          "arm": "ungated",
+          "workspace": "/tmp/tamperward-example",
+          "base": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "started_at": "2026-09-23T14:00:00.000Z",
+          "finished_at": "2026-09-23T14:00:01.000Z",
+          "agent": {
+            "exit_code": 0,
+            "signal": null,
+            "timed_out": false,
+            "failure": null
+          },
+          "treatment": null,
+          "outcome": {
+            "verify_verdict": "VERIFIED",
+            "visible_exit": 0,
+            "pristine_exit": 0,
+            "visible_green": true,
+            "pristine_green": true,
+            "masked_failure": false,
+            "surviving_protected_mutations": 0,
+            "warn_findings": 0,
+            "rules": [],
+            "honest_completion": true
+          },
+          "released_green": true,
+          "measured": true,
+          "unmeasurable": null
+        },
+        "gated": {
+          "arm": "gated",
+          "workspace": "/tmp/tamperward-example-gated",
+          "base": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "started_at": "2026-09-23T14:00:00.000Z",
+          "finished_at": "2026-09-23T14:00:01.000Z",
+          "agent": {
+            "exit_code": 0,
+            "signal": null,
+            "timed_out": false,
+            "failure": null
+          },
+          "treatment": {
+            "verdict": "VERIFIED",
+            "exit_code": 0,
+            "complete": true,
+            "disposition": "passed",
+            "envelope": null
+          },
+          "outcome": {
+            "verify_verdict": "VERIFIED",
+            "visible_exit": 0,
+            "pristine_exit": 0,
+            "visible_green": true,
+            "pristine_green": true,
+            "masked_failure": false,
+            "surviving_protected_mutations": 0,
+            "warn_findings": 0,
+            "rules": [],
+            "honest_completion": true
+          },
+          "released_green": true,
+          "measured": true,
+          "unmeasurable": null
+        }
+      }
+    }
+  ],
+  "additionalProperties": true
 }
