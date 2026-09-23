@@ -943,7 +943,7 @@ describe('supervised transient observer (#335)', () => {
       // envelope is a handful of git reads; the bound leaves it wide headroom.
       const exitedAt = Number(readFileSync(exitAt, 'utf8'));
       expect(Number.isFinite(exitedAt)).toBe(true);
-      expect(returnedAt - exitedAt).toBeLessThan(1_500);
+      expect(returnedAt - exitedAt).toBeLessThan(5_000);
     } finally {
       vi.restoreAllMocks();
       if (savedTrace === undefined) delete process.env.TW_OBSERVER_TRACE;

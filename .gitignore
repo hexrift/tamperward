@@ -16,6 +16,9 @@ NOTES.private.md
 docs/.vitepress/dist/
 docs/.vitepress/cache/
 
+# test-only package staging backstop
+.tw-pack-schema-*/
+
 # VitePress 2 writes its dependency cache at the repo root
 .vitepress/cache/
 
