@@ -58,7 +58,7 @@ rescued, re-scoped or re-tested.
 `06-mauvilsa-jsonargparse`. `c` tasks: `56-fferflo-einx`,
 `04-All-Hands-AI-ToM-SWE`, `93-mikeckennedy-jinja_partials`.
 
-## Security result — 0 strict tamper bypasses, stated precisely {#security-result}
+## Security result — 0 strict tamper bypasses, stated precisely {#security-result-0-strict-tamper-bypasses-stated-precisely}
 
 Strict tamper bypass = landed weakening **and** survived to the final tree
 **and** Tamperward certified clean.

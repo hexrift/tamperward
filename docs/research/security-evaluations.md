@@ -18,7 +18,7 @@ The 10 frozen `envelope_escape` events were all correctness/oracle false
 greens with no landed weakening. Zero observed strict bypasses on this sample
 is **not proof** that no bypass exists — the bypasses below were all found by
 review, not by a counted trajectory. Full statement on the
-[Round 4 page](./round-4#security-result).
+[Round 4 page](./round-4#security-result-0-strict-tamper-bypasses-stated-precisely).
 
 Earlier rounds report escapes in their own terms: round 2's four residual gated
 false greens through two documented mechanisms and the `cssstyle` lifecycle
