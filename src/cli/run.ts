@@ -53,7 +53,7 @@ import {
 } from '../dependency-env';
 import { prepareVerifierBackend, verifierBackendReport, verifierBackendSummary } from '../verifier-backend';
 import { defaultPolicy, isProtected } from '../policy';
-import { diffRange, diffWorktreeWithUntracked, gitDir } from '../git/build';
+import { assertRev, diffRange, diffWorktreeWithUntracked, gitDir } from '../git/build';
 import { inspectRel } from '../disk';
 import { contentHash } from '../effect';
 import { drainEvents, MAX_EVENT_SWEEP_BYTES, transientFindings } from '../detectors/fs-events';
@@ -924,7 +924,8 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
   // than HEAD (e.g. a branch the agent was already let loose on).
   let base: string;
   try {
-    base = git(['rev-parse', '--verify', `${opts.base ?? 'HEAD'}^{commit}`], cwd).trim();
+    const requestedBase = assertRev(opts.base ?? 'HEAD');
+    base = git(['rev-parse', '--verify', `${requestedBase}^{commit}`], cwd).trim();
   } catch {
     err(`tamperward run: cannot resolve trusted base ${opts.base ?? 'HEAD'} — failing closed.`);
     return 2;

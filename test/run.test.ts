@@ -108,6 +108,11 @@ describe('tamperward run — the enforcement envelope', () => {
     const cwd = repo(true);
     expect(runEnvelope({ cwd, argv: sh('true') })).toBe(2);
   });
+
+  it('rejects a leading-dash trusted base before invoking git', () => {
+    const cwd = repo(true);
+    expect(run(cwd, sh('true'), { base: '--output=/tmp/tamperward' })).toBe(2);
+  });
 });
 
 describe('parseRun', () => {
