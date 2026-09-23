@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/hexrift/tamperward/v1/schemas/stats-v1.schema.json",
+  "$id": "https://raw.githubusercontent.com/hexrift/tamperward/097b8042884ede38c19a0e3b1730f5db9dc33fbb/schemas/stats-v1.schema.json",
   "title": "TamperWard audit stats v1",
   "type": "object",
   "additionalProperties": false,
