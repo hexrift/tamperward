@@ -276,6 +276,18 @@ describe('machine-readable schema v1 (#333)', () => {
     ).toBe(false);
   });
 
+  it('v1 schemas have stable IDs and self-validating examples (#425)', () => {
+    for (const name of SCHEMA_NAMES) {
+      const schema = schemaFrom(ROOT, name);
+      expect(schema.$id).toBe(`https://raw.githubusercontent.com/hexrift/tamperward/v1/schemas/${name}-v1.schema.json`);
+      expect(schema.examples).toEqual(expect.any(Array));
+      expect(schema.examples.length).toBeGreaterThan(0);
+      for (const example of schema.examples) {
+        expect(validateDoc(name, example), `${name} example`).toEqual([]);
+      }
+    }
+  });
+
   it('check v1 covers clean, block, and warn without changing exit semantics', () => {
     const clean = repo(true);
     let r = capture(() => runCheck({ cwd: clean, worktree: true, json: true }));

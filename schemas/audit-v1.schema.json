@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/hexrift/tamperward/blob/main/schemas/audit-v1.schema.json",
+  "$id": "https://raw.githubusercontent.com/hexrift/tamperward/v1/schemas/audit-v1.schema.json",
   "title": "TamperWard audit event v1",
   "type": "object",
   "additionalProperties": false,
@@ -95,6 +95,19 @@
           }
         }
       }
+    }
+  ],
+  "examples": [
+    {
+      "schema_version": 1,
+      "id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "timestamp": "2026-09-23T14:00:00.000Z",
+      "surface": "pretooluse",
+      "agent": "claude-code",
+      "rule": "test-deletion",
+      "severity": "block",
+      "decision": "deny",
+      "session": "sha256:bbbbbbbbbbbbbbbbbbbbbbbb"
     }
   ]
 }

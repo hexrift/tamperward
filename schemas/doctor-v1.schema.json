@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/hexrift/tamperward/main/schemas/doctor-v1.schema.json",
+  "$id": "https://raw.githubusercontent.com/hexrift/tamperward/v1/schemas/doctor-v1.schema.json",
   "title": "TamperWard doctor JSON output v1",
   "type": "object",
   "required": [
@@ -90,6 +90,20 @@
           }
         }
       }
+    }
+  ],
+  "examples": [
+    {
+      "schema_version": 1,
+      "command": "doctor",
+      "authoritative": true,
+      "checks": [
+        {
+          "id": "platform",
+          "state": "OK",
+          "detail": "Linux lifecycle is available."
+        }
+      ]
     }
   ]
 }
