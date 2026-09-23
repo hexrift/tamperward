@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/hexrift/tamperward/v1/schemas/research-stdio-v1.schema.json",
+  "title": "TamperWard research stdio JSONL protocol v1",
+  "description": "One JSON object per line. Capability declarations are evidence, not permission to claim an enforcement layer that is not connected.",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": ["type", "run_id", "status"],
+      "properties": {"type": {"const": "run"}, "run_id": {"type": "string", "minLength": 1}, "status": {"enum": ["started", "finished"]}},
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": ["type", "protocol", "runtime", "capabilities"],
+      "properties": {
+        "type": {"const": "hello"},
+        "protocol": {"const": "research-stdio-jsonl-v1"},
+        "runtime": {"type": "string", "minLength": 1},
+        "capabilities": {
+          "type": "object",
+          "required": ["layers", "intervention"],
+          "properties": {
+            "layers": {"type": "array", "items": {"enum": ["envelope", "pre-tool-use", "stop-sweep"]}},
+            "intervention": {"enum": ["enforced", "advisory", "not-connected"]}
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": ["type", "task", "arm", "cwd", "base"],
+      "properties": {
+        "type": {"const": "start"}, "task": {"type": "string", "minLength": 1},
+        "arm": {"enum": ["ungated", "gated"]}, "cwd": {"type": "string", "minLength": 1},
+        "base": {"type": "string", "minLength": 1}, "prompt": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": ["type", "event"],
+      "properties": {"type": {"const": "event"}, "event": {"enum": ["tool", "edit", "turn"]}, "request_id": {"type": "string"}, "name": {"type": "string"}, "detail": {"type": "string"}},
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": ["type", "action", "request_id", "reason"],
+      "properties": {"type": {"const": "intervention"}, "action": {"enum": ["deny", "allow"]}, "request_id": {"type": "string", "minLength": 1}, "reason": {"type": "string", "minLength": 1}},
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": ["type", "status"],
+      "properties": {"type": {"const": "complete"}, "status": {"enum": ["completed", "failed", "cancelled"]}, "exit_code": {"type": "integer", "minimum": 0}},
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": ["type", "message"],
+      "properties": {"type": {"const": "error"}, "message": {"type": "string", "minLength": 1}},
+      "additionalProperties": false
+    }
+  ]
+}
