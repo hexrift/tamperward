@@ -1403,6 +1403,55 @@ export function runVerify(opts: VerifyOpts): number {
     }
     return 2;
   }
+  // A visible budget timeout cannot produce useful pristine evidence: the
+  // verifier has already exhausted its allowed stage time, so continuing would
+  // spend another full stage while the final verdict is already fail-closed.
+  // Stop before materialising or executing pristine.
+  if (visible.failure === 'budget') {
+    const pristineNotRun: RunResult = {
+      exit: null,
+      secs: 0,
+      failure: 'budget',
+      reason: 'not run: visible stage exceeded its budget',
+    };
+    cleanup([visRoot]);
+    opts.onVerdict?.({ verdict: 'BUDGET_EXCEEDED' });
+    if (opts.json) {
+      out(JSON.stringify({
+        schema_version: MACHINE_SCHEMA_VERSION,
+        verdict: 'BUDGET_EXCEEDED',
+        base,
+        command: cmd,
+        budget_secs: budget,
+        visible: stageJson(visible),
+        pristine: stageJson(pristineNotRun),
+        protected_restored: 0,
+        added_protected_removed: 0,
+        filesystem_case_sensitive: filesystemCaseSensitive,
+        verifier_backend: backendReport(),
+        dependency_environment: dependencyReport(),
+        oracle_assurance: oracleAssuranceReport(),
+        ...(opts.keep ? { visible_dir: visDir } : {}),
+      }));
+    } else {
+      out(`tamperward verify — ${verifyVerdictLine('BUDGET_EXCEEDED', {
+        restored: 0,
+        base,
+        visibleExit: visible.exit,
+        pristineExit: pristineNotRun.exit,
+        budget,
+      })}`);
+      out('verifier backend: ' + verifierBackendSummary(verifierBackend));
+      out('oracle assurance: suite-exit-only (candidate source executes inside the suite process; execution-domain isolation is not semantic/oracle isolation)');
+      out(
+        dependencyEnvironment
+          ? 'dependency environment: ' + dependencyEnvironmentSummary(dependencyEnvironment)
+          : 'dependency environment: verifier-owned by ' + (verifierBackend.image ?? 'isolated image'),
+      );
+      renderStageDiagnostics(out, 'visible', visible);
+    }
+    return 2;
+  }
 
   if (treeFingerprint(cwd, protectedIgnored) !== treeBefore) {
     cleanup([visRoot]);
