@@ -170,8 +170,10 @@ turns these evidence families into a composite score.
 `research bundle --ledger ./ledger --out ./model-eval.tgz` creates a mode-0600,
 gzip-compressed archive containing the pair records, derived `summary.json`, the
 four-section `report.txt`, and `provenance.json`. The validator recomputes the
-summary from the records and checks schema/protocol versions and the manifest hash;
-it does not trust conclusions copied into the archive. Use
+summary from the records, binds the provenance identity (adapter, model, TamperWard
+version, command, budget and record count) to that derived evidence, and checks the
+schema/protocol versions and manifest hash; it does not trust conclusions copied into
+the archive. Use
 `research bundle --validate ./model-eval.tgz` or the equivalent
 `research validate --bundle ./model-eval.tgz`.
 
