@@ -82,7 +82,7 @@ describe('trace-verify strace parsing (#324)', () => {
       '100 openat(4, "settings.json", O_RDONLY) = 5',
       '100 clone(child_stack=NULL, flags=SIGCHLD) = 200',
       '200 openat(AT_FDCWD, "fixtures/child.json", O_RDONLY) = 6',
-    ].join('\\n');
+    ].join('\n');
 
     expect(parseStraceFileAccess(raw)).toEqual([
       { path: '/__tamperward_trusted_base__/packages/widget/fixtures/settings.json', access: 'read' },
