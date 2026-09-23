@@ -14,10 +14,9 @@
 // in-loop deny events an adapter relays; this release records none, so the
 // field is null rather than a number that looks measured.
 
-import { readdirSync, readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
 import { MACHINE_SCHEMA_VERSION } from '../machine-output';
 import { errorMessage } from '../narrow';
+import { readPairFiles } from './ledger-files';
 import { RESEARCH_ARMS, ResearchError, type AdapterLayer, type ResearchArm } from './adapter';
 import { pairRecordFrom, type PairRecord } from './record';
 
@@ -72,23 +71,18 @@ export interface ResearchSummary {
 }
 
 export function readLedger(dir: string): PairRecord[] {
-  const pairsDir = join(resolve(dir), 'pairs');
-  let names: string[];
-  try {
-    names = readdirSync(pairsDir).filter((n) => n.endsWith('.json')).sort();
-  } catch (e) {
-    throw new ResearchError(`cannot read ledger ${pairsDir}: ${errorMessage(e)}`);
-  }
-  if (names.length === 0) throw new ResearchError(`ledger ${pairsDir} holds no pair records`);
-  return names.map((n) => {
-    const path = join(pairsDir, n);
+  // One hardened reader for both ledger consumers (#663): only a regular file
+  // placed directly in pairs/ is read; a symlink or any other entry is refused.
+  const files = readPairFiles(dir);
+  if (files.length === 0) throw new ResearchError(`ledger ${dir} holds no pair records`);
+  return files.map((f) => {
     let raw: unknown;
     try {
-      raw = JSON.parse(readFileSync(path, 'utf8'));
+      raw = JSON.parse(f.bytes.toString('utf8'));
     } catch (e) {
-      throw new ResearchError(`ledger record ${path} is not valid JSON: ${errorMessage(e)}`);
+      throw new ResearchError(`ledger record ${f.path} is not valid JSON: ${errorMessage(e)}`);
     }
-    return pairRecordFrom(raw, path);
+    return pairRecordFrom(raw, f.path);
   });
 }
 

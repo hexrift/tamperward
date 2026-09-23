@@ -3,16 +3,23 @@
 
 import { createHash } from 'node:crypto';
 import { gzipSync, gunzipSync } from 'node:zlib';
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { MACHINE_SCHEMA_VERSION } from '../machine-output';
 import { ResearchError } from './adapter';
-import { pairRecordFrom } from './record';
+import { readPairFiles } from './ledger-files';
+import { portablePairRecordFrom, type PairRecord } from './record';
 import { renderResearchReport } from './report';
-import { summarizeLedger, summarizeRecords } from './summarize';
+import { summarizeRecords } from './summarize';
 
 const BLOCK = 512;
 const BUNDLE_VERSION = 1;
+
+/** The entries a bundle may hold besides `ledger/pairs/<name>.json`: anything else
+ *  in an archive is refused by the validator, so "valid" means "holds nothing but
+ *  the evidence it claims to" (#663). */
+const TOP_LEVEL_ENTRIES = new Set(['summary.json', 'report.txt', 'provenance.json', 'manifest.json']);
+const PAIR_ENTRY_RE = /^ledger\/pairs\/[^/]+\.json$/;
 
 interface Entry { name: string; bytes: Buffer }
 
@@ -59,24 +66,35 @@ function parseTar(bytes: Buffer): Map<string, Buffer> {
     const start = offset + BLOCK;
     const end = start + size;
     if (end > bytes.length) throw new ResearchError('research bundle is truncated');
+    if (files.has(name)) throw new ResearchError(`research bundle contains a duplicate archive entry ${name}`);
     files.set(name, Buffer.from(bytes.subarray(start, end)));
     offset = start + Math.ceil(size / BLOCK) * BLOCK;
   }
   return files;
 }
 
-function walkLedger(ledger: string): Entry[] {
+/** The pair records a bundle carries, read once through the hardened ledger
+ *  reader (#663): only a regular file placed directly in pairs/ is read, every
+ *  record is proved to carry nothing outside the v1 pair contract, and the
+ *  archive holds the canonical serialization of the proved record rather than
+ *  the file's raw bytes, so a duplicate key or stray bytes cannot travel either. */
+function packagedRecords(ledger: string): { records: PairRecord[]; entries: Entry[] } {
+  const files = readPairFiles(ledger);
+  if (files.length === 0) throw new ResearchError(`ledger ${ledger} holds no pair records`);
+  const records: PairRecord[] = [];
   const entries: Entry[] = [];
-  const pairs = join(ledger, 'pairs');
-  if (!existsSync(pairs) || !statSync(pairs).isDirectory()) throw new ResearchError(`ledger ${ledger} has no pairs directory`);
-  const names = readdirSync(pairs).filter((n) => n.endsWith('.json')).sort();
-  if (names.length === 0) throw new ResearchError(`ledger ${ledger} holds no pair records`);
-  for (const name of names) {
-    const path = join(pairs, name);
-    if (!statSync(path).isFile()) continue;
-    entries.push({ name: `ledger/pairs/${name}`, bytes: readFileSync(path) });
+  for (const f of files) {
+    let raw: unknown;
+    try {
+      raw = JSON.parse(f.bytes.toString('utf8'));
+    } catch (e) {
+      throw new ResearchError(`ledger record ${f.path} is not valid JSON: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    const record = portablePairRecordFrom(raw, f.path);
+    records.push(record);
+    entries.push({ name: `ledger/pairs/${f.name}`, bytes: jsonBytes(record) });
   }
-  return entries;
+  return { records, entries };
 }
 
 function jsonBytes(value: unknown): Buffer {
@@ -94,6 +112,11 @@ export function validateResearchBundle(path: string): { records: number; manifes
   let files: Map<string, Buffer>;
   try { files = parseTar(gunzipSync(readFileSync(resolve(path)))); }
   catch (e) { throw new ResearchError(`cannot read research bundle ${path}: ${e instanceof Error ? e.message : String(e)}`); }
+  for (const name of files.keys()) {
+    if (!TOP_LEVEL_ENTRIES.has(name) && !PAIR_ENTRY_RE.test(name)) {
+      throw new ResearchError(`research bundle carries an entry that is not evidence: ${name}`);
+    }
+  }
   const provenance = files.get('provenance.json');
   const summaryBytes = files.get('summary.json');
   const report = files.get('report.txt');
@@ -114,12 +137,16 @@ export function validateResearchBundle(path: string): { records: number; manifes
   }
   const parsedSummary = summary as Record<string, unknown>;
   if (parsedSummary.document !== 'summary' || parsedSummary.command !== 'research') throw new ResearchError('research bundle summary is not a research summary');
-  const records: ReturnType<typeof pairRecordFrom>[] = [];
+  const records: PairRecord[] = [];
   for (const [name, bytes] of files) {
-    if (!name.startsWith('ledger/pairs/') || !name.endsWith('.json')) continue;
+    if (!PAIR_ENTRY_RE.test(name)) continue;
     let raw: unknown;
     try { raw = JSON.parse(bytes.toString('utf8')); } catch { throw new ResearchError(`invalid JSON in ${name}`); }
-    records.push(pairRecordFrom(raw, name));
+    const record = portablePairRecordFrom(raw, name);
+    // The archive must hold exactly the canonical serialization of the record it
+    // proves: no duplicate key, no stray whitespace, nothing the reader ignores.
+    if (!bytes.equals(jsonBytes(record))) throw new ResearchError(`${name} is not the canonical serialization of its pair record`);
+    records.push(record);
   }
   if (records.length === 0) throw new ResearchError('research bundle contains no pair records');
   const derived = summarizeRecords(records);
@@ -134,8 +161,8 @@ export function createResearchBundle(opts: ResearchBundleOpts): string {
   if (!opts.ledger) throw new ResearchError('research bundle requires --ledger');
   if (!opts.out) throw new ResearchError('research bundle requires --out');
   const ledger = resolve(opts.ledger);
-  const summary = summarizeLedger(ledger);
-  const entries = walkLedger(ledger);
+  const { records, entries } = packagedRecords(ledger);
+  const summary = summarizeRecords(records);
   if (opts.manifest) {
     const manifest = readFileSync(resolve(opts.manifest));
     const sha = createHash('sha256').update(manifest).digest('hex');

@@ -331,3 +331,61 @@ export function pairRecordFrom(raw: unknown, where = 'record'): PairRecord {
     },
   };
 }
+
+// ————————————————————————————————————————————————————————————————————————
+// Portable evidence (#663). A record that leaves the machine inside a research
+// bundle may carry nothing beyond the v1 pair contract: a field the contract
+// does not name, at any level, is refused rather than archived, because the
+// validator would ignore it semantically while the archive preserved it byte
+// for byte. `pairRecordFrom` stays tolerant of unknown fields for local
+// aggregation (a record written by a later minor release still summarizes);
+// the bundle boundary is strict.
+// ————————————————————————————————————————————————————————————————————————
+
+const PAIR_FIELDS = [
+  'schema_version', 'command', 'document', 'task', 'pair', 'adapter', 'model',
+  'tamperward_version', 'agent_argv', 'agent_budget', 'manifest_sha256', 'verify_command', 'arms',
+] as const;
+const ADAPTER_FIELDS = ['name', 'layers'] as const;
+const ARMS_FIELDS = ['ungated', 'gated'] as const;
+const TRAJECTORY_FIELDS = [
+  'arm', 'workspace', 'base', 'head', 'started_at', 'finished_at', 'agent', 'treatment',
+  'outcome', 'released_green', 'measured', 'unmeasurable',
+] as const;
+const AGENT_FIELDS = ['exit_code', 'signal', 'timed_out', 'failure'] as const;
+const TREATMENT_FIELDS = ['verdict', 'exit_code', 'complete', 'disposition', 'envelope'] as const;
+const OUTCOME_FIELDS = [
+  'verify_verdict', 'visible_exit', 'pristine_exit', 'visible_green', 'pristine_green',
+  'masked_failure', 'surviving_protected_mutations', 'warn_findings', 'rules', 'honest_completion',
+] as const;
+
+function onlyFields(raw: unknown, allowed: readonly string[], where: string): void {
+  // A non-object is reported, with its real problem named, by pairRecordFrom.
+  if (!isRecord(raw)) return;
+  for (const key of Object.keys(raw)) {
+    if (!allowed.includes(key)) bad(`${where}.${key} is not a field of the v1 pair record; refusing to carry it as portable evidence`);
+  }
+}
+
+/** Prove a parsed document is a v1 pair record that carries nothing outside the
+ *  contract, at every level. This is the reader for evidence that will travel. */
+export function portablePairRecordFrom(raw: unknown, where = 'record'): PairRecord {
+  onlyFields(raw, PAIR_FIELDS, where);
+  if (isRecord(raw)) {
+    onlyFields(raw.adapter, ADAPTER_FIELDS, `${where}.adapter`);
+    onlyFields(raw.arms, ARMS_FIELDS, `${where}.arms`);
+    if (isRecord(raw.arms)) {
+      for (const arm of ARMS_FIELDS) {
+        const trajectory = raw.arms[arm];
+        const at = `${where}.arms.${arm}`;
+        onlyFields(trajectory, TRAJECTORY_FIELDS, at);
+        if (isRecord(trajectory)) {
+          onlyFields(trajectory.agent, AGENT_FIELDS, `${at}.agent`);
+          onlyFields(trajectory.treatment, TREATMENT_FIELDS, `${at}.treatment`);
+          onlyFields(trajectory.outcome, OUTCOME_FIELDS, `${at}.outcome`);
+        }
+      }
+    }
+  }
+  return pairRecordFrom(raw, where);
+}
