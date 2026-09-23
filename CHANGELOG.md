@@ -1,5 +1,24 @@
 # Changelog
 
+## [2.37.1] — 2026-09-23
+
+### Fixed
+
+- **Audit evidence scales by addition, not by rewrite** (#518). `tamperward stats`
+  streams its JSONL file in one pass under a 16 KiB line bound, so memory is set by
+  the aggregate cardinality rather than the file size, and a longer line is one
+  `tamperward:` line at exit 2. On the `tamperward-audit` evidence branch each
+  ingested batch is now its own immutable `events/<YYYY>/<MM>/<batch-id>.jsonl`
+  partition; event-id and session deduplication live in 256 sorted shards that a
+  run touches only where its batch hashes; and `summaries/all-time.json` is folded
+  forward from a small state file instead of re-reading history. The workflow
+  fetches only the ledger to decide what is new and a sparse clone to publish,
+  never a historical partition; dispatching with `rebuild: true` streams every
+  partition to regenerate the derived files, and a store written before
+  partitioning keeps its `events/all.jsonl` frozen and is migrated once on the next
+  ingestion. Batch bytes and events and files per month have hard limits that fail
+  at exit 2 naming the limit.
+
 ## [2.37.0] — 2026-09-23
 
 ### Added

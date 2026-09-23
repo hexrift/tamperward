@@ -1,200 +1,190 @@
 // Complete write-authorized transition for the tamperward-audit branch.
 // Runs with Node builtins only. The cloned evidence branch is the immutable
-// prefix; raw trusted candidates are validated and appended, and both reports
-// are derived locally. No replacement store or derived artifact is accepted.
+// prefix: every stored partition, the frozen v1 file and the ledger are only
+// ever added to. Raw trusted candidates are validated and each becomes its own
+// immutable partition file; the id and session shards its events hash into
+// are updated; the fold state and both reports are derived locally. No
+// replacement store or prepared derived artifact is accepted: derived state
+// that does not agree with the ledger is rebuilt from the partitions.
 //
 // Usage: node audit-publish.mjs <schemaPath> <candidatesDir> <storeDir> <sourceSha>
+//          [--rebuild] [--changed-paths <file>]
+//   --rebuild        stream every stored partition and regenerate shards and state
+//                    before ingesting (also what happens when the state is unusable)
+//   --changed-paths  write the store-relative paths this run created, rewrote or
+//                    deleted, one per line, for the caller to stage
+// Exit 0: done (possibly nothing new). Exit 1: integrity refusal, nothing
+// written. Exit 2: a hard limit exceeded or bad usage, nothing written.
 
-import { createHash } from 'node:crypto';
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
-import { basename, join } from 'node:path';
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { basename, dirname, join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { loadAuditSchema, validateAuditJsonl } from './audit-verify.mjs';
+import {
+  LIMITS,
+  LimitError,
+  Shards,
+  canonical,
+  emptyState,
+  ensureDirectory,
+  foldEvent,
+  lstatOrNull,
+  parseState,
+  partitionFileCount,
+  paths,
+  readLedger,
+  readTextIfPresent,
+  rebuild,
+  refuseSymlink,
+  renderSummary,
+  sha256,
+  stateIsConsistent,
+  summaryFromState,
+} from './audit-store.mjs';
 
-const [schemaPath, candidatesDir, storeDir, sourceSha] = process.argv.slice(2);
-if (!schemaPath || !candidatesDir || !storeDir || !sourceSha) {
-  console.error('usage: audit-publish.mjs <schemaPath> <candidatesDir> <storeDir> <sourceSha>');
+const positional = [];
+const options = { rebuild: false, changedPaths: null };
+const argv = process.argv.slice(2);
+for (let i = 0; i < argv.length; i++) {
+  if (argv[i] === '--rebuild') options.rebuild = true;
+  else if (argv[i] === '--changed-paths') options.changedPaths = argv[++i];
+  else positional.push(argv[i]);
+}
+const [schemaPath, candidatesDir, storeDir, sourceSha] = positional;
+if (!schemaPath || !candidatesDir || !storeDir || !sourceSha || positional.length !== 4 || (options.changedPaths === undefined)) {
+  console.error('usage: audit-publish.mjs <schemaPath> <candidatesDir> <storeDir> <sourceSha> [--rebuild] [--changed-paths <file>]');
   process.exit(2);
 }
 
-const sha256 = (value) => createHash('sha256').update(value).digest('hex');
-const canonical = (value) => JSON.stringify(value, Object.keys(value).sort());
 const nonblankLines = (raw) => raw.split(/\r?\n/).filter((line) => line.trim().length > 0);
 
-function ensureDirectory(path, label) {
-  if (existsSync(path) && !lstatSync(path).isDirectory()) throw new Error(`audit-publish: ${label} is not a directory`);
-  mkdirSync(path, { recursive: true });
-}
-
-function readStoreFile(path, label) {
-  if (!existsSync(path)) return '';
-  if (!lstatSync(path).isFile()) throw new Error(`audit-publish: ${label} is not a regular file`);
-  return readFileSync(path, 'utf8');
-}
-
-function assertWritableFile(path, label) {
-  if (existsSync(path) && !lstatSync(path).isFile()) throw new Error(`audit-publish: ${label} is not a regular file`);
-}
-
-function append(prefix, additions) {
-  if (additions.length === 0) return prefix;
-  return prefix + (prefix.length > 0 && !prefix.endsWith('\n') ? '\n' : '') + additions.join('\n') + '\n';
-}
-
-function readLedger(raw) {
-  const allowed = new Set(['batch_id', 'source_sha', 'content_sha256', 'schema', 'ingested_at', 'event_count']);
-  const entries = [];
-  const byId = new Map();
-  nonblankLines(raw).forEach((line, index) => {
-    let entry;
-    try {
-      entry = JSON.parse(line);
-    } catch {
-      throw new Error(`audit-publish: ledger line ${index + 1} is not valid JSON`);
+/** The ingestion instant: the clock, or the value a test pins through the environment. */
+function ingestionInstant() {
+  const pinned = process.env.TAMPERWARD_AUDIT_INGESTED_AT;
+  if (pinned !== undefined) {
+    if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(pinned) || !Number.isFinite(Date.parse(pinned))) {
+      throw new Error('audit-publish: TAMPERWARD_AUDIT_INGESTED_AT must be an ISO-8601 UTC instant with milliseconds');
     }
-    if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
-      throw new Error(`audit-publish: ledger line ${index + 1} is not a JSON object`);
-    }
-    const unknown = Object.keys(entry).find((key) => !allowed.has(key));
-    if (unknown) throw new Error(`audit-publish: ledger line ${index + 1} has unsupported field "${unknown}"`);
-    if (Object.keys(entry).length !== allowed.size || [...allowed].some((key) => !(key in entry))) {
-      throw new Error(`audit-publish: ledger line ${index + 1} is missing a required field`);
-    }
-    if (typeof entry.batch_id !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$/.test(entry.batch_id)) {
-      throw new Error(`audit-publish: ledger line ${index + 1} has an invalid batch_id`);
-    }
-    if (typeof entry.source_sha !== 'string' || !/^[0-9a-f]{40}$/.test(entry.source_sha)) {
-      throw new Error(`audit-publish: ledger line ${index + 1} has an invalid source_sha`);
-    }
-    if (typeof entry.content_sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(entry.content_sha256)) {
-      throw new Error(`audit-publish: ledger line ${index + 1} has an invalid content_sha256`);
-    }
-    if (entry.schema !== 'audit-v1') throw new Error(`audit-publish: ledger line ${index + 1} has an invalid schema`);
-    if (typeof entry.ingested_at !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(entry.ingested_at) || !Number.isFinite(Date.parse(entry.ingested_at))) {
-      throw new Error(`audit-publish: ledger line ${index + 1} has an invalid ingested_at`);
-    }
-    if (!Number.isSafeInteger(entry.event_count) || entry.event_count <= 0) {
-      throw new Error(`audit-publish: ledger line ${index + 1} has an invalid event_count`);
-    }
-    if (byId.has(entry.batch_id)) throw new Error(`audit-publish: duplicate ledger batch_id ${entry.batch_id}`);
-    byId.set(entry.batch_id, entry);
-    entries.push(entry);
-  });
-  return { entries, byId };
-}
-
-function summarize(events) {
-  const ordered = [...events].sort((a, b) => a.timestamp.localeCompare(b.timestamp) || a.id.localeCompare(b.id));
-  const rules = new Map();
-  const surfaces = new Map();
-  const sessions = new Set();
-  for (const event of ordered) {
-    const bucket = rules.get(event.rule) ?? { events: 0, blocked: 0, warnings: 0 };
-    bucket.events++;
-    if (event.severity === 'block') bucket.blocked++;
-    else bucket.warnings++;
-    rules.set(event.rule, bucket);
-    surfaces.set(event.surface, (surfaces.get(event.surface) ?? 0) + 1);
-    if (event.session) sessions.add(event.session);
+    return pinned;
   }
-  return {
-    schema_version: 1,
-    events: ordered.length,
-    blocked: ordered.filter((event) => event.severity === 'block').length,
-    warnings: ordered.filter((event) => event.severity === 'warn').length,
-    sessions: sessions.size,
-    first_event: ordered[0]?.timestamp ?? null,
-    last_event: ordered.at(-1)?.timestamp ?? null,
-    by_rule: [...rules.entries()].map(([rule, counts]) => ({ rule, ...counts }))
-      .sort((a, b) => b.events - a.events || a.rule.localeCompare(b.rule)),
-    by_surface: [...surfaces.entries()].map(([surface, count]) => ({ surface, events: count }))
-      .sort((a, b) => b.events - a.events || a.surface.localeCompare(b.surface)),
-    interpretation: 'finding-is-not-proof-of-intent',
-  };
-}
-
-function render(summary) {
-  const out = [
-    'TamperWard audit stats',
-    '',
-    `Events      ${summary.events}`,
-    `Blocked     ${summary.blocked}`,
-    `Warnings    ${summary.warnings}`,
-    `Sessions    ${summary.sessions}`,
-  ];
-  if (summary.first_event && summary.last_event) out.push(`First       ${summary.first_event}`, `Last        ${summary.last_event}`);
-  if (summary.by_rule.length) {
-    out.push('', 'By rule');
-    const width = Math.max(...summary.by_rule.map((row) => row.rule.length));
-    for (const row of summary.by_rule) out.push(`  ${row.rule.padEnd(width)}  ${row.events}`);
-  }
-  if (summary.by_surface.length) {
-    out.push('', 'By surface');
-    const width = Math.max(...summary.by_surface.map((row) => row.surface.length));
-    for (const row of summary.by_surface) out.push(`  ${row.surface.padEnd(width)}  ${row.events}`);
-  }
-  out.push('', 'Note: an integrity finding is a signal, not proof of agent intent; legitimate refactors can trigger findings.');
-  return out.join('\n') + '\n';
+  return new Date().toISOString();
 }
 
 try {
   if (!/^[0-9a-f]{40}$/.test(sourceSha)) throw new Error('audit-publish: source SHA must be 40 lowercase hexadecimal characters');
   const schema = loadAuditSchema(schemaPath);
-  const eventsPath = join(storeDir, 'events', 'all.jsonl');
-  const ledgerPath = join(storeDir, 'ingested', 'batches.jsonl');
-  const summaryPath = join(storeDir, 'summaries', 'all-time.json');
-  const readmePath = join(storeDir, 'README.md');
+  const validateEvent = (line, where) => validateAuditJsonl(schema, line, where)[0];
+
   ensureDirectory(storeDir, 'store');
   ensureDirectory(candidatesDir, 'candidates');
-  ensureDirectory(join(storeDir, 'events'), 'events directory');
-  ensureDirectory(join(storeDir, 'ingested'), 'ingested directory');
-  ensureDirectory(join(storeDir, 'summaries'), 'summaries directory');
-  const existingEventsRaw = readStoreFile(eventsPath, 'events/all.jsonl');
-  const existingLedgerRaw = readStoreFile(ledgerPath, 'ingested/batches.jsonl');
-  const existingEvents = validateAuditJsonl(schema, existingEventsRaw, 'stored event');
-  const { entries: existingLedger, byId: ledgerById } = readLedger(existingLedgerRaw);
-  const eventById = new Map();
-  for (const event of existingEvents) {
-    if (eventById.has(event.id)) throw new Error(`audit-publish: duplicate stored audit event id: ${event.id}`);
-    eventById.set(event.id, canonical(event));
+  for (const dir of ['events', 'ingested', 'summaries', 'ids', 'sessions']) ensureDirectory(join(storeDir, dir), `${dir} directory`);
+  const ledgerPath = join(storeDir, paths.ledger);
+  const statePath = join(storeDir, paths.state);
+  const summaryPath = join(storeDir, paths.summary);
+  const readmePath = join(storeDir, paths.readme);
+  for (const [path, label] of [[ledgerPath, paths.ledger], [statePath, paths.state], [summaryPath, paths.summary], [readmePath, paths.readme]]) {
+    refuseSymlink(path, label);
   }
 
+  const existingLedgerRaw = readTextIfPresent(ledgerPath, paths.ledger);
+  const ledger = readLedger(existingLedgerRaw);
+
+  // ---- derived state: fold forward when it agrees with the ledger, else rebuild.
+  let state = options.rebuild ? null : parseState(readTextIfPresent(statePath, paths.state));
+  let rebuiltShards = [];
+  let staleShards = [];
+  let rebuilt = false;
+  if (options.rebuild || !stateIsConsistent(storeDir, state, ledger)) {
+    const hasEvents = existsSync(join(storeDir, paths.legacyEvents)) || ledger.entries.some((entry) => entry.partition);
+    if (hasEvents || options.rebuild) {
+      const tmp = join(tmpdir(), `tamperward-audit-rebuild-${process.pid}`);
+      ({ state, shards: rebuiltShards, removed: staleShards } = rebuild(storeDir, ledger, validateEvent, tmp));
+      rebuilt = true;
+    } else {
+      state = emptyState();
+    }
+  }
+  const shards = new Shards(storeDir);
+  // A rebuild replaces every shard: seed the lazy loader from the regenerated
+  // content so ingestion below never reads a stale shard from disk. A shard the
+  // partitions no longer account for is seeded empty here and deleted in the
+  // write phase, so a candidate that hashes into it is judged against the
+  // rebuilt truth, never against the stale file.
+  for (const rel of staleShards) {
+    if (rel.startsWith('ids/')) shards.ids.set(rel, new Map());
+    else shards.sessions.set(rel, new Set());
+  }
+  for (const shard of rebuiltShards) {
+    if (shard.rel.startsWith('ids/')) {
+      const map = new Map();
+      for (const line of nonblankLines(shard.content)) {
+        const entry = JSON.parse(line);
+        map.set(entry.id, entry.content_sha256);
+      }
+      shards.ids.set(shard.rel, map);
+    } else {
+      shards.sessions.set(shard.rel, new Set(nonblankLines(shard.content)));
+    }
+    shards.touched.add(shard.rel);
+  }
+
+  // ---- candidates: validate everything before anything is written.
   const candidateFiles = existsSync(candidatesDir)
     ? readdirSync(candidatesDir).filter((file) => file.endsWith('.jsonl')).sort()
     : [];
-  const appendedEventLines = [];
-  const appendedEvents = [];
+  const ingestedAt = ingestionInstant();
+  const partitionDir = paths.partitionDir(ingestedAt);
+  let partitionFiles = partitionFileCount(ledger, partitionDir);
+  const newPartitions = [];
   const appendedLedger = [];
-  const ingestedAt = new Date().toISOString();
+  let newEvents = 0;
 
   for (const file of candidateFiles) {
     const path = join(candidatesDir, file);
     if (!lstatSync(path).isFile()) throw new Error(`audit-publish: candidate is not a regular file: ${file}`);
     const batchId = basename(file, '.jsonl');
     if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$/.test(batchId)) throw new Error(`audit-publish: invalid candidate batch id: ${batchId}`);
+    const size = statSync(path).size;
+    if (size > LIMITS.maxBatchBytes) {
+      throw new LimitError(`audit-publish: candidate ${file} is ${size} bytes; the batch limit is ${LIMITS.maxBatchBytes} bytes — split it into smaller batches`);
+    }
     const batch = readFileSync(path);
     const raw = batch.toString('utf8');
     if (!raw.trim()) continue;
     const contentSha256 = sha256(batch);
-    const prior = ledgerById.get(batchId);
+    const prior = ledger.byId.get(batchId);
     if (prior) {
       if (prior.content_sha256 !== contentSha256) throw new Error(`audit-publish: batch ${batchId} content changed after ingestion`);
-      continue;
+      continue; // already ingested with identical content: idempotent skip
+    }
+
+    const candidateLines = nonblankLines(raw);
+    if (candidateLines.length > LIMITS.maxBatchEvents) {
+      throw new LimitError(`audit-publish: candidate ${file} holds ${candidateLines.length} events; the batch limit is ${LIMITS.maxBatchEvents} — split it into smaller batches`);
+    }
+    for (const [index, line] of candidateLines.entries()) {
+      const bytes = Buffer.byteLength(line, 'utf8');
+      if (bytes > LIMITS.maxLineBytes) {
+        throw new LimitError(`audit-publish: candidate ${file} event ${index + 1} is ${bytes} bytes; the event line limit is ${LIMITS.maxLineBytes} bytes`);
+      }
+    }
+    if (partitionFiles >= LIMITS.maxFilesPerPartition) {
+      throw new LimitError(`audit-publish: partition ${partitionDir} already holds ${partitionFiles} batch files; the limit is ${LIMITS.maxFilesPerPartition} per month — ingest after the month rolls over or raise the limit deliberately`);
     }
 
     const candidateEvents = validateAuditJsonl(schema, raw, `candidate ${file}`);
-    const candidateLines = nonblankLines(raw);
+    const storedLines = [];
     for (const [index, candidate] of candidateEvents.entries()) {
-      const encoded = canonical(candidate);
-      const priorEvent = eventById.get(candidate.id);
-      if (priorEvent !== undefined && priorEvent !== encoded) {
-        throw new Error(`audit-publish: candidate event id conflicts with stored content: ${candidate.id}`);
-      }
-      if (priorEvent === undefined) {
-        eventById.set(candidate.id, encoded);
-        appendedEvents.push(candidate);
-        appendedEventLines.push(candidateLines[index]);
-      }
+      if (!shards.addId(candidate.id, sha256(canonical(candidate)), `candidate ${file} event ${index + 1}`)) continue;
+      const newSession = candidate.session ? shards.addSession(candidate.session) : false;
+      foldEvent(state, candidate, newSession);
+      storedLines.push(candidateLines[index]);
+      newEvents++;
     }
+    const stored = storedLines.length ? storedLines.join('\n') + '\n' : '';
+    const partition = paths.partition(ingestedAt, batchId);
+    newPartitions.push({ rel: partition, content: stored });
+    partitionFiles++;
     const entry = {
       batch_id: batchId,
       source_sha: sourceSha,
@@ -202,27 +192,59 @@ try {
       schema: 'audit-v1',
       ingested_at: ingestedAt,
       event_count: candidateEvents.length,
+      partition,
+      stored_events: storedLines.length,
+      stored_sha256: sha256(stored),
     };
-    ledgerById.set(batchId, entry);
+    ledger.byId.set(batchId, entry);
+    ledger.entries.push(entry);
     appendedLedger.push(entry);
   }
 
-  const allEvents = [...existingEvents, ...appendedEvents];
-  const allLedger = [...existingLedger, ...appendedLedger];
-  const eventsOutput = append(existingEventsRaw, appendedEventLines);
-  const ledgerOutput = append(existingLedgerRaw, appendedLedger.map((entry) => JSON.stringify(entry)));
-  const summary = summarize(allEvents);
+  // ---- write preconditions: every refusal happens before the first mutation,
+  // so a run that fails leaves the store exactly as it found it.
+  const shardChanges = shards.changes();
+  for (const partition of newPartitions) {
+    const path = join(storeDir, partition.rel);
+    if (lstatOrNull(path) !== null) throw new Error(`audit-publish: partition ${partition.rel} already exists`);
+    for (let dir = dirname(partition.rel); dir !== 'events' && dir !== '.'; dir = dirname(dir)) {
+      const stat = lstatOrNull(join(storeDir, dir));
+      if (stat !== null && !stat.isDirectory()) throw new Error(`audit-publish: ${dir} is not a directory`);
+    }
+  }
+  for (const shard of shardChanges) refuseSymlink(join(storeDir, shard.rel), shard.rel);
+  for (const rel of staleShards) refuseSymlink(join(storeDir, rel), rel);
 
-  assertWritableFile(eventsPath, 'events/all.jsonl');
-  assertWritableFile(ledgerPath, 'ingested/batches.jsonl');
-  assertWritableFile(summaryPath, 'summaries/all-time.json');
-  assertWritableFile(readmePath, 'README.md');
-  writeFileSync(eventsPath, eventsOutput);
-  writeFileSync(ledgerPath, ledgerOutput);
-  writeFileSync(summaryPath, JSON.stringify(summary) + '\n');
-  writeFileSync(readmePath, render(summary));
-  console.error(`audit-publish: ${candidateFiles.length} candidate(s), ${appendedEvents.length} new event(s), ${allLedger.length} total batch(es)`);
+  // ---- write phase: only new files, touched shards, the ledger tail and the derived files.
+  const changed = [];
+  const write = (rel, content) => {
+    const path = join(storeDir, rel);
+    mkdirSync(dirname(path), { recursive: true });
+    if (existsSync(path) && readFileSync(path, 'utf8') === content) return;
+    writeFileSync(path, content);
+    changed.push(rel);
+  };
+  for (const rel of staleShards) {
+    rmSync(join(storeDir, rel), { force: true });
+    changed.push(rel);
+  }
+  for (const partition of newPartitions) write(partition.rel, partition.content);
+  for (const shard of shardChanges) write(shard.rel, shard.content);
+  if (appendedLedger.length) {
+    const separator = existingLedgerRaw.length > 0 && !existingLedgerRaw.endsWith('\n') ? '\n' : '';
+    write(paths.ledger, existingLedgerRaw + separator + appendedLedger.map((entry) => JSON.stringify(entry)).join('\n') + '\n');
+  }
+  const summary = summaryFromState(state);
+  write(paths.state, JSON.stringify(state) + '\n');
+  write(paths.summary, JSON.stringify(summary) + '\n');
+  write(paths.readme, renderSummary(summary));
+  if (options.changedPaths) writeFileSync(options.changedPaths, changed.map((rel) => rel + '\n').join(''));
+  console.error(
+    `audit-publish: ${candidateFiles.length} candidate(s), ${appendedLedger.length} new batch(es), ${newEvents} new event(s), ` +
+    `${ledger.entries.length} total batch(es), ${state.events} stored event(s)${rebuilt ? ', derived state rebuilt from the partitions' : ''}` +
+    (staleShards.length ? `, ${staleShards.length} stale shard file(s) removed` : ''),
+  );
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
+  process.exitCode = error instanceof LimitError ? 2 : 1;
 }

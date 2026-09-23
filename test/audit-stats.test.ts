@@ -1,11 +1,15 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+  MAX_AUDIT_LINE_BYTES,
+  createAuditAggregator,
+  forEachAuditLine,
   parseAuditEvent,
   parseAuditJsonl,
+  parseAuditLine,
   parseSince,
   recordAuditFindings,
   renderAuditStats,
@@ -214,5 +218,85 @@ describe('audit stats', () => {
     const file = join(dir, 'events.jsonl');
     writeFileSync(file, JSON.stringify(event()) + '\n');
     expect(parseAuditJsonl(readFileSync(file, 'utf8'))).toHaveLength(1);
+  });
+});
+
+describe('streaming stats (#518)', () => {
+  const hex = (n: number, width: number): string => n.toString(16).padStart(width, '0');
+  const synthetic = (n: number): AuditEventV1 => event({
+    id: 'sha256:' + hex(n, 32),
+    timestamp: `2026-09-${String(1 + (n % 28)).padStart(2, '0')}T${String(n % 24).padStart(2, '0')}:00:00${n % 2 ? '.500' : ''}Z`,
+    surface: n % 3 === 0 ? 'stop' : 'pretooluse',
+    rule: ['test-skip', 'test-deletion', 'lint-suppression'][n % 3],
+    severity: n % 2 === 0 ? 'block' : 'warn',
+    decision: n % 2 === 0 ? 'deny' : 'warn',
+    session: 'sha256:' + hex(n % 11, 24),
+  });
+
+  function capture(run: () => number): { code: number; stdout: string } {
+    let stdout = '';
+    const spy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: string | Uint8Array) => {
+      stdout += String(chunk);
+      return true;
+    });
+    try {
+      return { code: run(), stdout };
+    } finally {
+      spy.mockRestore();
+    }
+  }
+
+  it('folds a large file in one pass to the same summary the whole-array path produced', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'tw-audit-stream-'));
+    dirs.push(dir);
+    const file = join(dir, 'events.jsonl');
+    const events = Array.from({ length: 50_000 }, (_, i) => synthetic(i));
+    // Mixed line endings, blank lines and no trailing newline are all valid JSONL.
+    const raw = events.map((e, i) => JSON.stringify(e) + (i % 2 ? '\r\n' : '\n') + (i % 1000 === 0 ? '\n' : '')).join('').trimEnd();
+    writeFileSync(file, raw);
+
+    const aggregator = createAuditAggregator();
+    let seen = 0;
+    forEachAuditLine(file, (line, lineNumber) => {
+      aggregator.add(parseAuditLine(line, lineNumber));
+      seen++;
+    });
+    expect(seen).toBe(events.length);
+    expect(aggregator.finish()).toEqual(summarizeAudit(parseAuditJsonl(raw)));
+
+    const { code, stdout } = capture(() => runStats({ file, json: true }));
+    expect(code).toBe(0);
+    expect(JSON.parse(stdout)).toEqual(summarizeAudit(events));
+  });
+
+  it('applies --since per event while streaming', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'tw-audit-stream-'));
+    dirs.push(dir);
+    const file = join(dir, 'events.jsonl');
+    const events = Array.from({ length: 200 }, (_, i) => synthetic(i));
+    writeFileSync(file, events.map((e) => JSON.stringify(e) + '\n').join(''));
+    const since = '2026-09-15T00:00:00Z';
+    const { code, stdout } = capture(() => runStats({ file, since, json: true }));
+    expect(code).toBe(0);
+    const cutoff = Date.parse(since);
+    expect(JSON.parse(stdout)).toEqual(summarizeAudit(events.filter((e) => Date.parse(e.timestamp) >= cutoff)));
+  });
+
+  it('refuses an oversized line before buffering it instead of reading the whole file', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'tw-audit-stream-'));
+    dirs.push(dir);
+    const file = join(dir, 'events.jsonl');
+    writeFileSync(file, JSON.stringify(event()) + '\n' + JSON.stringify(event({ rule: 'x'.repeat(MAX_AUDIT_LINE_BYTES) })) + '\n');
+    expect(() => forEachAuditLine(file, () => undefined)).toThrow(/audit line 2 exceeds 16384 bytes/);
+    expect(() => runStats({ file })).toThrow(/audit line 2 exceeds 16384 bytes/);
+  });
+
+  it('numbers lines like the whole-file parser so a malformed record is reported at the same line', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'tw-audit-stream-'));
+    dirs.push(dir);
+    const file = join(dir, 'events.jsonl');
+    writeFileSync(file, JSON.stringify(event()) + '\n\n{not-json}\n');
+    expect(() => runStats({ file })).toThrow(/audit line 3 is not valid JSON/);
+    expect(() => parseAuditJsonl(readFileSync(file, 'utf8'))).toThrow(/audit line 3 is not valid JSON/);
   });
 });
