@@ -395,6 +395,25 @@ export async function runOnboard(opts: OnboardOpts, io: OnboardIo = {}): Promise
     const caveat = neutralOnlyCaveat(detected);
     if (caveat) status('NOTE', caveat, 'warn');
 
+    // Detection is only a repository marker, never qualification evidence. Point the
+    // operator at the version-bound capability model for every detected runtime instead
+    // of allowing the headline to be read as a binary support claim.
+    if (detected.length === 0) {
+      status(
+        'QUALIFY',
+        'Runtime capability evidence is not available from detection alone; run `tamperward runtime verify --runtime <ID>` before relying on in-loop posture.',
+        'info',
+      );
+    } else {
+      detected.forEach((runtime) => {
+        status(
+          'QUALIFY',
+          `${runtime.label}: run \`tamperward runtime verify --runtime ${runtime.id}\` to measure version-bound capabilities; detection is not qualification.`,
+          'info',
+        );
+      });
+    }
+
     const plan = planInit(cwd);
     const names: Record<string, string> = {
       policy: 'Policy',
