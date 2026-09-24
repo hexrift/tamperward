@@ -47,6 +47,7 @@ import { POLICY_FILE } from '../policy';
 import { loadPolicy } from '../policy-load';
 import { errorMessage } from '../narrow';
 import { detectRuntimes, detectionHeadline, neutralOnlyCaveat } from '../runtimes';
+import { adapterFor, labelFor } from '../adapters/registry';
 import { TW_VERSION } from '../wiring';
 import { atomicReplaceFile, existingMode, writeTargetKind } from '../safe-write';
 
@@ -394,6 +395,34 @@ export async function runOnboard(opts: OnboardOpts, io: OnboardIo = {}): Promise
     status('RUNTIME', detectionHeadline(detected), 'info');
     const caveat = neutralOnlyCaveat(detected);
     if (caveat) status('NOTE', caveat, 'warn');
+
+    // Detection is only a repository marker, never qualification evidence. Point the
+    // operator at the version-bound capability model for every detected runtime instead
+    // of allowing the headline to be read as a binary support claim.
+    if (detected.length === 0) {
+      status(
+        'QUALIFY',
+        'Runtime capability evidence is not available from detection alone; run `tamperward runtime verify --runtime <id>` before treating any runtime as protected in-loop.',
+        'info',
+      );
+    } else {
+      detected.forEach((runtime) => {
+        const adapter = adapterFor(runtime.id);
+        if (!adapter) {
+          status(
+            'QUALIFY',
+            `${runtime.label}: no shipped qualification adapter; neutral layers remain the live protection. See #602 before treating this runtime as in-loop qualified.`,
+            'warn',
+          );
+          return;
+        }
+        status(
+          'QUALIFY',
+          `${labelFor(adapter.name)}: run \`tamperward runtime verify --runtime ${runtime.id}\` to measure version-bound capabilities; detection is not qualification.`,
+          'info',
+        );
+      });
+    }
 
     const plan = planInit(cwd);
     const names: Record<string, string> = {

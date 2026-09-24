@@ -25,6 +25,7 @@ It has five sections:
    CI and CODEOWNERS, plus a `Git ignore` item when an installed `node_modules/`
    tree would otherwise be staged as repository source. The plan is still the
    canonical `init` plan; Enter applies the displayed non-destructive changes.
+   For an adapter-backed runtime, the `QUALIFY` line points to `tamperward runtime verify --runtime <id>`; a detected runtime without a shipped adapter is reported explicitly instead of receiving a command that cannot run.
    Existing `.gitignore` content is preserved, and TamperWard does not hide a
    `node_modules` tree that is already tracked/staged or explicitly re-included.
    No second copy of init's long explanation is printed inside onboarding.
