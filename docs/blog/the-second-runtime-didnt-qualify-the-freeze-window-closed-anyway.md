@@ -24,8 +24,12 @@ This is the twenty-first post in the [TamperWard research series](/blog/) and a
 status note between counted rounds. Post 20 reported the counted Round 4 result:
 [the prevention bet didn't replicate, and no surviving tampering was certified
 clean](./the-prevention-bet-didnt-replicate-no-surviving-tampering-was-certified-clean.md).
-Round 4.1 was the registered follow-up to that round. It has not happened, and
-this explains why, and what the delay has already cost.
+Round 4.1 was the registered follow-up to that round — registered, precisely, as
+a requirement: Round 4's registration (§7) committed that 4.1 would repeat the
+frozen pool, treatment and analysis under a second runtime, and would be
+preregistered *separately*, before Round 4's outcomes were examined. That
+separate registration is what was never written. The round has not happened,
+and this explains why, and what the delay has already cost.
 
 ## What Round 4 left open
 
@@ -183,10 +187,15 @@ let close is reported, not quietly reclassified.
 
 ---
 
-*Design of record: `PREDICTION4-taskbench.md` §7 and `FRAME5.md` (M2, the
-second-runtime clause). Runtime state: `docs/guide/runtime-adapters.md`
+*Design of record:
+[`PREDICTION4-taskbench.md`](https://github.com/hexrift/tamperward/blob/main/harness/taskbench/round4/PREDICTION4-taskbench.md) §7
+and [`FRAME5.md`](https://github.com/hexrift/tamperward/blob/main/harness/taskbench/round4/FRAME5.md)
+(M2, the second-runtime clause). Runtime state: `docs/guide/runtime-adapters.md`
 (Codex #482/#563, Copilot CLI #598, Copilot SDK-hosted #611) and
-`src/runtimes.ts` (every runtime `neutral`). Round 4's sealed result:
-`ROUND4-RESULTS.json`, readout `ROUND4-ANALYSIS.md`. No frozen binding file, no
-recorded verdict, and no counted-round registration was altered by this post; it
-records a state, it does not change one.*
+`src/runtimes.ts` (every runtime other than Claude Code `neutral`). Round 4's
+sealed result:
+[`ROUND4-RESULTS.json`](https://github.com/hexrift/tamperward/blob/main/harness/taskbench/round4/ROUND4-RESULTS.json),
+readout
+[`ROUND4-ANALYSIS.md`](https://github.com/hexrift/tamperward/blob/main/harness/taskbench/round4/ROUND4-ANALYSIS.md).
+No frozen binding file, no recorded verdict, and no counted-round registration
+was altered by this post; it records a state, it does not change one.*
