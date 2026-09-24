@@ -41,6 +41,10 @@ Capabilities are declared **per operation**, not per layer. The operation kinds 
 shell | file-edit | file-read | mcp | other
 ```
 
+`unknown` is deliberately not in this declarable list. It is a Copilot classification
+outcome for an unmapped non-empty tool name; the adapter denies it with the
+`unknown-tool` finding before reconstruction, so it cannot be treated as a no-op.
+
 A runtime's `RuntimeCapabilities` records, for each phase, which operation kinds it
 covers:
 
@@ -356,7 +360,11 @@ wire formats, and the adapter accepts **both**:
   `transcriptPath`, `stopReason`. The native tool names are lowercase: `bash` / `powershell`
   (shell), the shell-**session** tools `write_bash` / `write_powershell` (send input to a
   running shell — mutation-capable, so classified as `shell`), `create` / `edit` /
-  `apply_patch` / `str_replace_editor` (file write), `view` (read).
+  `apply_patch` / `str_replace_editor` (file write), `view` / `grep` / `rg` / `glob`
+  (read/search). Other documented non-mutating built-ins — `read_*` / `stop_*` /
+  `list_*`, `web_fetch` / `web_search`, `ask_user`, `report_intent`, `task` /
+  `agent`, `skill`, and `update_todo` / `todowrite` / `todo` — are explicitly
+  allowlisted as `other`; their PascalCase aliases are accepted too.
 - **PascalCase / Claude-compatible** — `PreToolUse` carries `hook_event_name`, `session_id`,
   `timestamp`, `cwd`, `tool_name`, and a `tool_input` object, where `tool_name` is the **Claude
   tool name** (`Bash`, `Write`, `Edit`, `Read`); `Stop` carries `session_id`, `transcript_path`,
@@ -368,7 +376,8 @@ wire formats, and the adapter accepts **both**:
   it as a Copilot tool.
 
 Normalization is field-by-field with the snake_case spelling winning and the camelCase spelling
-as a fallback, so either mode normalizes sensibly; `tool_use_id` is **not** a documented Copilot
+as a fallback, so either mode normalizes sensibly. Known read-only and control-plane tools are
+explicitly allowlisted; any other non-empty tool name fails closed with `unknown-tool`. `tool_use_id` is **not** a documented Copilot
 field and is not read. `apply_patch` (the OpenAI patch envelope, shared with Codex) is
 reconstructed via the shared `applyPatchChanges`; `str_replace_editor` is modelled for its
 `str_replace` and `create` sub-ops and **fails closed** on any other sub-op (e.g. `insert`)
