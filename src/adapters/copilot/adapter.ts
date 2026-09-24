@@ -154,6 +154,12 @@ export class CopilotRuntimeAdapter implements RuntimeAdapter {
       return { outcome: 'ok', wire, decision: { verdict: wire ? 'deny' : 'allow', findings: [], reason: wire || undefined } };
     }
 
+    if (parsed.operation.kind === 'unknown') {
+      const findings = [steeringUnavailableFinding('unrecognized Copilot tool cannot be classified safely; refusing to evaluate it as a no-op')];
+      const wire = this.denyPayload(findings, 'pre-action');
+      return { outcome: 'ok', wire, detail: findings[0].reason, decision: { verdict: 'deny', findings, reason: wire } };
+    }
+
     try {
       const root = idv.trustedRoot ?? repoRoot(defaultCwd ?? process.cwd());
       const sessionCwd = parsed.identity.claimedCwd ?? defaultCwd ?? process.cwd();
