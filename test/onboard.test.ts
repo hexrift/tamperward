@@ -16,6 +16,7 @@ import { readlineAsker, runOnboard, type OnboardIo, type OnboardOpts } from '../
 import { RED, YELLOW, CYAN, BOLD } from '../src/cli/render/status';
 import type { DoctorOutcome } from '../src/cli/doctor';
 import { runInit } from '../src/cli/init';
+import { runRuntime } from '../src/cli/runtime';
 import { loadPolicy } from '../src/policy-load';
 import { treeFingerprint } from '../src/fingerprint';
 import { guardedMain } from '../src/cli/main';
@@ -182,6 +183,90 @@ describe('happy path', () => {
     expect(s.out).toMatch(/QUALIFY\s+Cursor: no shipped qualification adapter/);
     expect(s.out).not.toContain('runtime verify --runtime cursor');
     expect(s.out).toContain('#482');
+  });
+});
+
+describe('runtime qualification in onboarding (#599)', () => {
+  // A Claude Code marker committed with the fixture, so detection finds an adapter-backed
+  // runtime and the tree stays clean (no preflight prompt before the QUALIFY line).
+  function claudeRepo(): string {
+    const d = repo({ commit: false });
+    writeFileSync(join(d, 'CLAUDE.md'), '# agent notes\n');
+    git(d, 'add', '-A');
+    git(d, 'commit', '-qm', 'base');
+    return d;
+  }
+  const withVersion = async <T,>(version: string, fn: () => Promise<T> | T): Promise<T> => {
+    const prev = process.env.TAMPERWARD_RUNTIME_VERSION;
+    process.env.TAMPERWARD_RUNTIME_VERSION = version;
+    try {
+      return await fn();
+    } finally {
+      if (prev === undefined) delete process.env.TAMPERWARD_RUNTIME_VERSION;
+      else process.env.TAMPERWARD_RUNTIME_VERSION = prev;
+    }
+  };
+  /** Record a real qualification into the fixture's git-local store through the runtime
+   *  command itself (its stdout document is swallowed), so onboarding reads a genuine record. */
+  const qualify = (cwd: string, version: string): void => {
+    const so = process.stdout.write;
+    const prev = process.env.TAMPERWARD_RUNTIME_VERSION;
+    process.stdout.write = (() => true) as typeof process.stdout.write;
+    process.env.TAMPERWARD_RUNTIME_VERSION = version;
+    try {
+      expect(runRuntime('verify', { cwd, runtime: 'claude-code', json: true })).toBe(0);
+    } finally {
+      process.stdout.write = so;
+      if (prev === undefined) delete process.env.TAMPERWARD_RUNTIME_VERSION;
+      else process.env.TAMPERWARD_RUNTIME_VERSION = prev;
+    }
+  };
+  const storeFile = (d: string) => join(d, '.git', 'tamperward', 'runtime-qualification.json');
+  const session = (d: string, version: string): Promise<Session> =>
+    withVersion(version, () => onboard(d, ['n'], { noGithub: true, skipDemo: true }));
+
+  it('with nothing recorded, points at runtime verify rather than claiming a posture', async () => {
+    const d = claudeRepo();
+    const s = await session(d, '1.0.0');
+    expect(s.out).toMatch(/RUNTIME\s+Detected Claude Code/);
+    expect(s.out).toMatch(/QUALIFY\s+Claude Code: run `tamperward runtime verify --runtime claude-code`/);
+    expect(s.out).not.toMatch(/in-loop protection (FULL|PARTIAL|NONE)/);
+  });
+
+  it('renders the recorded aggregate, evidence id and TamperWard version from the store', async () => {
+    const d = claudeRepo();
+    qualify(d, '1.0.0');
+    const s = await session(d, '1.0.0');
+    // Through the real verify path a static adapter declaration grades PARTIAL: onboarding
+    // renders the recorded aggregate as-is and never manufactures FULL from a label.
+    expect(s.out).toMatch(
+      /QUALIFY\s+Claude Code: in-loop protection PARTIAL \(qualified \d{4}-\d{2}-\d{2}T[^,]+, evidence [0-9a-f]{16}, tamperward \d+\.\d+\.\d+\)/,
+    );
+    expect(s.out).toContain('tamperward runtime status --runtime claude-code');
+    expect(s.out).not.toMatch(/QUALIFY\s+Claude Code: run `tamperward runtime verify/);
+    expect(s.out).not.toMatch(/STALE|rejected/);
+  });
+
+  it('flags a recorded qualification STALE when a load-bearing input changed, naming the input', async () => {
+    const d = claudeRepo();
+    qualify(d, '1.0.0');
+    const s = await session(d, '2.0.0');
+    expect(s.out).toMatch(
+      /QUALIFY\s+Claude Code: recorded in-loop protection PARTIAL is STALE \(changed: [^)]*runtime[^)]*\); run `tamperward runtime verify --runtime claude-code`/,
+    );
+    expect(s.out).not.toMatch(/evidence [0-9a-f]{16}/);
+  });
+
+  it('treats a stored record that fails validation as unrecorded, with the reason', async () => {
+    const d = claudeRepo();
+    qualify(d, '1.0.0');
+    const store = JSON.parse(readFileSync(storeFile(d), 'utf8'));
+    store.records['claude-code'].evidence_id = 'deadbeefdeadbeef';
+    writeFileSync(storeFile(d), JSON.stringify(store));
+    const s = await session(d, '1.0.0');
+    expect(s.out).toMatch(/QUALIFY\s+Claude Code: the stored qualification was rejected \(evidence_id mismatch/);
+    expect(s.out).toMatch(/treated as unrecorded; run `tamperward runtime verify --runtime claude-code`/);
+    expect(s.out).not.toMatch(/in-loop protection (FULL|PARTIAL|NONE)/);
   });
 });
 
