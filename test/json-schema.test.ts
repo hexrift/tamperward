@@ -64,8 +64,10 @@ function expectPublishedSchemaId(schema: any, filename: string): void {
   expect(id.startsWith(prefix)).toBe(true);
   expect(id.endsWith(suffix)).toBe(true);
   const tag = id.slice(prefix.length, -suffix.length);
+  expect(tag.length).toBeGreaterThan(0);
   expect(tag).not.toContain('/');
 }
+
 type NpmPackEntry = { filename: string; files?: Array<{ path: string }> };
 
 function normalizeNpmPackJson(value: unknown): NpmPackEntry[] {
