@@ -155,9 +155,10 @@ export class CopilotRuntimeAdapter implements RuntimeAdapter {
     }
 
     if (parsed.operation.kind === 'unknown') {
-      const findings = [steeringUnavailableFinding('unrecognized Copilot tool cannot be classified safely; refusing to evaluate it as a no-op')];
+      const detail = 'unrecognized Copilot tool cannot be classified safely; refusing to evaluate it as a no-op';
+      const findings = [steeringUnavailableFinding(detail)];
       const wire = this.denyPayload(findings, 'pre-action');
-      return { outcome: 'ok', wire, detail: findings[0].reason, decision: { verdict: 'deny', findings, reason: wire } };
+      return { outcome: 'ok', wire, detail, decision: { verdict: 'deny', findings, reason: wire } };
     }
 
     try {
