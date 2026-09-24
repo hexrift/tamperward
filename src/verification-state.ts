@@ -176,6 +176,21 @@ function resolveBaseRev(baseRef: string, cwd: string): string {
   }
 }
 
+/** The CONCRETE commit a ref names (no merge-base step), or null when it cannot
+ *  be resolved. Used to cross-check a CI `verify --json` document's `base` against
+ *  the trusted base CI was told to use (#601 finding 4): the enforcement verify on
+ *  a PR merge ref records `merge-base(base, merge-commit) === base`, i.e. the
+ *  concrete base commit, so the document's `base` must match either this or the
+ *  merge-base the reconcile itself resolved. */
+export function resolveConcreteCommit(cwd: string, ref: string): string | null {
+  try {
+    assertRev(ref);
+    return git(['rev-parse', '--verify', `${ref}^{commit}`], repoRoot(cwd)).trim();
+  } catch {
+    return null;
+  }
+}
+
 /** Deterministic JSON with recursively sorted object keys, so a digest depends on
  *  content and not on key insertion order. */
 function canonicalJson(value: unknown): string {
@@ -550,13 +565,95 @@ const MISMATCH_PRIORITY: readonly BindingInput[] = [
   'tree',
 ];
 
+/**
+ * The load-bearing identity split (#601 cross-machine reconciliation).
+ *
+ * `status` runs on the same machine that verified, so EVERY bound input — the
+ * runtime steering wiring and the discovered dependency environment included —
+ * is load-bearing for CURRENT (`firstMismatch` over all of MISMATCH_PRIORITY).
+ *
+ * A receipt reconciled in CI is judged by a DIFFERENT machine. Two of the bound
+ * inputs are irreducibly machine-local and cannot be expected to match a runner:
+ *   - `intervention` digests `~/.claude/settings.json` (present on a developer's
+ *     machine, absent on a fresh runner);
+ *   - `dependencies` (local backend) digests the discovered dependency
+ *     environment, which need not match a fresh install on the runner.
+ * The rest — `tree`, `head`, `base`, `policy`, `verifier`, `surface` — are
+ * reproducible from the same commit and the same trusted base on any machine, so
+ * they are the CANDIDATE IDENTITY that decides APPLICABILITY. The two
+ * environment inputs are reported as INFORMATIONAL divergence and never, on their
+ * own, make a receipt non-applicable. (A container-backend `dependencies` digest
+ * IS reproducible — it is the pinned image — but treating it as informational is
+ * strictly safer here: it can only downgrade a spurious mismatch to a note, never
+ * make a mismatched state look applicable, and CI's own verdict is authority
+ * regardless.)
+ */
+export const CANDIDATE_IDENTITY_INPUTS = [
+  'tree',
+  'head',
+  'base',
+  'policy',
+  'verifier',
+  'surface',
+] as const;
+export type CandidateIdentityInput = (typeof CANDIDATE_IDENTITY_INPUTS)[number];
+
+/** The machine-local inputs reported as informational divergence, never
+ *  authoritative for cross-machine applicability. */
+export const ENVIRONMENT_INPUTS = ['intervention', 'dependencies'] as const;
+export type EnvironmentInput = (typeof ENVIRONMENT_INPUTS)[number];
+
+const CANDIDATE_IDENTITY_SET = new Set<BindingInput>(CANDIDATE_IDENTITY_INPUTS);
+const CANDIDATE_MISMATCH_PRIORITY: readonly CandidateIdentityInput[] = MISMATCH_PRIORITY.filter(
+  (i): i is CandidateIdentityInput => CANDIDATE_IDENTITY_SET.has(i),
+);
+
 /** The first binding input (in most-specific-first priority order) whose recorded
- *  fingerprint differs from the live one, or null when every input matches. */
+ *  fingerprint differs from the live one, or null when every input matches.
+ *  Exported as `firstBindingMismatch` so the receipt reconciler (#601) decides
+ *  receipt applicability with the SAME identity comparison `status` uses — a
+ *  receipt binds to the exact candidate state or it is non-applicable, never
+ *  "close enough". */
 function firstMismatch(recorded: VerificationBinding, live: VerificationBinding): BindingInput | null {
   for (const input of MISMATCH_PRIORITY) {
     if (recorded[input] !== live[input]) return input;
   }
   return null;
+}
+
+/** The first CANDIDATE-IDENTITY input that diverges (cross-machine applicability),
+ *  ignoring the machine-local environment inputs, or null when the whole candidate
+ *  identity matches. This is what decides whether a receipt APPLIES to the state
+ *  CI adjudicated (#601 finding 2). */
+function firstCandidateIdentityMismatch(
+  recorded: VerificationBinding,
+  live: VerificationBinding,
+): CandidateIdentityInput | null {
+  for (const input of CANDIDATE_MISMATCH_PRIORITY) {
+    if (recorded[input] !== live[input]) return input;
+  }
+  return null;
+}
+
+/** The machine-local environment inputs that diverge between the receipt and CI's
+ *  identity, reported as INFORMATIONAL (they never make a receipt non-applicable). */
+function environmentInputDivergences(
+  recorded: VerificationBinding,
+  live: VerificationBinding,
+): EnvironmentInput[] {
+  return ENVIRONMENT_INPUTS.filter((input) => recorded[input] !== live[input]);
+}
+
+export {
+  firstMismatch as firstBindingMismatch,
+  firstCandidateIdentityMismatch,
+  environmentInputDivergences,
+};
+
+/** Deterministic digest of an arbitrary JSON value, shared with the receipt
+ *  layer so an evidence digest is computed the one canonical way (#601). */
+export function stableDigest(value: unknown): string {
+  return digest(value);
 }
 
 /**

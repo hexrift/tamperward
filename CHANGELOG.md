@@ -1,5 +1,105 @@
 # Changelog
 
+## [2.38.0] — 2026-09-23
+
+### Added
+
+- **Local verification receipts, reconciled in CI** (#601). A successful
+  `tamperward verify` now emits a bounded, transportable **receipt** under
+  `.git/tamperward/verification-receipt.json` — outside the candidate-controlled
+  tracked tree — bound to the SAME load-bearing identity the first-class
+  verification state (#600) already computes: candidate tree fingerprint,
+  entry/base commit, HEAD, policy digest, verifier-contract digest, protected
+  surface, runtime-intervention wiring and dependency environment, plus an
+  `evidence_digest` over its own fields. The receipt carries only fixed-width
+  digests, commit ids, closed-enum stage results, a verdict and a timestamp — no
+  prompt text, source, command bodies, secrets/environment, absolute local paths
+  or logs.
+  - `tamperward receipt export [--out F]` writes the receipt for the CURRENT
+    verified state (the explicit transport handoff); it refuses when the state is
+    not CURRENT. The exported machine output IS the `receipt-v1` document (to
+    `--out`, or stdout when no path is given) — there is no separate `--json`
+    envelope.
+  - `tamperward receipt reconcile` reruns the canonical TamperWard verification
+    FIRST, then reconciles a claimed receipt against CI's own adjudication. It
+    prints a summary separating the LOCAL claim, the CI result and their
+    agreement/divergence, writes a GitHub job summary, and emits a
+    machine-readable reconciliation document (`--json`). A local claim is
+    **explicit**: the receipt is read only from `--receipt`, never from the local
+    `.git/tamperward/` store (that store holds the receipt CI's own preceding
+    `verify` step just wrote, so a fallback would manufacture agreement). Absent
+    `--receipt` → NO_CLAIM, never a failure by itself; unreadable/unparseable →
+    MALFORMED with a read/parse reason. `--ci-result` consumes a preceding
+    `verify --json` so the suite runs once, and must be a genuine `verify --json`
+    document (`schema_version: 1`, a resolved `base` commit, `visible`/`pristine`
+    stage objects) whose `base` matches the base CI computed — anything else,
+    including a receipt file, is CANNOT_VERIFY (exit 2), so a receipt can never
+    stand in as CI's verdict.
+  - **Cross-machine reconciliation.** The binding splits into a **candidate
+    identity** reproducible on any machine — `tree`, `head`, `base`, `policy`,
+    `verifier`, `surface` — which is authoritative for applicability, versus the
+    **machine-local environment inputs** `intervention` and `dependencies`, which
+    are reported as INFORMATIONAL divergence (`reconciliation.environment_divergence`)
+    and never, on their own, make a receipt non-applicable. The generated CI
+    workflow computes CI's candidate identity from `pull_request.head.sha` (the
+    branch tip a developer verifies), not the PR merge ref, so a genuine receipt's
+    `head`/`tree` line up.
+  - **A receipt is evidence, never authority.** The reconciled `result` is CI's
+    own verdict, recomputed from trusted inputs: a stale, mismatched
+    (candidate/tree/policy/verifier/… identity differs), malformed, tampered
+    (`evidence_digest` inconsistent, or a VERIFIED verdict with a non-clean stage),
+    missing or unknown-schema receipt is NON_APPLICABLE or NO_CLAIM and can NEVER
+    promote or strengthen a CI result. A local-green / CI-red case reports
+    DIVERGENCE and stays failed. When a red run on the same tree invalidates the
+    #600 record, the stored receipt is removed with it, so it can never outlive
+    the state it vouches for.
+  - New published Draft 2020-12 schemas `schemas/receipt-v1.schema.json` and
+    `schemas/reconcile-v1.schema.json`, with closed vocabularies single-sourced to
+    the emitter constants.
+  - The generated CI workflow (`tamperward init`) now runs the receipt
+    reconciliation as an evidence step after its own pristine `verify` (which
+    remains the enforcement authority over the merge result), writing the
+    LOCAL/CI/agreement job summary. The generated workflow transports no receipt on
+    its own — in a `pull_request` run there is no earlier artifact to download and it
+    sets no `TAMPERWARD_RECEIPT` — so as shipped every run reports NO_CLAIM and CI's
+    verdict stands until the workflow owner wires a transport; `docs/reference/cli.md`
+    now gives two realizable ones (a `refs/tamperward/receipts/<head-sha>` ref pushed
+    to the head repo and fetched by a step, or the bounded receipt posted as a PR
+    comment and read via the API — both safe because the receipt self-validates and
+    never becomes CI's authority).
+  - **CI's verdict is attributed only to the tree CI actually ran.** `verify --json`
+    now reports the candidate tree it adjudicated (`adjudicated_tree`, the same
+    fingerprint bound into the #600 record). Because the enforcement `verify` runs
+    over the PR merge result, a branch that is BEHIND its base has a merge tree that
+    differs from the branch-tip tree a receipt binds; `receipt reconcile` compares
+    `adjudicated_tree` against the receipt's tree and reports NON_APPLICABLE
+    (`mismatched_input: tree`) rather than a false AGREE or a dishonest DIVERGENCE for
+    a tree CI never ran, and the reconcile CI section prints the adjudicated tree. An
+    older `--ci-result` document that carries no `adjudicated_tree` degrades safely to
+    NON_APPLICABLE. The receipt still never changes CI's verdict or exit code.
+  - **The `--ci-result` sign-off comes only from the trusted channel.** A
+    MASKED_FAILURE exits 0 only when a reviewer's out-of-band sign-off applies;
+    `receipt reconcile` now recomputes that sign-off from the trusted env
+    (`oobToken('verify', …)`, exactly as `verify` does), never from the
+    `--ci-result` document — a forged `oob_signoff` field inside the file being
+    validated can no longer flip a failing exit to a passing one. The generated CI
+    reconcile step gets the same `TAMPERWARD_OOB_SIGNOFF` / `TAMPERWARD_OOB_HEAD`
+    env as the verify step, so a legitimately signed-off MASKED_FAILURE still exits
+    0. `adjudicated_tree` is now documented as an optional field in
+    `schemas/verify-v1.schema.json` and `docs/reference/machine-output.md`, and the
+    developer git-ref transport in `docs/reference/cli.md` now pushes the receipt
+    blob itself (`git push origin "$blob:refs/tamperward/receipts/<sha>"`, read
+    CI-side with `git cat-file blob FETCH_HEAD`) so the documented transport works
+    end to end.
+
+  - **Canonical schema identifiers** (#662/#665). Every published v1 schema now carries
+    its `$id` at the immutable release-tag URL of the release that first shipped its
+    bytes (`v2.38.0` for all twelve in this release); an unchanged schema keeps its
+    identifier across later releases. After tagging, the release workflow verifies every
+    advertised identifier over HTTPS against the exact shipped schema bytes, and the
+    offline schema test enforces the same rule, so mutable branch refs and
+    self-referential commit pins cannot be published.
+
 ## [2.37.2] — 2026-09-23
 
 ### Fixed

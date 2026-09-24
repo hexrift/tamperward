@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/hexrift/tamperward/v2.38.0/schemas/receipt-v1.schema.json",
+  "title": "TamperWard local verification receipt v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "verdict",
+    "tw_version",
+    "verified_at",
+    "binding",
+    "stages",
+    "evidence_digest"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "verdict": {
+      "const": "VERIFIED"
+    },
+    "tw_version": {
+      "type": "string"
+    },
+    "verified_at": {
+      "type": "string"
+    },
+    "binding": {
+      "type": "object",
+      "description": "The load-bearing verification identity, carried verbatim from the first-class verification record (#600). A receipt applies to CI only when every one of these matches the identity CI computes independently.",
+      "required": [
+        "tree",
+        "head",
+        "base",
+        "policy",
+        "verifier",
+        "surface",
+        "intervention",
+        "dependencies"
+      ],
+      "properties": {
+        "tree": { "type": "string" },
+        "head": { "type": "string" },
+        "base": { "type": "string" },
+        "policy": { "type": "string" },
+        "verifier": { "type": "string" },
+        "surface": { "type": "string" },
+        "intervention": { "type": "string" },
+        "dependencies": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "stages": {
+      "type": "object",
+      "required": ["candidate", "pristine", "integrity"],
+      "properties": {
+        "candidate": { "enum": ["PASS", "FAIL"] },
+        "pristine": { "enum": ["PASS", "FAIL"] },
+        "integrity": { "enum": ["CLEAN", "CHANGED"] }
+      },
+      "additionalProperties": true
+    },
+    "evidence_digest": {
+      "type": "string",
+      "description": "sha256 over the canonical {schema_version, verdict, binding, stages}. A consumer recomputes it to detect an internally-inconsistent (tampered) receipt; it is not a substitute for CI's independent identity check."
+    }
+  },
+  "additionalProperties": true,
+  "description": "Emitted by `tamperward verify` after a genuine VERIFIED local adjudication and by `tamperward receipt export` (#601). A bounded, non-sensitive projection of the first-class verification record (#600): fixed-width digests and commit ids, closed-enum stage results, a verdict and a timestamp — never prompt text, source, command bodies, secrets/environment, absolute local paths or logs. The receipt is EVIDENCE, not authority: CI reruns verification independently and reconciles the claim (see reconcile-v1.schema.json). Additive within schema major 1.",
+  "examples": [
+    {
+      "schema_version": 1,
+      "verdict": "VERIFIED",
+      "tw_version": "2.38.0",
+      "verified_at": "2026-09-23T12:00:00.000Z",
+      "binding": {
+        "tree": "0123456789abcdef",
+        "head": "8ef12c1aaa0000000000000000000000000000aa",
+        "base": "8ef12c1aaa0000000000000000000000000000aa",
+        "policy": "aaaa",
+        "verifier": "bbbb",
+        "surface": "cccc",
+        "intervention": "dddd",
+        "dependencies": "eeee"
+      },
+      "stages": { "candidate": "PASS", "pristine": "PASS", "integrity": "CLEAN" },
+      "evidence_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  ]
+}

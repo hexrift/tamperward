@@ -73,6 +73,35 @@ describe('generated CI supply-chain hardening', () => {
     expect(steps[checkout].with['persist-credentials']).toBe(false);
   });
 
+  it('reconciles the receipt against the PR branch tip, not the merge ref (#601 finding 2)', () => {
+    const cwd = repo();
+    const src = generated(cwd);
+    const wf = workflow(src);
+    const steps = wf.jobs.tamperward.steps;
+
+    // Enforcement stays on the merge ref: verify runs against the base sha with no
+    // ref override (checks out the merge result), and its exit gates the job.
+    const verify = steps.find((s: any) => s.name === 'Tamperward verify (pristine re-execution)');
+    expect(verify.run).toContain('tamperward verify --require-ancestor --base "${{ github.event.pull_request.base.sha }}"');
+
+    // Reconcile computes CI's candidate identity from pull_request.head.sha (the
+    // branch tip a developer verifies) via a linked worktree, so a genuine
+    // receipt's head/tree can line up — a merge-ref HEAD never matches a receipt.
+    const reconcile = steps.find((s: any) => s.name === 'Tamperward receipt reconciliation (evidence)');
+    expect(reconcile.if).toBe('always()');
+    expect(reconcile.run).toContain('git worktree add --detach "$HEAD_TREE" "${{ github.event.pull_request.head.sha }}"');
+    expect(reconcile.run).toContain('receipt reconcile --require-ancestor --cwd "$HEAD_TREE"');
+    // It consumes verify's verdict (no second suite run) and never rechecks out the
+    // merge ref for identity.
+    expect(reconcile.run).toContain('--ci-result "$RUNNER_TEMP/tw-verify.json"');
+    // The reconcile step gets the SAME trusted out-of-band sign-off channel as the
+    // verify step, so a signed-off MASKED_FAILURE exits 0 here too — reconcile
+    // recomputes the sign-off from this env, never from the --ci-result document,
+    // so a forged field in that file cannot flip the exit (#601 re-review).
+    expect(reconcile.env.TAMPERWARD_OOB_SIGNOFF).toBe('${{ steps.oob.outputs.rules }}');
+    expect(reconcile.env.TAMPERWARD_OOB_HEAD).toBe('${{ github.event.pull_request.head.sha }}');
+  });
+
   it('migrates the byte-exact 2.10.7 generated workflow and is idempotent', () => {
     const cwd = repo();
     const prior = readFileSync(join(__dirname, 'fixtures', 'generated-workflow-2.10.7.yml'), 'utf8');

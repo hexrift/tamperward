@@ -263,6 +263,10 @@ jobs:
       # Requires a \`verify:\` block in .tamperward.yml naming the suite command;
       # without one this step fails closed (exit 2) rather than passing quietly.
       - name: Tamperward verify (pristine re-execution)
+        # bash so \`set -o pipefail\` propagates verify's exit through the tee — the
+        # default GitHub shell does not enable pipefail, and tee's own 0 would
+        # otherwise mask a red verify.
+        shell: bash
         env:
           # The same channel as the gate. A compact token generated for \`verify\`
           # (or legacy \`tamperward:allow:verify@<head-sha>\`) accepts a MASKED_FAILURE —
@@ -272,7 +276,53 @@ jobs:
           # stays red whatever the labels say.
           TAMPERWARD_OOB_SIGNOFF: \${{ steps.oob.outputs.rules }}
           TAMPERWARD_OOB_HEAD: \${{ github.event.pull_request.head.sha }}
-        run: tamperward verify --require-ancestor --base "\${{ github.event.pull_request.base.sha }}"
+        # --json to a file for the reconciliation step below; the tee keeps the
+        # verdict visible in the log. This step remains the ENFORCEMENT authority:
+        # its own exit gates the job.
+        run: tamperward verify --require-ancestor --base "\${{ github.event.pull_request.base.sha }}" --json | tee "\$RUNNER_TEMP/tw-verify.json"
+      # EVIDENCE, not authority (#601). CI has now rerun the canonical verification
+      # itself; this step reconciles a claimed LOCAL verification receipt against
+      # THAT result and writes a job summary separating the local claim, the CI
+      # result and their agreement/divergence. A stale/mismatched/tampered/missing/
+      # unknown-schema receipt can NEVER promote a CI result — the reconciled
+      # verdict is CI's own (consumed from the verify --json above), recomputed from
+      # trusted inputs. Set TAMPERWARD_RECEIPT (e.g. from a download-artifact step)
+      # to a receipt exported by \`tamperward receipt export\` on the BRANCH TIP;
+      # with none, reconciliation reports NO_CLAIM and CI's verdict stands.
+      # \`if: always()\` re-asserts CI's verdict even when the verify step failed.
+      #
+      # The reconcile computes CI's candidate identity from pull_request.head.sha —
+      # the branch tip a developer verifies — NOT this job's merge-ref HEAD, so a
+      # genuine receipt's \`head\`/\`tree\` line up (a receipt binds the branch tip;
+      # the merge ref is a synthetic commit that no receipt can match). A linked
+      # worktree reuses this checkout's object store (base, head and the merge
+      # commit are all present from fetch-depth: 0), so merge-base resolves without
+      # a second fetch. reconcile with --ci-result runs NO candidate code here — it
+      # only computes identity (git/filesystem reads) and consumes the verdict the
+      # verify step already produced. The enforcement authority remains the verify
+      # step, which runs over the MERGE result as before.
+      - name: Tamperward receipt reconciliation (evidence)
+        if: always()
+        shell: bash
+        env:
+          # The reconcile step's exit re-asserts CI's verdict, and a MASKED_FAILURE
+          # a reviewer has signed off must exit 0 here just as the verify step does.
+          # reconcile recomputes that sign-off from this SAME trusted channel — never
+          # from the --ci-result document — so a forged oob_signoff field inside the
+          # file it validates can never flip the exit (#601 re-review).
+          TAMPERWARD_OOB_SIGNOFF: \${{ steps.oob.outputs.rules }}
+          TAMPERWARD_OOB_HEAD: \${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          HEAD_TREE="\$RUNNER_TEMP/tw-head"
+          rm -rf "\$HEAD_TREE"
+          git worktree add --detach "\$HEAD_TREE" "\${{ github.event.pull_request.head.sha }}"
+          args=(receipt reconcile --require-ancestor --cwd "\$HEAD_TREE" --base "\${{ github.event.pull_request.base.sha }}" --ci-result "\$RUNNER_TEMP/tw-verify.json")
+          if [ -n "\${TAMPERWARD_RECEIPT:-}" ] && [ -f "\${TAMPERWARD_RECEIPT:-}" ]; then
+            args+=(--receipt "\$TAMPERWARD_RECEIPT")
+          fi
+          tamperward "\${args[@]}"
+          git worktree remove --force "\$HEAD_TREE" || true
 `;
 
 // Provenance mark for the generated workflow. A file init wrote and NOBODY has
