@@ -953,7 +953,7 @@ describe('machine-readable schema v1 (#333)', () => {
     const validator = ajv();
     for (const filename of PUBLISHED_SCHEMA_FILES) {
       const schema = JSON.parse(readFileSync(join(ROOT, 'schemas', filename), 'utf8'));
-      expect(schema.$id).toBe(PUBLISHED_SCHEMA_BASE + '/' + filename);
+      expectPublishedSchemaId(schema, filename);
       expect(validator.validateSchema(schema), filename + ': ' + JSON.stringify(validator.errors)).toBe(true);
     }
   });
@@ -961,7 +961,7 @@ describe('machine-readable schema v1 (#333)', () => {
   it('v1 schemas have stable IDs and self-validating examples (#425)', () => {
     for (const name of SCHEMA_NAMES) {
       const schema = schemaFrom(ROOT, name);
-      expect(schema.$id).toBe(PUBLISHED_SCHEMA_BASE + '/' + name + '-v1.schema.json');
+      expectPublishedSchemaId(schema, name + '-v1.schema.json');
       expect(schema.examples).toEqual(expect.any(Array));
       expect(schema.examples.length).toBeGreaterThan(0);
       for (const example of schema.examples) {
