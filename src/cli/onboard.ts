@@ -48,6 +48,7 @@ import { loadPolicy } from '../policy-load';
 import { errorMessage } from '../narrow';
 import { detectRuntimes, detectionHeadline, neutralOnlyCaveat } from '../runtimes';
 import { adapterFor, labelFor } from '../adapters/registry';
+import { storedQualification } from './runtime';
 import { TW_VERSION } from '../wiring';
 import { atomicReplaceFile, existingMode, writeTargetKind } from '../safe-write';
 
@@ -416,11 +417,33 @@ export async function runOnboard(opts: OnboardOpts, io: OnboardIo = {}): Promise
           );
           return;
         }
-        status(
-          'QUALIFY',
-          `${labelFor(adapter.name)}: run \`tamperward runtime verify --runtime ${runtime.id}\` to measure version-bound capabilities; detection is not qualification.`,
-          'info',
-        );
+        // Detection is not qualification, but a RECORDED qualification is the capability model:
+        // render what the git-local store holds for this adapter, through the same validated,
+        // staleness-checked reader `runtime status` uses, instead of only a runtime label (#599).
+        // Nothing is rerun and nothing is promoted; an absent or rejected record leaves the
+        // operator pointed at `runtime verify`.
+        const label = labelFor(adapter.name);
+        const verify = `tamperward runtime verify --runtime ${runtime.id}`;
+        const stored = storedQualification(adapter, cwd);
+        if (stored.state === 'none') {
+          status('QUALIFY', `${label}: run \`${verify}\` to measure version-bound capabilities; detection is not qualification.`, 'info');
+        } else if (stored.state === 'rejected') {
+          status('QUALIFY', `${label}: the stored qualification was rejected (${stored.reason}) and is treated as unrecorded; run \`${verify}\`.`, 'warn');
+        } else if (stored.stale) {
+          const changed = [...new Set(stored.changed_inputs.map((c) => c.split(':')[0]))].join(', ');
+          status(
+            'QUALIFY',
+            `${label}: recorded in-loop protection ${stored.report.in_loop_protection} is STALE (changed: ${changed}); run \`${verify}\` to re-qualify.`,
+            'warn',
+          );
+        } else {
+          const agg = stored.report.in_loop_protection;
+          status(
+            'QUALIFY',
+            `${label}: in-loop protection ${agg} (qualified ${stored.report.timestamp}, evidence ${stored.report.evidence_id}, tamperward ${stored.report.tamperward.version}); \`tamperward runtime status --runtime ${runtime.id}\` renders the capability matrix.`,
+            agg === 'FULL' ? 'ok' : agg === 'PARTIAL' ? 'warn' : 'bad',
+          );
+        }
       });
     }
 

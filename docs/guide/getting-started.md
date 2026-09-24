@@ -25,7 +25,13 @@ It has five sections:
    CI and CODEOWNERS, plus a `Git ignore` item when an installed `node_modules/`
    tree would otherwise be staged as repository source. The plan is still the
    canonical `init` plan; Enter applies the displayed non-destructive changes.
-   For an adapter-backed runtime, the `QUALIFY` line points to `tamperward runtime verify --runtime <id>`; a detected runtime without a shipped adapter is reported explicitly instead of receiving a command that cannot run.
+   For an adapter-backed runtime, a `QUALIFY` line renders the recorded qualification from
+   the git-local store: the `In-loop protection` aggregate with its evidence id and
+   TamperWard version, `STALE` when a load-bearing input such as the runtime version or
+   hook config changed since it was recorded, or the rejection reason when a stored record
+   fails validation; only when nothing is recorded does it point to
+   `tamperward runtime verify --runtime <id>`. A detected runtime without a shipped adapter
+   is reported explicitly instead of receiving a command that cannot run.
    Existing `.gitignore` content is preserved, and TamperWard does not hide a
    `node_modules` tree that is already tracked/staged or explicitly re-included.
    No second copy of init's long explanation is printed inside onboarding.

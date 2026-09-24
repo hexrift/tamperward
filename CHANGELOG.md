@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.39.0] — 2026-09-24
+
+### Added
+
+- **Onboarding renders the recorded runtime qualification** (#599). For every detected
+  runtime with a shipped adapter, `tamperward onboard` now reads the git-local qualification
+  store through the same validated, staleness-checked reader as `tamperward runtime status`
+  and renders the recorded `In-loop protection` aggregate with its evidence id and TamperWard
+  version, flags it `STALE` when a load-bearing input changed, and reports a stored record
+  that fails validation as unrecorded; only when nothing is recorded does it fall back to
+  pointing at `tamperward runtime verify --runtime <id>`. A runtime label alone is never
+  presented as protection. Nothing is rerun or promoted.
+
 ## [2.38.3] — 2026-09-24
 
 ### Changed

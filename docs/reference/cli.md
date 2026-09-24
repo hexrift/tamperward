@@ -470,6 +470,9 @@ is stored git-locally (`.git/tamperward/runtime-qualification.json`, uncommitted
 load-bearing input changes — a new runtime version, an edited hook config, a changed adapter,
 a different platform or execution mode — `runtime status` reports the previous qualification as
 **STALE** and points at `tamperward runtime verify`.
+`tamperward onboard` reads the same record for every detected runtime that has a shipped
+adapter and renders its aggregate, evidence id and staleness on its `QUALIFY` line without
+rerunning anything; a record that fails validation is reported as unrecorded there too.
 
 ## Observation & audit: `watch`, `stats`
 

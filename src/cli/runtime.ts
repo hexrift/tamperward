@@ -555,6 +555,43 @@ function emit(report: RuntimeQualificationReport, opts: RuntimeOpts, cwd: string
   renderText(report, cwd);
 }
 
+/**
+ * What a surface that must NOT rerun a qualification (`runtime status`, `onboard`) sees in the
+ * git-local store for one adapter: nothing recorded; a present record that FAILED validation
+ * (rejected — never rendered as trusted, exactly as `status` treats it); or the validated record
+ * with its staleness recomputed against the CURRENT load-bearing binding. One reader for both
+ * surfaces, so onboarding renders the capability model through the same validation and
+ * staleness path as `status` and cannot drift into a second verdict path (#599). Nothing here
+ * promotes a capability or writes the store.
+ */
+export type StoredQualification =
+  | { state: 'none' }
+  | { state: 'rejected'; reason: string }
+  | { state: 'recorded'; report: RuntimeQualificationReport; stale: boolean; changed_inputs: string[] };
+
+export function storedQualification(adapter: RuntimeAdapter, cwd: string, opts: RuntimeOpts = {}): StoredQualification {
+  const raw = readStore(cwd)?.records[adapter.name];
+  if (raw === undefined) return { state: 'none' };
+  const validated = validateStoredReport(raw);
+  if ('reason' in validated) return { state: 'rejected', reason: validated.reason };
+  const stored = validated.report;
+  const { binding: current } = buildQualification(adapter, opts, cwd);
+  const storedBinding: QualificationBinding = {
+    runtime: stored.runtime,
+    tamperward: stored.tamperward,
+    adapter: stored.adapter,
+    hook_config_hash: stored.hook_config_hash,
+    execution_mode: stored.execution_mode,
+    platform: stored.platform,
+    model: stored.model,
+    tested_capabilities: stored.tested_capabilities,
+    timestamp: stored.timestamp,
+    evidence_id: stored.evidence_id,
+  };
+  const staleness = qualificationStaleness(storedBinding, current);
+  return { state: 'recorded', report: stored, stale: staleness.stale, changed_inputs: staleness.changed };
+}
+
 export function runRuntime(sub: string | undefined, opts: RuntimeOpts): number {
   const cwd = opts.cwd ?? process.cwd();
 
@@ -601,18 +638,16 @@ export function runRuntime(sub: string | undefined, opts: RuntimeOpts): number {
       process.stderr.write(`tamperward: ${target.error}\n`);
       return 2;
     }
-    const store = readStore(cwd);
-    const raw = store?.records[target.name];
-    const validated = raw === undefined ? { reason: 'none recorded' } : validateStoredReport(raw);
-    if ('reason' in validated) {
+    const stored = storedQualification(target, cwd, opts);
+    if (stored.state !== 'recorded') {
       // No stored qualification, OR a stored record that failed shape/evidence_id validation:
       // report honestly as unrecorded, do not synthesize one and never render an unvalidated
       // (possibly hand-edited) record as trusted.
       const { binding, assessments } = buildQualification(target, opts, cwd);
       const note =
-        raw === undefined
+        stored.state === 'none'
           ? `No qualification recorded for ${binding.runtime.label}. Run: tamperward runtime verify`
-          : `Stored qualification for ${binding.runtime.label} was rejected (${validated.reason}) and treated as unrecorded. Run: tamperward runtime verify`;
+          : `Stored qualification for ${binding.runtime.label} was rejected (${stored.reason}) and treated as unrecorded. Run: tamperward runtime verify`;
       const empty: RuntimeQualificationReport = {
         ...reportFrom('status', binding, assessments),
         recorded: false,
@@ -623,27 +658,12 @@ export function runRuntime(sub: string | undefined, opts: RuntimeOpts): number {
       emit(empty, opts, cwd);
       return 0;
     }
-    const stored = validated.report;
-    // Render the STORED qualification (no rerun), but recompute staleness against current inputs.
-    const { binding: current } = buildQualification(target, opts, cwd);
-    const storedBinding: QualificationBinding = {
-      runtime: stored.runtime,
-      tamperward: stored.tamperward,
-      adapter: stored.adapter,
-      hook_config_hash: stored.hook_config_hash,
-      execution_mode: stored.execution_mode,
-      platform: stored.platform,
-      model: stored.model,
-      tested_capabilities: stored.tested_capabilities,
-      timestamp: stored.timestamp,
-      evidence_id: stored.evidence_id,
-    };
-    const staleness = qualificationStaleness(storedBinding, current);
+    // Render the STORED qualification (no rerun), with staleness recomputed against current inputs.
     const report: RuntimeQualificationReport = {
-      ...stored,
+      ...stored.report,
       subcommand: 'status',
-      stale: staleness.stale,
-      changed_inputs: staleness.changed,
+      stale: stored.stale,
+      changed_inputs: stored.changed_inputs,
     };
     emit(report, opts, cwd);
     return 0;
