@@ -48,10 +48,10 @@ export interface CopilotHookInput {
 //    / `str_replace_editor` is reported to the hook as `Edit`. `MultiEdit` is accepted
 //    DEFENSIVELY (a Claude-compatible name), not because a Copilot source documents it;
 //  - file read: `view`, `grep`/`rg`, `glob` (native), `Read`, `Grep`, `Glob` (PascalCase); all are
- *    non-mutating and produce no Change;
- *  - other non-mutating built-ins: `read_*` / `stop_*` / `list_*` shell-session helpers,
- *    `web_fetch`/`web_search`, `ask_user`, `report_intent`, `task`/`agent`, `skill`, and
- *    `update_todo`/`todowrite`/`todo`, including their documented PascalCase aliases;
+//    non-mutating and produce no Change;
+//  - other non-mutating built-ins: `read_*` / `stop_*` / `list_*` shell-session helpers,
+//    `web_fetch`/`web_search`, `ask_user`, `report_intent`, `task`/`agent`, `skill`, and
+//    `update_todo`/`todowrite`/`todo`, including their documented PascalCase aliases;
 //  - MCP: `mcp__<server>__<tool>`.
 const SHELL_TOOLS = new Set(['bash', 'powershell', 'write_bash', 'write_powershell']);
 const FILE_EDIT_TOOLS = new Set(['create', 'edit', 'write', 'multiedit', 'apply_patch', 'str_replace_editor']);
