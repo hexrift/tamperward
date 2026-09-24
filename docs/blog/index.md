@@ -7,6 +7,18 @@ whole series — sampling unit, historical controls, training contamination,
 model pinning, what registration ordering does and does not prove, and what the
 verification layers cannot guarantee.*
 
+- **[The second runtime didn't qualify. The freeze window closed anyway.](./the-second-runtime-didnt-qualify-the-freeze-window-closed-anyway.md)** — September 24, 2026.
+  A between-rounds status note: **Round 4.1 has not run.** It was registered to
+  close the M2 transfer claim by repeating Round 4's frozen pool, treatment and
+  analysis under a **second supported runtime** with equivalent PreToolUse/Stop
+  enforcement, committed **before** Round 4's outcomes were examined. No runtime
+  qualified — Codex (#482/#563), Copilot CLI (#598) and Copilot SDK-hosted (#611)
+  all stay `neutral`, because none is proven on a pinned build to enforce a
+  pre-action deny and fail closed. And the pre-commitment window closed
+  independently: Round 4's results were sealed and published on September 11, so a
+  Round 4.1 registered from here can no longer be blind to them. M2 stays open,
+  and this post reports the state rather than quietly reclassifying it.
+
 - **[Round 4 results](./the-prevention-bet-didnt-replicate-no-surviving-tampering-was-certified-clean.md)** — September 11, 2026.
   The counted answer to the round-4 methodology post: the primary prediction **did
   not replicate** — b=5, c=3, exact McNemar p=0.727, so the preregistered null was

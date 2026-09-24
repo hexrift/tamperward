@@ -107,6 +107,7 @@ export default defineConfig({
             { text: 'All posts', link: '/blog/' },
             { text: 'Limitations', link: '/blog/limitations' },
             { text: 'Errata', link: '/blog/errata' },
+            { text: "The second runtime didn't qualify. The freeze window closed anyway.", link: '/blog/the-second-runtime-didnt-qualify-the-freeze-window-closed-anyway' },
             { text: 'Round 4 results', link: '/blog/the-prevention-bet-didnt-replicate-no-surviving-tampering-was-certified-clean' },
             { text: 'How round 4 is built to be hard to fool', link: '/blog/how-round-4-is-built-to-be-hard-to-fool' },
             { text: "The mechanism transferred. The confirmatory result didn't replicate.", link: '/blog/the-mechanism-transferred-the-effect-didnt' },
