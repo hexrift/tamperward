@@ -125,9 +125,9 @@ describe('copilotOperationKind — both documented tool vocabularies', () => {
     expect(copilotOperationKind('Edit')).toBe('file-edit');
     expect(copilotOperationKind('MultiEdit')).toBe('file-edit');
     expect(copilotOperationKind('Read')).toBe('file-read');
-    // MCP + unknown
+    // MCP remains an explicitly non-mutating path; unknown names stay distinct so the adapter can fail closed.
     expect(copilotOperationKind('mcp__filesystem__write_file')).toBe('mcp');
-    expect(copilotOperationKind('fetch')).toBe('other');
+    expect(copilotOperationKind('fetch')).toBe('unknown');
     expect(copilotOperationKind(undefined)).toBe('other');
   });
 });
@@ -207,6 +207,22 @@ describe('CopilotRuntimeAdapter.decide — pre-action denies protected mutations
       const j = JSON.parse(r.wire as string);
       expect(j.permissionDecision).toBe('deny'); // Copilot's FLAT control shape
       expect(j.hookSpecificOutput).toBeUndefined();
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('denies an unrecognized tool instead of treating it as a no-op', () => {
+    const cwd = repoFixture();
+    try {
+      const raw = nativePre(cwd, 'future_mutating_tool', {
+        path: join(cwd, 'src', 'a.spec.ts'),
+        content: "it.skip('one', () => {});\n",
+      });
+      const r = copilotAdapter.decide(raw, 'pre-action', cwd);
+      expect(r.decision?.verdict).toBe('deny');
+      expect(r.decision?.findings[0].rule).toBe('tamperward-unavailable');
+      expect(JSON.parse(r.wire as string).permissionDecision).toBe('deny');
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
