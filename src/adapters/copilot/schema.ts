@@ -52,10 +52,11 @@ export interface CopilotHookInput {
 const SHELL_TOOLS = new Set(['bash', 'powershell', 'write_bash', 'write_powershell']);
 const FILE_EDIT_TOOLS = new Set(['create', 'edit', 'write', 'multiedit', 'apply_patch', 'str_replace_editor']);
 const FILE_READ_TOOLS = new Set(['view', 'read']);
+const NON_MUTATING_TOOLS = new Set(['read_bash', 'read_powershell', 'stop_bash', 'stop_powershell', 'list_bash', 'list_powershell']);
 const MCP_PREFIX = 'mcp__';
 
 /** Copilot hook-facing tool name → neutral operation kind, over both documented vocabularies.
- *  Read-only and unknown kinds produce no Change downstream (src/adapters/copilot/changes.ts). */
+ *  Read-only kinds produce no Change downstream; unknown kinds remain explicit so the adapter can fail closed. */
 export function copilotOperationKind(toolName: string | undefined): OperationKind {
   if (!toolName) return 'other';
   const name = toolName.toLowerCase();
@@ -63,7 +64,8 @@ export function copilotOperationKind(toolName: string | undefined): OperationKin
   if (FILE_EDIT_TOOLS.has(name)) return 'file-edit';
   if (name.startsWith(MCP_PREFIX)) return 'mcp';
   if (FILE_READ_TOOLS.has(name)) return 'file-read';
-  return 'other';
+  if (NON_MUTATING_TOOLS.has(name)) return 'other';
+  return 'unknown';
 }
 
 /** The tool arguments, from PascalCase `tool_input` (an object) or native `toolArgs` (a JSON
