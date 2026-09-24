@@ -47,16 +47,25 @@ export interface CopilotHookInput {
 //    `Write` / `Edit` (PascalCase). NOTE: in PascalCase mode, a native `apply_patch` / `edit`
 //    / `str_replace_editor` is reported to the hook as `Edit`. `MultiEdit` is accepted
 //    DEFENSIVELY (a Claude-compatible name), not because a Copilot source documents it;
-//  - file read: `view` (native), `Read` (PascalCase);
+//  - file read: `view`, `grep`/`rg`, `glob` (native), `Read`, `Grep`, `Glob` (PascalCase); all are
+ *    non-mutating and produce no Change;
+ *  - other non-mutating built-ins: `read_*` / `stop_*` / `list_*` shell-session helpers,
+ *    `web_fetch`/`web_search`, `ask_user`, `report_intent`, `task`/`agent`, `skill`, and
+ *    `update_todo`/`todowrite`/`todo`, including their documented PascalCase aliases;
 //  - MCP: `mcp__<server>__<tool>`.
 const SHELL_TOOLS = new Set(['bash', 'powershell', 'write_bash', 'write_powershell']);
 const FILE_EDIT_TOOLS = new Set(['create', 'edit', 'write', 'multiedit', 'apply_patch', 'str_replace_editor']);
-const FILE_READ_TOOLS = new Set(['view', 'read']);
-const NON_MUTATING_TOOLS = new Set(['read_bash', 'read_powershell', 'stop_bash', 'stop_powershell', 'list_bash', 'list_powershell']);
+const FILE_READ_TOOLS = new Set(['view', 'read', 'grep', 'rg', 'glob']);
+const NON_MUTATING_TOOLS = new Set([
+  'read_bash', 'read_powershell', 'stop_bash', 'stop_powershell', 'list_bash', 'list_powershell',
+  'web_fetch', 'webfetch', 'web_search', 'websearch', 'ask_user', 'askuserquestion', 'report_intent',
+  'task', 'agent', 'skill', 'update_todo', 'todowrite', 'todo', 'list_agents', 'read_agent', 'write_agent',
+]);
 const MCP_PREFIX = 'mcp__';
 
 /** Copilot hook-facing tool name → neutral operation kind, over both documented vocabularies.
- *  Read-only kinds produce no Change downstream; unknown kinds remain explicit so the adapter can fail closed. */
+ *  Read-only kinds produce no Change downstream; explicitly non-mutating built-ins are mapped to
+ *  `other`; unknown names remain explicit so the adapter can fail closed. */
 export function copilotOperationKind(toolName: string | undefined): OperationKind {
   if (!toolName) return 'other';
   const name = toolName.toLowerCase();
