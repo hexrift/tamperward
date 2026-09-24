@@ -259,6 +259,7 @@ export function unknownToolFinding(toolName: string): Finding {
     signoff: { required: true, command: 'tamperward allow --reason "..."' },
   };
 }
+
 /**
  * The declarable operation kinds, for iteration and for declaring "all kinds" capabilities.
  *
