@@ -134,7 +134,7 @@ describe('happy path', () => {
     // Runtime detection runs before the plan: a fresh repo has no runtime marker
     // yet, so onboarding states the neutral default rather than assuming a runtime.
     expect(s.out).toMatch(/RUNTIME\s+No agent runtime detected/);
-    expect(s.out).toMatch(/QUALIFY\s+Runtime capability evidence is not available.*runtime verify --runtime <ID>/);
+    expect(s.out).toMatch(/QUALIFY\s+Runtime capability evidence is not available.*runtime verify --runtime <id>/);
     // The canonical init plan is rendered compactly, then applied silently.
     expect(s.out).toMatch(/ADD\s+Policy\s+\.tamperward\.yml/);
     expect(s.out).toMatch(/Applied 5 setup change\(s\)/);
