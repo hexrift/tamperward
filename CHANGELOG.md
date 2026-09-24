@@ -6,8 +6,9 @@
 
 - **Onboarding now points to version-bound runtime qualification** (#599).
   Runtime marker detection is explicitly separated from capability evidence: onboarding
-  directs operators to `tamperward runtime verify` for the detected runtime instead
-  of treating a marker or binary steering label as proof of live support.
+  directs operators to `tamperward runtime verify --runtime <id>` only for a detected
+  runtime with a shipped adapter; unsupported markers are reported without a broken
+  command instead of treating a marker or binary steering label as proof of live support.
 
 ## [2.38.2] — 2026-09-24
 
