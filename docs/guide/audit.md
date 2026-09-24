@@ -87,7 +87,9 @@ npx tamperward stats --file ./events.jsonl
 
 The text view reports event, block, warning and hashed-session counts, followed by
 counts by rule and enforcement surface. `--json` emits the same deterministic
-aggregate as one JSON document.
+aggregate as one JSON document. The file is read in one pass, one line at a time,
+so an audit log of any length costs memory only for the aggregate; a line longer
+than 16 KiB is not an audit-v1 event and stops the command at exit 2.
 
 `--since` accepts `m`, `h`, and `d` relative windows (`90m`, `12h`, `30d`)
 or an ISO timestamp.
@@ -131,9 +133,34 @@ The workflow:
 4. rejects unknown fields rather than trying to redact them after upload;
 5. creates or updates a separate `tamperward-audit` branch;
 6. deduplicates records by event id;
-7. writes `events/all.jsonl` and records each batch in `ingested/batches.jsonl`
-   with its source commit SHA, content hash, schema version and timestamp;
-8. regenerates `summaries/all-time.json` and a human-readable branch `README.md`.
+7. writes each new batch's events to their own immutable partition file,
+   `events/<YYYY>/<MM>/<batch-id>.jsonl` (the month it was ingested), and records
+   the batch in `ingested/batches.jsonl` with its source commit SHA, content hash,
+   schema version, timestamp, partition path and stored-event count;
+8. updates only the id and session index shards those events hash into
+   (`ids/<ab>.jsonl` and `sessions/<ab>.txt`, 256 sorted shards each): an id
+   already stored with identical content is skipped, one that reappears with
+   different content fails the run;
+9. folds the new events into `summaries/state.json` and regenerates
+   `summaries/all-time.json` and a human-readable branch `README.md` from it.
+
+The store grows by addition only. Adding one batch never reads or rewrites a
+historical partition: the `prepare` job fetches the ledger alone (a blob-less
+clone of the evidence branch with one file checked out), and the `publish` job
+takes a sparse clone that holds the ledger, the shards and the summaries but no
+partition. A store written before partitioning keeps its `events/all.jsonl`
+frozen; the first ingestion after the upgrade streams it once to build the shards
+and the state. Dispatching the workflow with `rebuild: true` regenerates every
+derived file by streaming all partitions from a full checkout (a shard file the
+partitions no longer account for is removed, so the index is exactly what the
+partitions say); the publisher also rebuilds on its own whenever the derived
+state disagrees with the ledger.
+
+Hard limits, each an exit-2 refusal that names the limit: one event line is at
+most 16 KiB, one batch at most 16 MiB and 50,000 events, and one month holds at
+most 4,096 batch files. `tamperward stats` streams its file in one pass under the
+same line bound, so its memory is set by the number of distinct rules, surfaces
+and session hashes rather than by the file size.
 
 The write credential is isolated: a read-only `prepare` job builds and computes
 the append (no write token while `npm ci`/build/candidate code runs), and a

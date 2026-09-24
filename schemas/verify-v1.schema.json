@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/hexrift/tamperward/v1/schemas/verify-v1.schema.json",
+  "$id": "https://raw.githubusercontent.com/hexrift/tamperward/v2.38.0/schemas/verify-v1.schema.json",
   "title": "TamperWard verify JSON output v1",
   "type": "object",
   "required": [
@@ -94,6 +94,10 @@
     },
     "oob_signoff": {
       "type": "string"
+    },
+    "adjudicated_tree": {
+      "type": "string",
+      "description": "Optional. The candidate tree fingerprint this run actually adjudicated — the same identity `verify` binds into the local record. In a `pull_request` run the enforcement verify runs over the MERGE result, so this can differ from the branch-tip tree a receipt binds; `receipt reconcile` compares it to the receipt's `tree` and reports NON_APPLICABLE when they differ rather than attribute CI's verdict to a tree it never ran. Present on a verdict-bearing run; absent on documents produced before this field existed."
     },
     "materialization_reason": {
       "enum": [

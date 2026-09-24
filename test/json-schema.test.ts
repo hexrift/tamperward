@@ -28,13 +28,72 @@ import {
   MATERIALIZATION_FAILURE_REASONS,
   RUN_CANNOT_ADJUDICATE_REASONS,
   RUN_VERDICTS,
+  STATUS_AUTHORITY_STATES,
+  STATUS_CHANGED_INPUTS,
+  STATUS_INTERVENTION_STATES,
+  STATUS_VERIFICATION_STATES,
   VERIFY_CANNOT_VERIFY_REASONS,
   VERIFY_VERDICTS,
 } from '../src/machine-output';
+import {
+  BINDING_INPUTS,
+  CANDIDATE_IDENTITY_INPUTS,
+  ENVIRONMENT_INPUTS,
+  VERIFICATION_STATES,
+} from '../src/verification-state';
+import {
+  RECEIPT_DISPOSITIONS,
+  RECEIPT_INTEGRITY_RESULTS,
+  RECEIPT_STAGE_RESULTS,
+  RECONCILE_AGREEMENTS,
+} from '../src/verification-receipt';
 
 const ROOT = resolve(__dirname, '..');
 const dirs: string[] = [];
-const SCHEMA_NAMES = ['check', 'verify', 'run', 'doctor', 'research', 'audit', 'stats'] as const;
+const SCHEMA_NAMES = ['check', 'verify', 'run', 'doctor', 'research', 'audit', 'stats', 'status', 'runtime-qualification', 'receipt', 'reconcile'] as const;
+const PUBLISHED_SCHEMA_FILES = [
+  ...SCHEMA_NAMES.map((name) => name + '-v1.schema.json'),
+  'research-stdio-v1.schema.json',
+] as const;
+const PACKAGE_VERSION: string = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).version;
+const CANONICAL_ID_RE = /^https:\/\/raw\.githubusercontent\.com\/hexrift\/tamperward\/(v\d+\.\d+\.\d+)\/schemas\/([^/]+)$/;
+
+function compareSemver(a: string, b: string): number {
+  const pa = a.split('.').map(Number);
+  const pb = b.split('.').map(Number);
+  for (let i = 0; i < 3; i++) {
+    if (pa[i] !== pb[i]) return pa[i] < pb[i] ? -1 : 1;
+  }
+  return 0;
+}
+
+/** The publication rule for a v1 schema's `$id` (#662): the immutable release-tag URL
+ *  of the release that FIRST shipped these exact bytes. The ref is either the tag this
+ *  checkout's version will receive (`v<package.json version>`, which the release
+ *  workflow creates and then dereferences byte-for-byte over HTTPS), or an existing
+ *  earlier tag at which the file was byte-identical to the working copy — so an
+ *  unchanged schema keeps its identifier across releases and a changed one must ship
+ *  under the next tag. The release workflow's "Verify published schema identifiers"
+ *  step applies the same rule. Returns a problem description, or null when canonical. */
+function canonicalIdProblem(filename: string, id: unknown, bytes: Buffer): string | null {
+  if (typeof id !== 'string') return `${filename}: $id is not a string`;
+  const m = CANONICAL_ID_RE.exec(id);
+  if (!m) return `${filename}: $id ${id} is not a release-tag schema URL`;
+  const [, ref, named] = m;
+  if (named !== filename) return `${filename}: $id names ${named}`;
+  if (ref === `v${PACKAGE_VERSION}`) return null;
+  if (compareSemver(ref.slice(1), PACKAGE_VERSION) >= 0) {
+    return `${filename}: $id ref ${ref} is not older than package.json ${PACKAGE_VERSION}`;
+  }
+  const tagged = spawnSync('git', ['show', `${ref}:schemas/${filename}`], { cwd: ROOT });
+  if (tagged.status !== 0) {
+    return `${filename}: $id ref ${ref} is not a release tag in this checkout (git fetch --tags)`;
+  }
+  if (!tagged.stdout.equals(bytes)) {
+    return `${filename}: bytes differ from ${ref}; a changed schema ships under v${PACKAGE_VERSION}`;
+  }
+  return null;
+}
 type SchemaName = typeof SCHEMA_NAMES[number];
 type NpmPackEntry = { filename: string; files?: Array<{ path: string }> };
 
@@ -276,10 +335,38 @@ describe('machine-readable schema v1 (#333)', () => {
     ).toBe(false);
   });
 
+  it('every published v1 schema $id is the release-tag URL of the release that first shipped its bytes (#662)', () => {
+    const validator = ajv();
+    for (const filename of PUBLISHED_SCHEMA_FILES) {
+      const bytes = readFileSync(join(ROOT, 'schemas', filename));
+      const schema = JSON.parse(bytes.toString('utf8'));
+      expect(canonicalIdProblem(filename, schema.$id, bytes)).toBeNull();
+      expect(validator.validateSchema(schema), filename + ': ' + JSON.stringify(validator.errors)).toBe(true);
+    }
+  });
+
+  it('the canonical-id rule rejects a mutable ref, the wrong file, a newer ref, and changed bytes (#662)', () => {
+    const filename = 'check-v1.schema.json';
+    const bytes = readFileSync(join(ROOT, 'schemas', filename));
+    const base = 'https://raw.githubusercontent.com/hexrift/tamperward';
+    expect(canonicalIdProblem(filename, `${base}/v${PACKAGE_VERSION}/schemas/${filename}`, bytes)).toBeNull();
+    expect(canonicalIdProblem(filename, `${base}/v1/schemas/${filename}`, bytes)).toMatch(/not a release-tag/);
+    expect(canonicalIdProblem(filename, `${base}/main/schemas/${filename}`, bytes)).toMatch(/not a release-tag/);
+    expect(canonicalIdProblem(filename, `${base}/0123456789abcdef0123456789abcdef01234567/schemas/${filename}`, bytes)).toMatch(/not a release-tag/);
+    expect(canonicalIdProblem(filename, `${base}/v${PACKAGE_VERSION}/schemas/verify-v1.schema.json`, bytes)).toMatch(/names verify-v1/);
+    expect(canonicalIdProblem(filename, `${base}/v99.0.0/schemas/${filename}`, bytes)).toMatch(/not older/);
+    // An earlier tag whose bytes differ from the working copy (the v1-ref $id shipped
+    // at v2.37.2) is rejected; exercised only when that tag is present locally.
+    const older = spawnSync('git', ['rev-parse', '-q', '--verify', 'refs/tags/v2.37.2^{commit}'], { cwd: ROOT });
+    if (older.status === 0) {
+      expect(canonicalIdProblem(filename, `${base}/v2.37.2/schemas/${filename}`, bytes)).toMatch(/bytes differ/);
+    }
+  });
+
   it('v1 schemas have stable IDs and self-validating examples (#425)', () => {
     for (const name of SCHEMA_NAMES) {
       const schema = schemaFrom(ROOT, name);
-      expect(schema.$id).toBe(`https://raw.githubusercontent.com/hexrift/tamperward/v1/schemas/${name}-v1.schema.json`);
+      expect(canonicalIdProblem(`${name}-v1.schema.json`, schema.$id, readFileSync(join(ROOT, 'schemas', `${name}-v1.schema.json`)))).toBeNull();
       expect(schema.examples).toEqual(expect.any(Array));
       expect(schema.examples.length).toBeGreaterThan(0);
       for (const example of schema.examples) {
@@ -564,6 +651,32 @@ describe('machine-readable schema v1 (#333)', () => {
     const run = schemaFrom(ROOT, 'run');
     expect(run.properties.verdict.enum).toEqual([...RUN_VERDICTS]);
     expect(run.properties.reason.enum).toEqual([...RUN_CANNOT_ADJUDICATE_REASONS]);
+    const status = schemaFrom(ROOT, 'status');
+    expect(status.properties.authority.properties.state.enum).toEqual([...STATUS_AUTHORITY_STATES]);
+    expect(status.properties.intervention.properties.state.enum).toEqual([...STATUS_INTERVENTION_STATES]);
+    expect(status.properties.verification.properties.state.enum).toEqual([...STATUS_VERIFICATION_STATES]);
+    expect(status.properties.verification.properties.changed_input.enum).toEqual([...STATUS_CHANGED_INPUTS]);
+    // The published contract, the machine-output constants and the state-machine
+    // module must all agree on the vocabularies (single source, no drift).
+    expect([...STATUS_VERIFICATION_STATES]).toEqual([...VERIFICATION_STATES]);
+    expect([...STATUS_CHANGED_INPUTS]).toEqual([...BINDING_INPUTS]);
+    // #601: the receipt and reconciliation schemas single-source their closed
+    // vocabularies from src/verification-receipt.ts, and reuse verify's verdicts
+    // and #600's binding inputs — no parallel notion of "what was verified".
+    const receipt = schemaFrom(ROOT, 'receipt');
+    expect(receipt.properties.stages.properties.candidate.enum).toEqual([...RECEIPT_STAGE_RESULTS]);
+    expect(receipt.properties.stages.properties.pristine.enum).toEqual([...RECEIPT_STAGE_RESULTS]);
+    expect(receipt.properties.stages.properties.integrity.enum).toEqual([...RECEIPT_INTEGRITY_RESULTS]);
+    const reconcile = schemaFrom(ROOT, 'reconcile');
+    expect(reconcile.properties.result.enum).toEqual([...VERIFY_VERDICTS]);
+    expect(reconcile.properties.ci.properties.verdict.enum).toEqual([...VERIFY_VERDICTS]);
+    expect(reconcile.properties.local.properties.disposition.enum).toEqual([...RECEIPT_DISPOSITIONS]);
+    expect(reconcile.properties.reconciliation.properties.agreement.enum).toEqual([...RECONCILE_AGREEMENTS]);
+    // Applicability is decided by the reproducible CANDIDATE identity only; the
+    // machine-local environment inputs are reported as informational divergence
+    // and are the ONLY values `environment_divergence` carries (#601 finding 2).
+    expect(reconcile.properties.reconciliation.properties.mismatched_input.enum).toEqual([...CANDIDATE_IDENTITY_INPUTS]);
+    expect(reconcile.properties.reconciliation.properties.environment_divergence.items.enum).toEqual([...ENVIRONMENT_INPUTS]);
     for (const name of SCHEMA_NAMES) {
       expect(schemaFrom(ROOT, name).properties.schema_version).toEqual({ const: MACHINE_SCHEMA_VERSION });
     }

@@ -255,6 +255,37 @@ jobs:
           git tag "v${VERSION}"
           git push origin "v${VERSION}"
 
+      # Verify every canonical schema identifier after the immutable release tag exists.
+      # An `$id` names the release tag that FIRST shipped the schema's exact bytes: the
+      # tag this run just created (v<version>), or an earlier release tag the file has not
+      # changed since. Either way the advertised URL must return exactly the shipped
+      # bytes. test/json-schema.test.ts enforces the same rule offline (#662).
+      - name: Verify published schema identifiers
+        if: steps.plan.outputs.tag_missing == 'true' || steps.plan.outputs.release_missing == 'true'
+        env:
+          VERSION: ${{ steps.plan.outputs.version }}
+        run: |
+          set -euo pipefail
+          for file in schemas/*-v1.schema.json; do
+            name="$(basename "$file" -v1.schema.json)"
+            id="$(node -e 'const fs=require("fs"); const s=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(s["$id"] || "")' "$file")"
+            pattern="^https://raw\.githubusercontent\.com/hexrift/tamperward/(v[0-9]+\.[0-9]+\.[0-9]+)/schemas/${name}-v1\.schema\.json$"
+            [[ "$id" =~ $pattern ]] || { echo "canonical id malformed in $file: $id"; exit 1; }
+            ref="${BASH_REMATCH[1]}"
+            if [ "$ref" != "v${VERSION}" ]; then
+              git rev-parse -q --verify "refs/tags/${ref}^{commit}" >/dev/null || { echo "canonical id in $file names $ref, which is not a release tag"; exit 1; }
+              git show "${ref}:${file}" | cmp -s - "$file" || { echo "canonical id in $file names $ref but the bytes changed since; a changed schema ships under v${VERSION}"; exit 1; }
+            fi
+            tmp="$(mktemp)"
+            ok=false
+            for attempt in $(seq 1 10); do
+              if curl --fail --silent --show-error --location "$id" -o "$tmp" && cmp -s "$tmp" "$file"; then ok=true; break; fi
+              sleep $((attempt * 3))
+            done
+            [ "$ok" = true ] || { echo "canonical URL bytes differ for $file: $id"; exit 1; }
+            rm -f "$tmp"
+          done
+
       # The release body is the CHANGELOG section for this version — written once, shown
       # everywhere — not the auto-generated PR list, which in a solo repo repeats
       # "by @<owner>" after every line and says nothing the changelog doesn't say better.

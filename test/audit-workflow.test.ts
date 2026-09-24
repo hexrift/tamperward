@@ -20,6 +20,8 @@ const workflow = parse(workflowText) as {
 const prescan = readFileSync(resolve(root, '.github', 'audit', 'audit-prescan.mjs'), 'utf8');
 const verify = readFileSync(resolve(root, '.github', 'audit', 'audit-verify.mjs'), 'utf8');
 const publish = readFileSync(resolve(root, '.github', 'audit', 'audit-publish.mjs'), 'utf8');
+const store = readFileSync(resolve(root, '.github', 'audit', 'audit-store.mjs'), 'utf8');
+const storeGit = readFileSync(resolve(root, '.github', 'audit', 'audit-store-git.sh'), 'utf8');
 
 const stepsOf = (job: string): Array<{ uses?: string; run?: string; with?: Record<string, unknown> }> =>
   workflow.jobs[job]?.steps ?? [];
@@ -71,6 +73,24 @@ describe('GitHub audit store workflow', () => {
       expect(checkout, `${job} checks out the repo`).toBeTruthy();
       expect(checkout?.with?.['persist-credentials']).toBe(false);
     }
+  });
+
+  it('fetches only what a run needs from the evidence branch (#518)', () => {
+    // prepare reads the ledger alone: a blob-less clone with one file checked out.
+    expect(runText('prepare')).toContain('audit-store-git.sh clone-ledger');
+    expect(storeGit).toMatch(/clone-ledger\)[\s\S]*--filter=blob:none --no-checkout/);
+    expect(storeGit).toContain('checkout --quiet HEAD -- ingested/batches.jsonl');
+    // publish takes a sparse clone without the historical partitions, stages
+    // exactly the paths the publisher wrote, and needs a full checkout only for
+    // an explicit rebuild.
+    expect(runText('publish')).toContain('audit-store-git.sh clone-store');
+    expect(storeGit).toMatch(/sparse-checkout set ingested summaries ids sessions/);
+    expect(runText('publish')).toContain('--changed-paths');
+    expect(runText('publish')).toContain('audit-store-git.sh stage');
+    expect(storeGit).toContain('add --sparse --');
+    expect(runText('publish')).not.toMatch(/git -C "\$\{STORE\}" add /);
+    expect(runText('publish')).toContain('--rebuild');
+    expect(workflow.jobs.publish.if).toContain('inputs.rebuild == true');
   });
 
   it('revalidates before writing, and writes only the evidence branch', () => {
@@ -135,10 +155,16 @@ describe('GitHub audit store workflow', () => {
     // The privileged transition owns the event-id conflict guard, provenance,
     // append-only prefix and derived reports. It receives raw candidates, not a
     // replacement store produced by a dependency-running job.
-    expect(publish).toContain('candidate event id conflicts with stored content');
+    expect(store).toContain('candidate event id conflicts with stored content');
     expect(publish).toContain('content_sha256');
     expect(publish).toContain('source_sha');
-    expect(publish).toContain('summarize(allEvents)');
+    // The summaries are derived from the fold state the publisher owns, never
+    // read back from a prepared summaries/all-time.json; state that disagrees
+    // with the ledger is rebuilt by streaming the immutable partitions (#518).
+    expect(publish).toContain('summaryFromState(state)');
+    expect(publish).not.toMatch(/readTextIfPresent\(summaryPath/);
+    expect(publish).toContain('stateIsConsistent(storeDir, state, ledger)');
+    expect(store).toContain('export function rebuild(');
     expect(runText('publish')).toContain('audit-publish.mjs');
     expect(stepsOf('publish').some((s) => (s.uses ?? '').startsWith('actions/download-artifact@'))).toBe(false);
     // The dependency-free verifier validates against the committed schema and

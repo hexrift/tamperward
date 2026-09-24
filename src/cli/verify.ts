@@ -77,6 +77,15 @@ import {
 } from '../machine-output';
 import { oobFromEnv, oobHeadFromEnv, oobToken } from '../signoff';
 import {
+  beginVerifying,
+  endVerifying,
+  invalidateVerificationRecordIfCurrent,
+  readVerificationRecord,
+  recordVerification,
+  type VerificationInputs,
+} from '../verification-state';
+import { receiptFromRecord, removeStoredReceipt, storeReceipt } from '../verification-receipt';
+import {
   diagnosticLines,
   runCapturedProcessSync,
   type SuiteDiagnostics,
@@ -1127,6 +1136,21 @@ export function verifyVerdictLine(verdict: string, ctx: VerifyVerdictContext): s
 }
 
 export function runVerify(opts: VerifyOpts): number {
+  // A verification is now in progress. `tamperward status` reads this marker and
+  // reports VERIFYING while a live process holds it (#600). Best-effort and
+  // never authoritative: skipped for nested verifies (the envelope owns the
+  // lifecycle), and a write/clear failure never changes the verdict. Cleared in
+  // `finally` so an early fail-closed return still releases it.
+  const markerCwd = repoRoot(opts.cwd ?? process.cwd());
+  const marked = opts.silent ? false : beginVerifying(markerCwd);
+  try {
+    return runVerifyImpl(opts);
+  } finally {
+    if (marked) endVerifying(markerCwd);
+  }
+}
+
+function runVerifyImpl(opts: VerifyOpts): number {
   // Normalize to the repository root once, so policy load, git enumeration,
   // materialization, verifier inputs and suite execution all agree on one tree.
   // Invoked from a package subdirectory, the caller's cwd would otherwise
@@ -1633,6 +1657,52 @@ export function runVerify(opts: VerifyOpts): number {
   }
   opts.onVerdict?.({ verdict });
 
+  // Record the verified state for `tamperward status` (#600). ONLY a genuine
+  // VERIFIED result — the source passes the original suite — is recorded; a
+  // masked failure (even one cleared out of band) and a red suite are not. The
+  // record binds the exact tree, base/HEAD, policy, verifier contract, protected
+  // surface and runtime wiring so status can tell CURRENT from STALE. Best-effort
+  // evidence only: a write failure never changes the exit code, and the record is
+  // never repository/CI merge authority.
+  if (verdict === 'VERIFIED') {
+    try {
+      const inputs: VerificationInputs = {
+        base_ref: opts.base ?? 'HEAD',
+        explicit_base: opts.base !== undefined,
+        command_source: opts.cmd !== undefined ? 'flag' : 'policy',
+        command: cmd,
+        budget_source: opts.budget !== undefined ? 'flag' : 'policy',
+        budget,
+      };
+      // Reuse the tree fingerprint proved unchanged above (finding 6): the record
+      // binds the same tree without a second full read of the worktree.
+      recordVerification(cwd, inputs, treeBefore);
+      // Emit the transportable receipt (#601) bound to the SAME state, stored
+      // under `.git/tamperward/` — outside the candidate-controlled tree. It is
+      // a projection of the record just written, so it re-derives no identity.
+      const written = readVerificationRecord(cwd);
+      if (written) storeReceipt(cwd, receiptFromRecord(written));
+    } catch {
+      // Evidence only. Recording must never change the verification verdict.
+    }
+  } else {
+    // A non-VERIFIED adjudication of this SAME state — a flaky SUITE_RED, a
+    // MASKED_FAILURE, or budget exhaustion — must not leave a prior VERIFIED
+    // record standing at CURRENT (#600 finding 3). Invalidate it when its binding
+    // still matches the live state; a record for a different state is left as
+    // STALE. Evidence only: a failure here never changes the verdict.
+    try {
+      // Remove the transportable receipt whenever the #600 record it projects is
+      // invalidated (#601 finding 3): otherwise a red run on the same tree would
+      // leave `verification-receipt.json` behind, and it could still be exported
+      // or transported as a claim for a state that is no longer verified. The
+      // receipt is a projection of the record — it must never outlive it.
+      if (invalidateVerificationRecordIfCurrent(cwd)) removeStoredReceipt(cwd);
+    } catch {
+      // Evidence only. Reconciliation must never change the verification verdict.
+    }
+  }
+
   // Out-of-band sign-off, MASKED_FAILURE only. The verdict is still reported as
   // what it is — the source does not pass the original suite — and the exit
   // code alone is what the approval changes. Same token rules as the diff gate:
@@ -1647,6 +1717,15 @@ export function runVerify(opts: VerifyOpts): number {
         schema_version: MACHINE_SCHEMA_VERSION,
         verdict,
         base,
+        // The candidate tree fingerprint this run actually ADJUDICATED — the same
+        // identity `verify` binds into the #600 record (`treeBefore`). Additive
+        // (verify-v1 is `additionalProperties: true`), it lets `receipt reconcile`
+        // tell whether CI's verdict is about the receipt's tree or a different one:
+        // in a `pull_request` run the enforcement verify runs over the MERGE result,
+        // so when the branch is behind its base this differs from the branch-tip
+        // tree a receipt binds, and reconcile must report NON_APPLICABLE rather than
+        // attribute CI's verdict to a tree CI never ran (#601 re-review).
+        adjudicated_tree: treeBefore,
         command: cmd,
         budget_secs: budget,
         visible: stageJson(visible),

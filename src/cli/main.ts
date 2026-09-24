@@ -9,12 +9,15 @@ import { runHookService } from './hook-service';
 import { runAllow, AllowOpts } from './allow';
 import { runInit, InitOpts } from './init';
 import { runDoctor, DoctorOpts } from './doctor';
+import { runStatus, StatusOpts } from './status';
 import { runVerify, parseVerify } from './verify';
 import { runTraceVerify, parseTraceVerify } from './trace-verify';
 import { runEnvelope, parseRun } from './run';
 import { runWatch } from './watch';
 import { runOnboard, OnboardOpts } from './onboard';
 import { runResearchCommand, RESEARCH_SUBCOMMANDS } from './research';
+import { runRuntime, parseRuntime, RUNTIME_SUBCOMMANDS } from './runtime';
+import { runReceipt, RECEIPT_SUBCOMMANDS } from './receipt';
 import { runStats, type StatsOpts } from './audit';
 import { runSignoffLabel, SignoffLabelOpts } from './signoff-label';
 
@@ -82,6 +85,16 @@ function parseDoctor(args: string[]): DoctorOpts {
   return o;
 }
 
+function parseStatus(args: string[]): StatusOpts {
+  const o: StatusOpts = {};
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--json') o.json = true;
+    else if (a === '--cwd') o.cwd = args[++i];
+  }
+  return o;
+}
+
 function parseStats(args: string[]): StatsOpts {
   const o: StatsOpts = {};
   for (let i = 0; i < args.length; i++) {
@@ -122,7 +135,7 @@ function parseCheck(args: string[]): CheckOpts {
   return o;
 }
 
-type ValueRule = 'string' | 'positive' | 'positive-integer' | 'non-negative' | 'format';
+type ValueRule = 'string' | 'positive' | 'positive-integer' | 'non-negative' | 'format' | 'mode';
 
 function splitLongOptionEquals(args: string[]): string[] {
   const out: string[] = [];
@@ -220,6 +233,12 @@ function validateFlatArgs(args: string[], grammar: CliGrammar): ValidatedArgs {
       } else if (rule === 'format' && !isFormat(v)) {
         return {
           error: `--format needs one of ${FORMATS.join(' | ')} (got "${v}")`,
+          seen,
+          positionals,
+        };
+      } else if (rule === 'mode' && v !== 'headless' && v !== 'interactive') {
+        return {
+          error: `${a} needs one of headless | interactive (got "${v}")`,
           seen,
           positionals,
         };
@@ -338,6 +357,13 @@ export function validateCliArgs(cmd: string, args: string[]): string | undefined
     }).error;
   }
 
+  if (cmd === 'status') {
+    return validateFlatArgs(args, {
+      flags: ['--json'],
+      values: { '--cwd': 'string' },
+    }).error;
+  }
+
   if (cmd === 'onboard') {
     const parsed = validateFlatArgs(args, {
       flags: ['--yes', '--skip-demo', '--demo', '--no-github'],
@@ -389,6 +415,20 @@ export function validateCliArgs(cmd: string, args: string[]): string | undefined
     return validateFlatArgs(args, {
       values: { '--dir': 'string', '--log': 'string', '--base': 'string' },
     }).error;
+  }
+
+  if (cmd === 'runtime') {
+    const [sub, ...rest] = args;
+    if (sub === undefined) return `runtime requires a subcommand (${RUNTIME_SUBCOMMANDS.join(' | ')})`;
+    if (sub !== 'verify' && sub !== 'status') {
+      return `unknown runtime subcommand "${sub}" (${RUNTIME_SUBCOMMANDS.join(' | ')})`;
+    }
+    const parsed = validateFlatArgs(rest, {
+      flags: ['--json'],
+      values: { '--cwd': 'string', '--runtime': 'string', '--mode': 'mode', '--model': 'string' },
+    });
+    if (parsed.error) return parsed.error;
+    return undefined;
   }
 
   if (cmd === 'research') {
@@ -464,6 +504,30 @@ export function validateCliArgs(cmd: string, args: string[]): string | undefined
       return undefined;
     }
     return `unknown research subcommand "${sub}" (${RESEARCH_SUBCOMMANDS.join(' | ')})`;
+  }
+
+  if (cmd === 'receipt') {
+    const [sub, ...rest] = args;
+    if (sub === undefined) return `receipt requires a subcommand (${RECEIPT_SUBCOMMANDS.join(' | ')})`;
+    if (sub === 'export') {
+      return validateFlatArgs(rest, {
+        values: { '--out': 'string', '--cwd': 'string' },
+      }).error;
+    }
+    if (sub === 'reconcile') {
+      return validateFlatArgs(rest, {
+        flags: ['--json', '--require-ancestor'],
+        values: {
+          '--base': 'string',
+          '--cmd': 'string',
+          '--budget': 'positive',
+          '--cwd': 'string',
+          '--receipt': 'string',
+          '--ci-result': 'string',
+        },
+      }).error;
+    }
+    return `unknown receipt subcommand "${sub}" (${RECEIPT_SUBCOMMANDS.join(' | ')})`;
   }
 
   return undefined;
@@ -592,6 +656,53 @@ Formats:
                                             every tool the gate must see.
                                             --force-workflow replaces a workflow it
                                             did not write, or one you have edited.
+  tamperward status [--json] [--cwd D]      verification posture in three distinct
+                                            lanes — Authority (repository/final
+                                            adjudication), Intervention (runtime
+                                            steering), and Verification: whether the
+                                            last successful verify still applies to
+                                            the EXACT current state (CURRENT / STALE /
+                                            VERIFYING / BROKEN / UNVERIFIED). --json
+                                            emits the versioned status document for
+                                            editors, CI and dashboards. Local CURRENT
+                                            is posture, never repository/CI authority.
+  tamperward receipt export [--out F]       emit the bounded, transportable verification
+             [--cwd D]                      receipt for the CURRENT verified state (to F,
+                                            else stdout). Refuses when the state is not
+                                            CURRENT. Raw evidence otherwise stays under
+                                            .git/tamperward/, never in the tracked tree.
+  tamperward receipt reconcile [--base R]   CI reruns the canonical verification FIRST,
+             [--cmd C] [--budget S]         then reconciles a claimed receipt against its
+             [--receipt F] [--ci-result F]  own adjudication. --receipt is the claimed
+             [--require-ancestor] [--json]  local receipt (absent → NO_CLAIM, never a
+             [--cwd D]                       failure by itself); --ci-result consumes a
+                                            preceding "verify --json" so the suite runs
+                                            once. Prints LOCAL / CI / RESULT and (--json)
+                                            a machine-readable reconciliation document,
+                                            plus a GitHub job summary. The receipt is
+                                            evidence, never authority: a stale, mismatched,
+                                            tampered, missing or unknown-schema receipt can
+                                            NEVER promote a CI result. Exit is CI's verdict.
+  tamperward runtime verify [--runtime ID]  qualify the in-loop runtime: an operation-
+             [--mode headless|interactive]  specific capability matrix (pre-deny:shell,
+             [--model M] [--json] [--cwd D]  native-edit, mcp, end-of-turn, transport:*,
+                                            …) with an explicit state per capability
+                                            (PROVEN | PARTIAL | UNPROVEN | UNSUPPORTED |
+                                            FAIL-OPEN | INCONCLUSIVE; never a score),
+                                            derived from the shipped adapter's declared
+                                            capabilities and committed evidence. Bound to
+                                            the runtime version, TamperWard version/commit,
+                                            adapter hash, hook-config hash, execution mode,
+                                            platform and model; persisted git-locally.
+                                            Reports EXISTING facts only — no promotion, no
+                                            Round 4.1 claim. Final authority (CI / pristine
+                                            verify) stays separate from in-loop steering.
+  tamperward runtime status [--runtime ID]  render the latest recorded qualification
+             [--mode headless|interactive]  WITHOUT rerunning it, and mark it STALE when a
+             [--model M] [--json] [--cwd D]  load-bearing input (version/config/adapter/mode/
+                                            model/…) changed since it was recorded. --mode and
+                                            --model select the binding staleness is compared
+                                            against, as for verify.
   tamperward doctor [--base R]              report installation + authority posture
              [--workflow F] [--cwd D]       and validate the CI verifier's outer-time
              [--json]                       envelope against the trusted policy.
@@ -647,6 +758,8 @@ export function main(argv: string[]): number | Promise<number> {
       return runDoctor(parseDoctor(rest));
     case 'stats':
       return runStats(parseStats(rest));
+    case 'status':
+      return runStatus(parseStatus(rest));
     case 'onboard':
       return runOnboard(parseOnboard(rest));
     case 'watch':
@@ -659,6 +772,12 @@ export function main(argv: string[]): number | Promise<number> {
       return runTraceVerify(parseTraceVerify(rest));
     case 'research':
       return runResearchCommand(rest);
+    case 'runtime': {
+      const { sub, opts } = parseRuntime(rest);
+      return runRuntime(sub, opts);
+    }
+    case 'receipt':
+      return runReceipt(rest);
     case 'run':
       return runEnvelope({
         ...parseRun(rest),

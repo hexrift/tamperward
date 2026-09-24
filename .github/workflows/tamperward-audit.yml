@@ -27,9 +27,15 @@ on:
   workflow_dispatch:
     inputs:
       batch:
-        description: "Validated TamperWard audit-v1 JSONL (never TAMPERWARD_DENYLOG)"
-        required: true
+        description: "Validated TamperWard audit-v1 JSONL (never TAMPERWARD_DENYLOG); may be empty for a rebuild"
+        required: false
+        default: ""
         type: string
+      rebuild:
+        description: "Regenerate the index shards and summaries by streaming every stored partition (#518)"
+        required: false
+        default: false
+        type: boolean
   push:
     branches: [main]
 
@@ -67,18 +73,13 @@ jobs:
           set -euo pipefail
           # `runner`/`github.workspace` are not valid in a workflow-level `env`,
           # so derive the paths here from the always-present runtime variables.
-          AUDIT_STORE="${GITHUB_WORKSPACE}/.audit-store"
           AUDIT_WORK="${RUNNER_TEMP}/audit-work"
-          mkdir -p "${AUDIT_STORE}" "${AUDIT_WORK}/candidates"
+          mkdir -p "${AUDIT_WORK}/candidates"
 
-          # A files-only copy of the current evidence branch (empty on first run).
-          if git ls-remote --exit-code "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}" refs/heads/tamperward-audit >/dev/null 2>&1; then
-            git clone --quiet --branch tamperward-audit --single-branch --depth 1 \
-              "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}" "${AUDIT_WORK}/store-src"
-            rm -rf "${AUDIT_WORK}/store-src/.git"
-            cp -a "${AUDIT_WORK}/store-src/." "${AUDIT_STORE}/"
-          fi
-          mkdir -p "${AUDIT_STORE}/events" "${AUDIT_STORE}/ingested" "${AUDIT_STORE}/summaries"
+          # Only the ingestion ledger comes down (#518): a blob-less clone of the
+          # evidence branch with one file checked out, whatever the store holds.
+          bash .github/audit/audit-store-git.sh clone-ledger \
+            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}" "${AUDIT_WORK}/store"
 
           if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
             printf '%s\n' "${DISPATCH_BATCH}" > "${AUDIT_WORK}/candidates/dispatch-${GITHUB_RUN_ID}.jsonl"
@@ -89,7 +90,7 @@ jobs:
           # Pure-node prescan (no build): which candidate batches are new, failing
           # closed if an already-ingested batch id reappears with changed content.
           node "${GITHUB_WORKSPACE}/.github/audit/audit-prescan.mjs" \
-            "${AUDIT_WORK}/candidates" "${AUDIT_STORE}/ingested/batches.jsonl" "${AUDIT_WORK}/new-batches.txt"
+            "${AUDIT_WORK}/candidates" "${AUDIT_WORK}/store/ingested/batches.jsonl" "${AUDIT_WORK}/new-batches.txt"
 
           if [ -s "${AUDIT_WORK}/new-batches.txt" ]; then
             echo "has_new=true" >> "${GITHUB_OUTPUT}"
@@ -124,7 +125,7 @@ jobs:
   # the committed schema, and git. -------------------------------------------
   publish:
     needs: prepare
-    if: github.ref == 'refs/heads/main' && needs.prepare.outputs.has_new == 'true'
+    if: github.ref == 'refs/heads/main' && (needs.prepare.outputs.has_new == 'true' || inputs.rebuild == true)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -138,20 +139,21 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           DISPATCH_BATCH: ${{ inputs.batch }}
+          REBUILD: ${{ inputs.rebuild }}
         run: |
           set -euo pipefail
           REMOTE="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}"
           STORE="${RUNNER_TEMP}/publish"
           CANDIDATES="${RUNNER_TEMP}/audit-candidates"
-          HAD_STORE=false
+          CHANGED="${RUNNER_TEMP}/audit-changed-paths.txt"
 
-          if git clone --quiet --branch tamperward-audit --single-branch "${REMOTE}" "${STORE}" 2>/dev/null; then
-            HAD_STORE=true
-          else
-            git init -q "${STORE}"
-            git -C "${STORE}" checkout -q --orphan tamperward-audit
-            git -C "${STORE}" remote add origin "${REMOTE}"
-          fi
+          # A blob-less, sparse clone (#518): the ledger, the index shards and the
+          # summaries come down, the historical partitions do not. A requested
+          # rebuild streams every partition, so it takes a full checkout instead.
+          MODE=""
+          PUBLISH_FLAGS=()
+          if [ "${REBUILD}" = "true" ]; then MODE="--full"; PUBLISH_FLAGS+=(--rebuild); fi
+          bash .github/audit/audit-store-git.sh clone-store "${REMOTE}" "${STORE}" ${MODE}
 
           mkdir -p "${CANDIDATES}"
           if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
@@ -160,22 +162,19 @@ jobs:
             find audit/pending -maxdepth 1 -type f -name '*.jsonl' -exec cp {} "${CANDIDATES}/" \; 2>/dev/null || true
           fi
 
-          if [ "${HAD_STORE}" = false ] && ! compgen -G "${CANDIDATES}/*.jsonl" > /dev/null; then
-            echo "No evidence branch or trusted audit candidates; nothing to publish."
+          # Each new batch becomes its own immutable partition file; only the
+          # index shards it touches, the ledger tail and the derived summaries
+          # change. The publisher lists what it wrote and only that is staged.
+          node .github/audit/audit-publish.mjs \
+            schemas/audit-v1.schema.json "${CANDIDATES}" "${STORE}" "${GITHUB_SHA}" \
+            --changed-paths "${CHANGED}" "${PUBLISH_FLAGS[@]}"
+
+          if [ "$(bash .github/audit/audit-store-git.sh stage "${STORE}" "${CHANGED}")" = "nothing" ]; then
+            echo "No new audit evidence to persist."
             exit 0
           fi
-
-          node .github/audit/audit-publish.mjs \
-            schemas/audit-v1.schema.json "${CANDIDATES}" "${STORE}" "${GITHUB_SHA}"
 
           git -C "${STORE}" config user.name github-actions[bot]
           git -C "${STORE}" config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git -C "${STORE}" add events/all.jsonl ingested/batches.jsonl summaries/all-time.json README.md
-
-          if git -C "${STORE}" diff --cached --quiet; then
-            echo "No new audit event ids to persist."
-            exit 0
-          fi
-
           git -C "${STORE}" commit -q -m "audit: ingest TamperWard self-hosting events"
           git -C "${STORE}" push origin HEAD:refs/heads/tamperward-audit

@@ -15,6 +15,16 @@ field, changing its type, or changing a discriminator's meaning requires
 The JSON schemas describe **data shape**, not process status — exit codes are a separate
 public protocol, documented on [Exit codes](./exit-codes.md).
 
+Every published v1 schema carries a canonical `$id` at an immutable release-tag URL,
+`https://raw.githubusercontent.com/hexrift/tamperward/<tag>/schemas/<schema>-v1.schema.json`,
+where `<tag>` is the release that first shipped those exact bytes. A schema keeps its
+identifier across later releases until its bytes change, and then it ships under the
+next release tag. The release workflow creates each tag only after publishing the exact
+commit, then fetches every advertised URL over HTTPS and compares the returned bytes
+with the shipped schema files; the offline schema test enforces the same rule against
+the local tags. Mutable branch refs and self-referential commit pins are not canonical
+identifiers.
+
 [[toc]]
 
 ## Choosing a format: `--format` / `--json`
@@ -28,8 +38,8 @@ public protocol, documented on [Exit codes](./exit-codes.md).
 | `json` | The versioned machine document (below). |
 | `auto` | `github` when `GITHUB_ACTIONS=true`, otherwise `text` — so CI wiring stays one line. |
 
-`--json` cannot be combined with `--format`. `verify`, `run`, `doctor`, `stats` and
-`research` accept `--json` and emit their own documents.
+`--json` cannot be combined with `--format`. `verify`, `run`, `doctor`, `stats`,
+`status` and `research` accept `--json` and emit their own documents.
 
 ## `check --json`
 
@@ -101,7 +111,13 @@ A resolved (non-`CANNOT_VERIFY`) document also carries `base`, `command`, `budge
 the `visible` and `pristine` stage records (`exit`, `secs`), `protected_restored`,
 `added_protected_removed`, the `verifier_backend` (`kind` local \| container, `trust`,
 `available`, digest-pinned `image` for a container), the `dependency_environment` status,
-and an `oracle_assurance` block (level `suite-exit-only`). Full contract:
+and an `oracle_assurance` block (level `suite-exit-only`). It also carries the optional
+`adjudicated_tree` — the fingerprint of the candidate tree this run actually adjudicated
+(the same identity bound into the local record). In a `pull_request` run the enforcement
+verify runs over the merge result, so `adjudicated_tree` can differ from the branch-tip
+tree a receipt binds; `receipt reconcile` compares the two and reports `NON_APPLICABLE`
+when they differ rather than attribute CI's verdict to a tree it never ran. It is absent
+on documents produced before the field existed. Full contract:
 [`schemas/verify-v1.schema.json`](https://github.com/hexrift/tamperward/blob/main/schemas/verify-v1.schema.json).
 
 ## `run --json`
@@ -119,6 +135,49 @@ document after adjudication.
 Full contract:
 [`schemas/run-v1.schema.json`](https://github.com/hexrift/tamperward/blob/main/schemas/run-v1.schema.json).
 
+## `status --json`
+
+The stable consumer contract for verification posture (#600): the #500 VS Code
+status bar/panel, WardOS, CI job summaries and future dashboards read the
+enumerated state instead of scraping `doctor` / `verify` prose. Three distinct
+lanes are always present.
+
+```json
+{
+  "schema_version": 1,
+  "command": "status",
+  "authority": { "state": "ACTIVE" },
+  "intervention": { "state": "PARTIAL", "detail": "PreToolUse hook wired" },
+  "verification": {
+    "state": "CURRENT",
+    "verified_at": "2026-09-23T12:00:00.000Z",
+    "base": "8ef12c1a...",
+    "head": "8ef12c1a...",
+    "verifier_command": "npm test",
+    "tree": "0123abcd...",
+    "binding": {
+      "tree": "0123abcd...", "head": "8ef12c1a...", "base": "8ef12c1a...",
+      "policy": "…", "verifier": "…", "surface": "…", "intervention": "…"
+    }
+  },
+  "runtime": { "agent": "claude-code" }
+}
+```
+
+| lane | states | meaning |
+| --- | --- | --- |
+| `authority.state` | `ACTIVE` \| `PARTIAL` \| `BROKEN` \| `UNKNOWN` | Repository/final-adjudication posture (from `doctor`). |
+| `intervention.state` | `ACTIVE` \| `PARTIAL` \| `INACTIVE` \| `UNKNOWN` | Runtime steering capability (is the in-loop hook wired?). |
+| `verification.state` | `CURRENT` \| `STALE` \| `VERIFYING` \| `BROKEN` \| `UNVERIFIED` | Whether the last successful verify still applies to the exact current state. |
+
+A `STALE` verification carries `changed_input` — the first load-bearing input that
+changed — one of `tree`, `head`, `base`, `policy`, `verifier`, `surface`,
+`intervention`. When a record exists the document also carries `verified_at`, the
+recorded `binding` fingerprints, the live `base`/`head`, and the `verifier_command`.
+Local `CURRENT` is posture/evidence, **not** repository or CI merge authority. Full
+contract:
+[`schemas/status-v1.schema.json`](https://github.com/hexrift/tamperward/blob/main/schemas/status-v1.schema.json).
+
 ## Other JSON surfaces
 
 | command | document | schema |
@@ -126,6 +185,19 @@ Full contract:
 | `doctor --json` | Installation + authority posture. | [`schemas/doctor-v1.schema.json`](https://github.com/hexrift/tamperward/blob/main/schemas/doctor-v1.schema.json) |
 | `research run --json` / `research summarize` | Paired records and the aggregate summary (from **2.23.0**). | [`schemas/research-v1.schema.json`](https://github.com/hexrift/tamperward/blob/main/schemas/research-v1.schema.json) |
 | `stats --json` | Aggregate audit document. | [`schemas/stats-v1.schema.json`](https://github.com/hexrift/tamperward/blob/main/schemas/stats-v1.schema.json) |
+| `runtime verify --json` / `runtime status --json` | Version-bound, operation-specific runtime capability qualification (from **2.37.0**). | [`schemas/runtime-qualification-v1.schema.json`](https://github.com/hexrift/tamperward/blob/main/schemas/runtime-qualification-v1.schema.json) |
+| `verify` (on VERIFIED) / `receipt export` | Bounded, transportable **local verification receipt** bound to #600's identity (from **2.38.0**). Evidence, not authority. | [`schemas/receipt-v1.schema.json`](https://github.com/hexrift/tamperward/blob/main/schemas/receipt-v1.schema.json) |
+| `receipt reconcile --json` | CI reconciliation of a claimed receipt against CI's own rerun of verification; the `result` is always CI's verdict — a receipt can never promote it (from **2.38.0**). | [`schemas/reconcile-v1.schema.json`](https://github.com/hexrift/tamperward/blob/main/schemas/reconcile-v1.schema.json) |
+
+The `runtime-qualification` document reports **one explicit state per capability**
+(`PROVEN` \| `PARTIAL` \| `UNPROVEN` \| `UNSUPPORTED` \| `FAIL-OPEN` \| `INCONCLUSIVE`) with
+its evidence source — never a percentage score. `in_loop_protection` is `FULL` only when every
+required capability is `PROVEN` with no `FAIL-OPEN`/`INCONCLUSIVE`; `final_authority` is a
+constant `AVAILABLE` (CI / pristine `verify` is independent of the runtime hook). The result is
+bound to the runtime version, TamperWard version/commit, adapter capability hash, hook-config
+hash, execution mode, platform, model, tested capability set and a deterministic evidence id;
+`status` marks a stored qualification `stale` when any load-bearing input changed. See
+[Runtime qualification](cli.md#runtime-qualification-runtime-verify-runtime-status).
 
 ## The audit event
 

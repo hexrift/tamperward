@@ -1,5 +1,244 @@
 # Changelog
 
+## [2.38.0] — 2026-09-23
+
+### Added
+
+- **Local verification receipts, reconciled in CI** (#601). A successful
+  `tamperward verify` now emits a bounded, transportable **receipt** under
+  `.git/tamperward/verification-receipt.json` — outside the candidate-controlled
+  tracked tree — bound to the SAME load-bearing identity the first-class
+  verification state (#600) already computes: candidate tree fingerprint,
+  entry/base commit, HEAD, policy digest, verifier-contract digest, protected
+  surface, runtime-intervention wiring and dependency environment, plus an
+  `evidence_digest` over its own fields. The receipt carries only fixed-width
+  digests, commit ids, closed-enum stage results, a verdict and a timestamp — no
+  prompt text, source, command bodies, secrets/environment, absolute local paths
+  or logs.
+  - `tamperward receipt export [--out F]` writes the receipt for the CURRENT
+    verified state (the explicit transport handoff); it refuses when the state is
+    not CURRENT. The exported machine output IS the `receipt-v1` document (to
+    `--out`, or stdout when no path is given) — there is no separate `--json`
+    envelope.
+  - `tamperward receipt reconcile` reruns the canonical TamperWard verification
+    FIRST, then reconciles a claimed receipt against CI's own adjudication. It
+    prints a summary separating the LOCAL claim, the CI result and their
+    agreement/divergence, writes a GitHub job summary, and emits a
+    machine-readable reconciliation document (`--json`). A local claim is
+    **explicit**: the receipt is read only from `--receipt`, never from the local
+    `.git/tamperward/` store (that store holds the receipt CI's own preceding
+    `verify` step just wrote, so a fallback would manufacture agreement). Absent
+    `--receipt` → NO_CLAIM, never a failure by itself; unreadable/unparseable →
+    MALFORMED with a read/parse reason. `--ci-result` consumes a preceding
+    `verify --json` so the suite runs once, and must be a genuine `verify --json`
+    document (`schema_version: 1`, a resolved `base` commit, `visible`/`pristine`
+    stage objects) whose `base` matches the base CI computed — anything else,
+    including a receipt file, is CANNOT_VERIFY (exit 2), so a receipt can never
+    stand in as CI's verdict.
+  - **Cross-machine reconciliation.** The binding splits into a **candidate
+    identity** reproducible on any machine — `tree`, `head`, `base`, `policy`,
+    `verifier`, `surface` — which is authoritative for applicability, versus the
+    **machine-local environment inputs** `intervention` and `dependencies`, which
+    are reported as INFORMATIONAL divergence (`reconciliation.environment_divergence`)
+    and never, on their own, make a receipt non-applicable. The generated CI
+    workflow computes CI's candidate identity from `pull_request.head.sha` (the
+    branch tip a developer verifies), not the PR merge ref, so a genuine receipt's
+    `head`/`tree` line up.
+  - **A receipt is evidence, never authority.** The reconciled `result` is CI's
+    own verdict, recomputed from trusted inputs: a stale, mismatched
+    (candidate/tree/policy/verifier/… identity differs), malformed, tampered
+    (`evidence_digest` inconsistent, or a VERIFIED verdict with a non-clean stage),
+    missing or unknown-schema receipt is NON_APPLICABLE or NO_CLAIM and can NEVER
+    promote or strengthen a CI result. A local-green / CI-red case reports
+    DIVERGENCE and stays failed. When a red run on the same tree invalidates the
+    #600 record, the stored receipt is removed with it, so it can never outlive
+    the state it vouches for.
+  - New published Draft 2020-12 schemas `schemas/receipt-v1.schema.json` and
+    `schemas/reconcile-v1.schema.json`, with closed vocabularies single-sourced to
+    the emitter constants.
+  - The generated CI workflow (`tamperward init`) now runs the receipt
+    reconciliation as an evidence step after its own pristine `verify` (which
+    remains the enforcement authority over the merge result), writing the
+    LOCAL/CI/agreement job summary. The generated workflow transports no receipt on
+    its own — in a `pull_request` run there is no earlier artifact to download and it
+    sets no `TAMPERWARD_RECEIPT` — so as shipped every run reports NO_CLAIM and CI's
+    verdict stands until the workflow owner wires a transport; `docs/reference/cli.md`
+    now gives two realizable ones (a `refs/tamperward/receipts/<head-sha>` ref pushed
+    to the head repo and fetched by a step, or the bounded receipt posted as a PR
+    comment and read via the API — both safe because the receipt self-validates and
+    never becomes CI's authority).
+  - **CI's verdict is attributed only to the tree CI actually ran.** `verify --json`
+    now reports the candidate tree it adjudicated (`adjudicated_tree`, the same
+    fingerprint bound into the #600 record). Because the enforcement `verify` runs
+    over the PR merge result, a branch that is BEHIND its base has a merge tree that
+    differs from the branch-tip tree a receipt binds; `receipt reconcile` compares
+    `adjudicated_tree` against the receipt's tree and reports NON_APPLICABLE
+    (`mismatched_input: tree`) rather than a false AGREE or a dishonest DIVERGENCE for
+    a tree CI never ran, and the reconcile CI section prints the adjudicated tree. An
+    older `--ci-result` document that carries no `adjudicated_tree` degrades safely to
+    NON_APPLICABLE. The receipt still never changes CI's verdict or exit code.
+  - **The `--ci-result` sign-off comes only from the trusted channel.** A
+    MASKED_FAILURE exits 0 only when a reviewer's out-of-band sign-off applies;
+    `receipt reconcile` now recomputes that sign-off from the trusted env
+    (`oobToken('verify', …)`, exactly as `verify` does), never from the
+    `--ci-result` document — a forged `oob_signoff` field inside the file being
+    validated can no longer flip a failing exit to a passing one. The generated CI
+    reconcile step gets the same `TAMPERWARD_OOB_SIGNOFF` / `TAMPERWARD_OOB_HEAD`
+    env as the verify step, so a legitimately signed-off MASKED_FAILURE still exits
+    0. `adjudicated_tree` is now documented as an optional field in
+    `schemas/verify-v1.schema.json` and `docs/reference/machine-output.md`, and the
+    developer git-ref transport in `docs/reference/cli.md` now pushes the receipt
+    blob itself (`git push origin "$blob:refs/tamperward/receipts/<sha>"`, read
+    CI-side with `git cat-file blob FETCH_HEAD`) so the documented transport works
+    end to end.
+
+  - **Canonical schema identifiers** (#662/#665). Every published v1 schema now carries
+    its `$id` at the immutable release-tag URL of the release that first shipped its
+    bytes (`v2.38.0` for all twelve in this release); an unchanged schema keeps its
+    identifier across later releases. After tagging, the release workflow verifies every
+    advertised identifier over HTTPS against the exact shipped schema bytes, and the
+    offline schema test enforces the same rule, so mutable branch refs and
+    self-referential commit pins cannot be published.
+
+## [2.37.2] — 2026-09-23
+
+### Fixed
+
+- **Research bundles carry only the evidence they claim to** (#663). `research
+  summarize` and `research bundle` now share one ledger reader that lists `pairs/` with
+  `lstat`, refuses a `pairs/` directory that is a symlink and any entry that is not a
+  regular file placed directly in it (a symlink into a workspace or outside the ledger,
+  a hard link to an inode that also lives elsewhere, a directory, a FIFO), opens each
+  file without following links and checks that the opened inode is the listed, singly
+  linked one, and refuses a path that resolves anywhere else. A pair record carrying a
+  field outside the v1 pair contract, at any level, is refused before it becomes
+  portable evidence; the gated arm's treatment envelope is held to the v1 run document
+  field by field, every named field a scalar unless the document defines it as an
+  object, so nothing foreign can ride inside it. The archive holds the canonical
+  serialization of each proved record rather than the raw file bytes, so a duplicate key
+  or stray bytes cannot travel either, and a record name the ustar header cannot store
+  byte for byte is refused rather than truncated. `research validate` holds an archive
+  to the same rules: only the evidence entries may be present, a duplicate or nested
+  entry is refused, every pair record must be canonical, and the archive must be exactly
+  what the writer emits (one ustar header form with no prefix, link, owner or device
+  fields, zero padding, and nothing after the two end-of-archive blocks), so a tar
+  reader and the validator agree on every path and byte. A refusal happens before any
+  output is written.
+
+## [2.37.1] — 2026-09-23
+
+### Fixed
+
+- **Audit evidence scales by addition, not by rewrite** (#518). `tamperward stats`
+  streams its JSONL file in one pass under a 16 KiB line bound, so memory is set by
+  the aggregate cardinality rather than the file size, and a longer line is one
+  `tamperward:` line at exit 2. On the `tamperward-audit` evidence branch each
+  ingested batch is now its own immutable `events/<YYYY>/<MM>/<batch-id>.jsonl`
+  partition; event-id and session deduplication live in 256 sorted shards that a
+  run touches only where its batch hashes; and `summaries/all-time.json` is folded
+  forward from a small state file instead of re-reading history. The workflow
+  fetches only the ledger to decide what is new and a sparse clone to publish,
+  never a historical partition; dispatching with `rebuild: true` streams every
+  partition to regenerate the derived files, and a store written before
+  partitioning keeps its `events/all.jsonl` frozen and is migrated once on the next
+  ingestion. Batch bytes and events and files per month have hard limits that fail
+  at exit 2 naming the limit.
+
+## [2.37.0] — 2026-09-23
+
+### Added
+
+- **Runtime capability qualification** (#599). `tamperward runtime verify` turns the binary
+  "runtime detected" label into a **version-bound, operation-specific capability model**:
+  `pre-deny:{shell,native-edit,delete,rename,git-mutation,mcp}`, `post-observe`, `end-of-turn`,
+  `denial-reason-delivery`, `continue-after-denial`, `transport:{missing-executable,non-zero,
+  timeout,malformed,empty}`, `hook-not-invoked` and `detached/quiescence`, each with one
+  explicit state — `PROVEN` / `PARTIAL` / `UNPROVEN` / `UNSUPPORTED` / `FAIL-OPEN` /
+  `INCONCLUSIVE`, never a percentage score. **`PROVEN` is gated on retained real-runtime probe
+  evidence** (`src/adapters/evidence.ts`, transcribed from the committed captures under
+  `harness/adapters/**/evidence/`) that matches the **full binding** on **every evidence-defining
+  field** — runtime name + exact version, the pinned SDK/protocol **component versions**, the
+  **TamperWard version + commit** the probe ran under, the **adapter capability hash**, the
+  **tested capability set**, hook-config hash, execution mode, platform and model. A change to any
+  one is a different binding, so stale evidence can never promote across a TamperWard, adapter,
+  SDK or protocol change; the adapter capability hash is required on both sides, so a record whose
+  hash is not authentically recoverable fails closed and never promotes. A static adapter
+  declaration (contract/mock/`preDeny` membership) can **never** promote a live capability to
+  `PROVEN`: it grades at most `PARTIAL` (declared at the boundary, unproven live), and an absent
+  capability grades `UNPROVEN`/`UNSUPPORTED`. A binding mismatch strips a `PROVEN` back to
+  `PARTIAL`; a probed-but-unresolved path is `INCONCLUSIVE`; a fail-open — declared or observed —
+  is surfaced verbatim as `FAIL-OPEN` (so `In-loop protection` can never aggregate to `FULL`).
+  `Final authority` is a constant `AVAILABLE`: CI / pristine `verify` is independent of the
+  runtime hook, so a weak in-loop capability never weakens adjudication. The qualification is
+  bound to the runtime version, TamperWard version/commit, adapter capability hash, hook-config
+  hash, execution mode, platform, model, tested capability set, timestamp and a deterministic
+  evidence id, and persisted git-locally. `tamperward runtime status` renders the latest recorded
+  qualification without rerunning it and marks it **STALE** when any load-bearing input changes.
+  Machine output is published as `schemas/runtime-qualification-v1.schema.json`. Grading consults
+  committed captures only — no live credentialed probe runs here (those are gated, #611/#616),
+  no runtime is promoted, and no Round 4.1 eligibility claim is made.
+
+  Review hardening (#599): `runtime status` now **validates** the git-local store before
+  rendering it — a record whose shape does not match the published schema, or whose `evidence_id`
+  or `in_loop_protection` no longer matches a recomputation from the stored binding + states, is
+  reported `recorded: false` with the reason (a hand-edited all-`PROVEN`/`FULL` record can no
+  longer render as trusted, and a non-array `capabilities` fails safe instead of an internal
+  error). TamperWard's **own build commit** is load-bearing for staleness (it already keyed the
+  evidence match): it is sourced from TamperWard's published package metadata (`gitHead`), never
+  from the qualified repository's HEAD, so a TamperWard build change reads STALE while an unrelated
+  commit in a consumer repository does **not** — and the evidence match is keyed on the same
+  TamperWard identity, so matching and staleness stay consistent. When TamperWard's build commit is
+  not authentically available (a dev/source tree), it is honestly `null`; no repository HEAD is ever
+  substituted. The hook-config binding reuses
+  the evaluated intervention wiring (parsed `hooks` + `disableAllHooks` across the project,
+  project-local, user and user-local Claude settings), so turning hooks off now invalidates the
+  qualification; the Copilot hook config is read from its documented path
+  `.github/hooks/tamperward.json`. `--mode` is validated (exit 2 on anything but
+  `headless`/`interactive`, no silent default), and qualifying an **absent** runtime (no `--runtime`, nothing detected) is
+  refused at exit 2 so the store holds no qualifications for runtimes that are not present. On a
+  persistence failure `verify` now **writes before it emits** and gates the `recorded: true`
+  success document on the write succeeding: nothing is persisted, so it prints an explicit
+  `recorded: false` failure document (never a success-shaped `recorded: true` stdout doc), reports
+  the failure on stderr and exits non-zero — a machine consumer parsing stdout can no longer
+  retain the opposite state from the store. A **rejected** store now explains itself on the text
+  surface too: `runtime status` prints the rejection reason (`note`) in the unrecorded block, so a
+  tampered or non-reproducing record is noticed where people look, not only under `--json`. When a
+  runtime is present but ships no adapter, the refusal now reads "no adapter-backed runtime
+  detected" rather than "no runtime detected".
+
+## [2.36.0] — 2026-09-23
+
+### Added
+
+- **First-class verification state and `tamperward status`** (#600). A successful
+  `verify` now records, under a non-candidate authority (`.git/tamperward/`), stable
+  fingerprints of every load-bearing input it judged: the candidate worktree, HEAD,
+  the trusted base commit, the TamperWard policy, the verifier contract
+  (command/budget/inputs/backend), the protected verification surface at the base,
+  the local runtime steering wiring, and the dependency environment. The
+  `dependencies` input reuses the same attested dependency fingerprint `verify`
+  refuses `DEPENDENCY_DRIFT` against (the digest-pinned image for a container
+  backend), so an `npm install` of a different version with an unchanged tree is
+  caught rather than kept `CURRENT`. The runtime-wiring input digests the
+  **evaluated** hook wiring — the parsed `hooks`/`disableAllHooks` across the Claude
+  Code settings sources the runtime reads (project, its local override, and the
+  user-level files) — so a whitespace-only reformat is not a change and a hook
+  removed at the user level is; `runtime.agent` is likewise named from that
+  evaluated wiring, not the mere presence of a settings file. The new
+  **`tamperward status`** (and `status --json`) answers, continuously, whether the
+  exact current state is still the state that was independently verified, in three
+  **distinct** lanes — Authority (repository/final adjudication), Intervention
+  (runtime steering) and Verification — as a first-class state machine: `CURRENT`,
+  `STALE` (with the changed input named), `VERIFYING`, `BROKEN`, `UNVERIFIED`. A mere
+  exit-0 never keeps `CURRENT`: any load-bearing change deterministically invalidates
+  it; a later `verify` of the same state that does not reach `VERIFIED` (a flaky red
+  suite, a masked failure) removes the record; and a malformed or missing record
+  fails safe to `UNVERIFIED`, never `CURRENT`. The `--json` document is a new
+  versioned machine-output surface (`schemas/status-v1.schema.json`) for the #500 VS
+  Code panel, WardOS, CI job summaries and dashboards, so consumers read the
+  enumerated state instead of scraping `doctor`/`verify` prose. Local `CURRENT` is
+  posture/evidence, not repository or CI merge authority.
+
 ## [2.34.0] — 2026-09-23
 
 ### Added

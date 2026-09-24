@@ -4,22 +4,34 @@
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { gzipSync, gunzipSync } from 'node:zlib';
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { MACHINE_SCHEMA_VERSION } from '../machine-output';
 import { ResearchError } from './adapter';
-import { pairRecordFrom } from './record';
+import { readPairFiles } from './ledger-files';
+import { portablePairRecordFrom, type PairRecord } from './record';
 import { renderResearchReport } from './report';
-import { summarizeLedger, summarizeRecords } from './summarize';
+import { summarizeRecords } from './summarize';
 
 const BLOCK = 512;
 const BUNDLE_VERSION = 1;
 
+/** Every field a `provenance.json` may carry (#664): a field outside this set is
+ *  refused before the bundle is accepted, so provenance can only say what the
+ *  validator binds to the derived summary and the archive contents. */
 const PROVENANCE_KEYS = new Set([
   'bundle_schema_version', 'protocol', 'schema_version', 'manifest_sha256',
   'adapter', 'model', 'tamperward_version', 'agent_argv', 'agent_budget', 'records',
   'manifest_included', 'prompts_included',
 ]);
+/** The entries a bundle may hold besides `ledger/pairs/<name>.json`: anything else
+ *  in an archive is refused by the validator, so "valid" means "holds nothing but
+ *  the evidence it claims to" (#663). */
+const TOP_LEVEL_ENTRIES = new Set(['summary.json', 'report.txt', 'provenance.json', 'manifest.json']);
+const PAIR_ENTRY_RE = /^ledger\/pairs\/[^/]+\.json$/;
+/** A ustar header stores at most 99 bytes of name; a longer name would be cut or
+ *  collide, so it is refused before anything is written rather than truncated. */
+const TAR_NAME_MAX = 99;
 
 interface Entry { name: string; bytes: Buffer }
 
@@ -27,63 +39,128 @@ function octal(value: number, width: number): string {
   return value.toString(8).padStart(width - 1, '0') + '\0';
 }
 
-function tarEntry(name: string, bytes: Buffer): Buffer {
+const NAME_FIELD = 100;
+const TYPE_OFFSET = 156;
+const PREFIX_OFFSET = 345;
+const PREFIX_FIELD = 155;
+
+/** The one ustar header form this bundle format writes: the name in the name
+ *  field alone (no prefix), mode 0644, uid and gid 0, mtime 0, type `0`, magic
+ *  `ustar` version `00`, and an empty link name, owner names and device numbers.
+ *  The reader accepts exactly this form and nothing else (#663). */
+function tarHeader(name: string, size: number): Buffer {
   const header = Buffer.alloc(BLOCK, 0);
-  const safe = name.replace(/^\/+/, '').slice(0, 99);
-  header.write(safe, 0, 'utf8');
+  header.write(name, 0, 'utf8');
   header.write(octal(0o644, 8), 100, 'ascii');
   header.write(octal(0, 8), 108, 'ascii');
   header.write(octal(0, 8), 116, 'ascii');
-  header.write(octal(bytes.length, 12), 124, 'ascii');
+  header.write(octal(size, 12), 124, 'ascii');
   // Fixed mtime keeps the archive bytes reproducible for the same records and
   // provenance; wall-clock creation time is not research evidence.
   header.write(octal(0, 12), 136, 'ascii');
   header.fill(0x20, 148, 156);
-  header[156] = 0x30;
+  header[TYPE_OFFSET] = 0x30;
   header.write('ustar', 257, 'ascii');
   header.write('00', 263, 'ascii');
   const checksum = header.reduce((sum, b) => sum + b, 0);
   header.write(octal(checksum, 8), 148, 'ascii');
+  return header;
+}
+
+function tarEntry(name: string, bytes: Buffer): Buffer {
+  if (name.startsWith('/') || Buffer.byteLength(name, 'utf8') > TAR_NAME_MAX) {
+    throw new ResearchError(`archive entry name ${name} cannot be stored byte for byte in a ustar header`);
+  }
   const padding = Buffer.alloc((BLOCK - (bytes.length % BLOCK)) % BLOCK, 0);
-  return Buffer.concat([header, bytes, padding]);
+  return Buffer.concat([tarHeader(name, bytes.length), bytes, padding]);
 }
 
 function makeTar(entries: Entry[]): Buffer {
   return Buffer.concat([...entries.map((e) => tarEntry(e.name, e.bytes)), Buffer.alloc(BLOCK * 2, 0)]);
 }
 
+/** A NUL-terminated header field as text. */
+function field(header: Buffer, start: number, length: number): string {
+  const raw = header.subarray(start, start + length);
+  const end = raw.indexOf(0);
+  return raw.subarray(0, end === -1 ? raw.length : end).toString('utf8');
+}
+
+/** Parse an archive this bundle format wrote, and nothing looser: every header
+ *  must be byte for byte the form `tarHeader` emits (so a ustar prefix, a link or
+ *  device entry, a foreign checksum or owner cannot change what a name means), a
+ *  payload's padding must be zero, and the archive must end with exactly two zero
+ *  blocks and nothing after them. A tar reader and this validator therefore agree
+ *  on every path and every byte the archive carries (#663). */
 function parseTar(bytes: Buffer): Map<string, Buffer> {
   const files = new Map<string, Buffer>();
-  for (let offset = 0; offset + BLOCK <= bytes.length; ) {
+  let offset = 0;
+  for (;;) {
+    if (offset + BLOCK > bytes.length) throw new ResearchError('research bundle is missing its end-of-archive blocks');
     const header = bytes.subarray(offset, offset + BLOCK);
-    if (header.every((b) => b === 0)) break;
-    const name = header.subarray(0, 100).toString('utf8').replace(/\0.*$/, '');
-    const sizeText = header.subarray(124, 136).toString('ascii').replace(/\0.*$/, '').trim();
-    const size = Number.parseInt(sizeText || '0', 8);
+    if (header.every((b) => b === 0)) {
+      const second = bytes.subarray(offset + BLOCK, offset + 2 * BLOCK);
+      if (second.length !== BLOCK || !second.every((b) => b === 0) || offset + 2 * BLOCK !== bytes.length) {
+        throw new ResearchError('research bundle carries bytes after its end-of-archive blocks');
+      }
+      return files;
+    }
+    const name = field(header, 0, NAME_FIELD);
+    const prefix = field(header, PREFIX_OFFSET, PREFIX_FIELD);
+    if (prefix) {
+      throw new ResearchError(`research bundle entry ${prefix}/${name} uses a ustar prefix; this bundle format stores every name in the name field`);
+    }
+    const type = header[TYPE_OFFSET];
+    if (type !== 0x30) {
+      throw new ResearchError(`research bundle entry ${name} is not a regular file entry (type flag ${JSON.stringify(String.fromCharCode(type))})`);
+    }
+    const size = Number.parseInt(field(header, 124, 12).trim() || '0', 8);
     if (!name || name.startsWith('/') || name.split('/').includes('..') || !Number.isSafeInteger(size) || size < 0) {
       throw new ResearchError('research bundle contains an unsafe or malformed archive entry');
+    }
+    if (Buffer.byteLength(name, 'utf8') > TAR_NAME_MAX || !header.equals(tarHeader(name, size))) {
+      throw new ResearchError(`research bundle entry ${name} has a header this bundle format does not write`);
     }
     const start = offset + BLOCK;
     const end = start + size;
     if (end > bytes.length) throw new ResearchError('research bundle is truncated');
+    const padded = start + Math.ceil(size / BLOCK) * BLOCK;
+    if (padded > bytes.length || !bytes.subarray(end, padded).every((b) => b === 0)) {
+      throw new ResearchError(`research bundle entry ${name} carries bytes in its padding`);
+    }
+    if (files.has(name)) throw new ResearchError(`research bundle contains a duplicate archive entry ${name}`);
     files.set(name, Buffer.from(bytes.subarray(start, end)));
-    offset = start + Math.ceil(size / BLOCK) * BLOCK;
+    offset = padded;
   }
-  return files;
 }
 
-function walkLedger(ledger: string): Entry[] {
+/** The pair records a bundle carries, read once through the hardened ledger
+ *  reader (#663): only a regular file placed directly in pairs/ is read, every
+ *  record is proved to carry nothing outside the v1 pair contract, and the
+ *  archive holds the canonical serialization of the proved record rather than
+ *  the file's raw bytes, so a duplicate key or stray bytes cannot travel either. */
+function packagedRecords(ledger: string): { records: PairRecord[]; entries: Entry[] } {
+  const files = readPairFiles(ledger);
+  if (files.length === 0) throw new ResearchError(`ledger ${ledger} holds no pair records`);
+  const records: PairRecord[] = [];
   const entries: Entry[] = [];
-  const pairs = join(ledger, 'pairs');
-  if (!existsSync(pairs) || !statSync(pairs).isDirectory()) throw new ResearchError(`ledger ${ledger} has no pairs directory`);
-  const names = readdirSync(pairs).filter((n) => n.endsWith('.json')).sort();
-  if (names.length === 0) throw new ResearchError(`ledger ${ledger} holds no pair records`);
-  for (const name of names) {
-    const path = join(pairs, name);
-    if (!statSync(path).isFile()) continue;
-    entries.push({ name: `ledger/pairs/${name}`, bytes: readFileSync(path) });
+  for (const f of files) {
+    let raw: unknown;
+    try {
+      raw = JSON.parse(f.bytes.toString('utf8'));
+    } catch (e) {
+      throw new ResearchError(`ledger record ${f.path} is not valid JSON: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    const record = portablePairRecordFrom(raw, f.path);
+    const archiveName = `ledger/pairs/${f.name}`;
+    const nameBytes = Buffer.byteLength(archiveName, 'utf8');
+    if (nameBytes > TAR_NAME_MAX) {
+      throw new ResearchError(`pair record name ${f.name} is too long for the archive (${nameBytes} bytes as ${archiveName}; the limit is ${TAR_NAME_MAX})`);
+    }
+    records.push(record);
+    entries.push({ name: archiveName, bytes: jsonBytes(record) });
   }
-  return entries;
+  return { records, entries };
 }
 
 function jsonBytes(value: unknown): Buffer {
@@ -101,6 +178,11 @@ export function validateResearchBundle(path: string): { records: number; manifes
   let files: Map<string, Buffer>;
   try { files = parseTar(gunzipSync(readFileSync(resolve(path)))); }
   catch (e) { throw new ResearchError(`cannot read research bundle ${path}: ${e instanceof Error ? e.message : String(e)}`); }
+  for (const name of files.keys()) {
+    if (!TOP_LEVEL_ENTRIES.has(name) && !PAIR_ENTRY_RE.test(name)) {
+      throw new ResearchError(`research bundle carries an entry that is not evidence: ${name}`);
+    }
+  }
   const provenance = files.get('provenance.json');
   const summaryBytes = files.get('summary.json');
   const report = files.get('report.txt');
@@ -130,12 +212,16 @@ export function validateResearchBundle(path: string): { records: number; manifes
   if (p.tamperward_version !== parsedSummary.tamperward_version) throw new ResearchError('research bundle provenance TamperWard version disagrees with summary');
   if (!isDeepStrictEqual(p.agent_argv, parsedSummary.agent_argv)) throw new ResearchError('research bundle provenance agent argv disagrees with summary');
   if (p.agent_budget !== parsedSummary.agent_budget) throw new ResearchError('research bundle provenance agent budget disagrees with summary');
-  const records: ReturnType<typeof pairRecordFrom>[] = [];
+  const records: PairRecord[] = [];
   for (const [name, bytes] of files) {
-    if (!name.startsWith('ledger/pairs/') || !name.endsWith('.json')) continue;
+    if (!PAIR_ENTRY_RE.test(name)) continue;
     let raw: unknown;
     try { raw = JSON.parse(bytes.toString('utf8')); } catch { throw new ResearchError(`invalid JSON in ${name}`); }
-    records.push(pairRecordFrom(raw, name));
+    const record = portablePairRecordFrom(raw, name);
+    // The archive must hold exactly the canonical serialization of the record it
+    // proves: no duplicate key, no stray whitespace, nothing the reader ignores.
+    if (!bytes.equals(jsonBytes(record))) throw new ResearchError(`${name} is not the canonical serialization of its pair record`);
+    records.push(record);
   }
   if (records.length === 0) throw new ResearchError('research bundle contains no pair records');
   const derived = summarizeRecords(records);
@@ -150,8 +236,8 @@ export function createResearchBundle(opts: ResearchBundleOpts): string {
   if (!opts.ledger) throw new ResearchError('research bundle requires --ledger');
   if (!opts.out) throw new ResearchError('research bundle requires --out');
   const ledger = resolve(opts.ledger);
-  const summary = summarizeLedger(ledger);
-  const entries = walkLedger(ledger);
+  const { records, entries } = packagedRecords(ledger);
+  const summary = summarizeRecords(records);
   if (opts.manifest) {
     const manifest = readFileSync(resolve(opts.manifest));
     const sha = createHash('sha256').update(manifest).digest('hex');

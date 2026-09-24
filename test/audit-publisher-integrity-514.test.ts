@@ -128,20 +128,24 @@ describe('privileged audit-store transition (#514)', () => {
     const result = run(publishScript, [schemaPath, candidates, store, sourceSha]);
     expect(result.status, result.stderr).toBe(0);
 
-    const events = readFileSync(join(store, 'events', 'all.jsonl'), 'utf8');
-    expect(events.startsWith(oldEvents)).toBe(true);
-    expect(events).toBe(oldEvents + batch);
+    // The frozen v1 file keeps its published bytes; the batch becomes its own
+    // immutable partition file named by the ledger (#518).
+    expect(readFileSync(join(store, 'events', 'all.jsonl'), 'utf8')).toBe(oldEvents);
 
     const ledger = readFileSync(join(store, 'ingested', 'batches.jsonl'), 'utf8');
     expect(ledger.startsWith(oldLedger)).toBe(true);
-    const appended = JSON.parse(ledger.slice(oldLedger.length).trim()) as Record<string, unknown>;
+    const appended = JSON.parse(ledger.slice(oldLedger.length).trim()) as Record<string, unknown> & { partition: string };
     expect(appended).toMatchObject({
       batch_id: 'reviewed-batch',
       source_sha: sourceSha,
       content_sha256: sha256(batch),
       schema: 'audit-v1',
       event_count: 1,
+      stored_events: 1,
+      stored_sha256: sha256(batch),
     });
+    expect(appended.partition).toMatch(/^events\/\d{4}\/\d{2}\/reviewed-batch\.jsonl$/);
+    expect(readFileSync(join(store, appended.partition), 'utf8')).toBe(batch);
 
     const summary = JSON.parse(readFileSync(join(store, 'summaries', 'all-time.json'), 'utf8')) as Record<string, unknown>;
     expect(summary).toMatchObject({ events: 2, blocked: 1, warnings: 1, sessions: 0 });
