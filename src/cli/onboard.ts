@@ -47,6 +47,7 @@ import { POLICY_FILE } from '../policy';
 import { loadPolicy } from '../policy-load';
 import { errorMessage } from '../narrow';
 import { detectRuntimes, detectionHeadline, neutralOnlyCaveat } from '../runtimes';
+import { adapterFor, labelFor } from '../adapters/registry';
 import { TW_VERSION } from '../wiring';
 import { atomicReplaceFile, existingMode, writeTargetKind } from '../safe-write';
 
@@ -401,14 +402,23 @@ export async function runOnboard(opts: OnboardOpts, io: OnboardIo = {}): Promise
     if (detected.length === 0) {
       status(
         'QUALIFY',
-        'Runtime capability evidence is not available from detection alone; run `tamperward runtime verify --runtime <ID>` before relying on in-loop posture.',
+        'Runtime capability evidence is not available from detection alone; run `tamperward runtime verify --runtime <id>` before treating any runtime as protected in-loop.',
         'info',
       );
     } else {
       detected.forEach((runtime) => {
+        const adapter = adapterFor(runtime.id);
+        if (!adapter) {
+          status(
+            'QUALIFY',
+            `${runtime.label}: no shipped qualification adapter; neutral layers remain the live protection. See #602 before treating this runtime as in-loop qualified.`,
+            'warn',
+          );
+          return;
+        }
         status(
           'QUALIFY',
-          `${runtime.label}: run \`tamperward runtime verify --runtime ${runtime.id}\` to measure version-bound capabilities; detection is not qualification.`,
+          `${labelFor(adapter.name)}: run \`tamperward runtime verify --runtime ${runtime.id}\` to measure version-bound capabilities; detection is not qualification.`,
           'info',
         );
       });
