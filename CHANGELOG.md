@@ -13,6 +13,16 @@
   pointing at `tamperward runtime verify --runtime <id>`. A runtime label alone is never
   presented as protection. Nothing is rerun or promoted.
 
+## [2.38.4] — 2026-09-24
+
+### Fixed
+
+- **Unknown Copilot tool names fail closed without blocking known read-only tools** (#598).
+  The Copilot adapter now keeps an explicit vocabulary for documented file-search,
+  web, question, delegation, skill and todo tools, while an unmapped non-empty name
+  produces an `unknown-tool` finding and a deny before it can be treated as a no-op.
+  The finding distinguishes an adapter vocabulary gap from a broken hook transport.
+
 ## [2.38.3] — 2026-09-24
 
 ### Changed

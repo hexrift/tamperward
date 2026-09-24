@@ -39,7 +39,7 @@ export type SteeringPhase = 'pre-action' | 'post-action' | 'end-of-turn';
  * capabilities are declared PER OPERATION, not per layer, because a runtime can gate
  * one kind synchronously (shell) while only observing another (a native file edit).
  */
-export type OperationKind = 'shell' | 'file-edit' | 'file-read' | 'mcp' | 'other';
+export type OperationKind = 'shell' | 'file-edit' | 'file-read' | 'mcp' | 'other' | 'unknown';
 
 export type Verdict = 'allow' | 'deny';
 
@@ -241,7 +241,31 @@ export const CONTRACT_TO_RESEARCH_LAYER: readonly ContractLayerMapping[] = [
   },
 ];
 
-/** The operation kinds, for iteration and for declaring "all kinds" capabilities. */
+/**
+ * A fail-closed finding for a non-empty Copilot tool name outside the adapter's explicit
+ * vocabulary. This is a classification gap, not a transport failure: the operator should
+ * confirm the tool's semantics and add it deliberately, rather than repair hook delivery.
+ */
+export function unknownToolFinding(toolName: string): Finding {
+  const name = toolName.length > 80 ? toolName.slice(0, 77) + '...' : toolName;
+  const detail = 'Copilot tool "' + name + '" is not in TamperWard\'s explicit operation vocabulary';
+  return {
+    rule: 'unknown-tool',
+    severity: 'block',
+    message: 'TamperWard cannot safely classify ' + detail + '; it is denied rather than treated as a no-op.',
+    evidence: detail,
+    remediation:
+      'Confirm the tool is non-mutating and add it to the Copilot adapter allowlist, or obtain an explicit sign-off before retrying.',
+    signoff: { required: true, command: 'tamperward allow --reason "..."' },
+  };
+}
+
+/**
+ * The declarable operation kinds, for iteration and for declaring "all kinds" capabilities.
+ *
+ * `unknown` is intentionally absent: it is a Copilot adapter classification outcome for
+ * an unmapped non-empty tool name, never a capability a runtime may claim to cover.
+ */
 export const OPERATION_KINDS: readonly OperationKind[] = ['shell', 'file-edit', 'file-read', 'mcp', 'other'];
 
 /** True when `outcome` is one that MUST fail closed (deny) rather than allow. */

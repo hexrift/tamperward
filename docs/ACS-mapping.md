@@ -38,6 +38,8 @@ implementation:
 | deny reason returned to the agent | **actionable policy feedback** to the controlled agent | **Implemented** (`formatDenial` on the deny wire) |
 | repository/CI as final authority | **defence in depth** — a control layer that is not the sole authority | **Implemented** — the run envelope and CI re-adjudicate independently of any adapter |
 
+`unknown` is intentionally absent from the operation-kind list and from `OPERATION_KINDS`: it is an adapter classification outcome, not a capability a runtime may declare. The Copilot adapter denies an unmapped non-empty tool name with the `unknown-tool` rule before change reconstruction.
+
 ## Explicitly unsupported (out of scope)
 
 TamperWard does **not** implement, and does not claim, the following ACS-adjacent

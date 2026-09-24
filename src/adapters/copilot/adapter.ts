@@ -43,6 +43,7 @@ import {
   UntrustedIdentity,
   failClosedResult,
   steeringUnavailableFinding,
+  unknownToolFinding,
 } from '../contract';
 import { changesFromCopilot } from './changes';
 import { copilotDenyWire } from './deny';
@@ -71,6 +72,7 @@ export class CopilotRuntimeAdapter implements RuntimeAdapter {
       'preToolUse is the only PRE-EXECUTION tool veto; agentStop can only block turn completion and force continuation (a lifecycle control, not a filesystem veto), and Copilot overrides the hook after 8 consecutive blocks (stop_hook_active lifecycle); postToolUse observation is not yet consumed by this adapter',
       'apply_patch / str_replace_editor exact hook payloads are modelled from the published contract but not yet confirmed against a pinned real-run fixture (str_replace_editor sub-ops other than str_replace/create fail closed); a PascalCase Edit carrying a patch-style payload fails closed unless a fixture proves the Edit-field rewrite',
       'shell-session write tools (write_bash / write_powershell) are classified as mutation-capable shell ops; their exact hook payload is not yet confirmed against a pinned fixture, so an event carrying no reconstructable command/input fails closed',
+      'MCP names are recognized by prefix but are not reconstructed into pre-action changes here; until MCP payload modelling is proven, the end-of-turn sweep remains the authority for their effects',
       'network-egress control',
       'identity / authentication',
     ],
@@ -152,6 +154,13 @@ export class CopilotRuntimeAdapter implements RuntimeAdapter {
       }
       const wire = stopFromRaw(stopInput, defaultCwd, idv.trustedRoot).stdout;
       return { outcome: 'ok', wire, decision: { verdict: wire ? 'deny' : 'allow', findings: [], reason: wire || undefined } };
+    }
+
+    if (parsed.operation.kind === 'unknown') {
+      const detail = `unrecognized Copilot tool ${parsed.operation.name}; refusing to evaluate it as a no-op`;
+      const findings = [unknownToolFinding(parsed.operation.name)];
+      const wire = this.denyPayload(findings, 'pre-action');
+      return { outcome: 'ok', wire, detail, decision: { verdict: 'deny', findings, reason: wire } };
     }
 
     try {
