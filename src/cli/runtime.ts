@@ -204,8 +204,8 @@ function validateStoredReport(value: unknown): { report: RuntimeQualificationRep
     capabilities.push({ id, state, evidence: { source, detail } });
   }
   const capabilityIds = capabilities.map((c) => c.id);
-  const capabilitySet = new Set(capabilityIds);
-  const testedSet = new Set(testedCapabilities);
+  const capabilitySet = new Set<string>(capabilityIds);
+  const testedSet = new Set<string>(testedCapabilities);
   if (
     capabilityIds.length !== capabilitySet.size ||
     testedCapabilities.length !== testedSet.size ||
