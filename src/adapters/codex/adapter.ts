@@ -34,6 +34,8 @@ import { changesFromCodex } from './changes';
 import { codexDenyWire } from './deny';
 import { normalizeCodexEvent } from './schema';
 
+// `unknown` is an adapter classification outcome, not a declarable capability kind;
+// an unrecognized Copilot name is denied before it can reach this neutral set.
 const POST_OBSERVE: readonly OperationKind[] = ['shell', 'file-edit', 'file-read', 'mcp', 'other'];
 
 export class CodexRuntimeAdapter implements RuntimeAdapter {
