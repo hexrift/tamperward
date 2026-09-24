@@ -58,10 +58,15 @@ const PUBLISHED_SCHEMA_FILES = [
 type SchemaName = typeof SCHEMA_NAMES[number];
 function expectPublishedSchemaId(schema: any, filename: string): void {
   const id = schema.$id;
+  const prefix = 'https://raw.githubusercontent.com/hexrift/tamperward/v';
+  const suffix = '/schemas/' + filename;
   expect(typeof id).toBe('string');
-  const escaped = filename.replace(/[.*+?^${}()|[\]\\]/g, '\\type SchemaName = typeof SCHEMA_NAMES[number];
-');
-  expect(id).toMatch(new RegExp('^https://raw\\.githubusercontent\\.com/hexrift/tamperward/v[^/]+/schemas/' + escaped + 'type NpmPackEntry = { filename: string; files?: Array<{ path: string }> };
+  expect(id.startsWith(prefix)).toBe(true);
+  expect(id.endsWith(suffix)).toBe(true);
+  const tag = id.slice(prefix.length, -suffix.length);
+  expect(tag).not.toContain('/');
+}
+type NpmPackEntry = { filename: string; files?: Array<{ path: string }> };
 
 function normalizeNpmPackJson(value: unknown): NpmPackEntry[] {
   const entries = Array.isArray(value)
