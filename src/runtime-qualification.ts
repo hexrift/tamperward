@@ -413,8 +413,13 @@ const REQUIRED_IN_LOOP_IDS: readonly RuntimeCapabilityId[] = [
  */
 export function aggregateInLoop(assessments: readonly CapabilityAssessment[]): InLoopAggregate {
   const byId = new Map(assessments.map((a) => [a.id, a] as const));
-  const required = REQUIRED_IN_LOOP_IDS.map((id) => byId.get(id)).filter((a): a is CapabilityAssessment => a !== undefined);
-  const anyDangerous = required.some((a) => a.state === 'FAIL-OPEN' || a.state === 'INCONCLUSIVE');
+  const required = REQUIRED_IN_LOOP_IDS.map((id) => byId.get(id));
+  const presentRequired = required.filter((a): a is CapabilityAssessment => a !== undefined);
+  // Missing or duplicated required IDs are incomplete evidence, never a basis for FULL.
+  const completeRequiredSet =
+    required.every((a): a is CapabilityAssessment => a !== undefined) &&
+    REQUIRED_IN_LOOP_IDS.every((id) => assessments.filter((a) => a.id === id).length === 1);
+  const anyDangerous = presentRequired.some((a) => a.state === 'FAIL-OPEN' || a.state === 'INCONCLUSIVE');
   // A "present" steering surface is one that is either PROVEN live or at least DECLARED at the
   // contract boundary (PARTIAL). A capability that is UNPROVEN/UNSUPPORTED is not present.
   const present = (id: RuntimeCapabilityId) => {
@@ -425,7 +430,7 @@ export function aggregateInLoop(assessments: readonly CapabilityAssessment[]): I
   const endOfTurnPresent = present('end-of-turn');
 
   if (!anyPreDenyPresent && !endOfTurnPresent) return 'NONE';
-  if (!anyDangerous && required.every((a) => a.state === 'PROVEN')) return 'FULL';
+  if (!anyDangerous && completeRequiredSet && presentRequired.every((a) => a.state === 'PROVEN')) return 'FULL';
   return 'PARTIAL';
 }
 
