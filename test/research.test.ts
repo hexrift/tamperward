@@ -75,21 +75,18 @@ function writeManifest(dir: string, tasks: unknown[]): string {
   return path;
 }
 
+/** Rewrite one provenance field inside a bundle and re-pack the archive in the exact
+ *  ustar form the reader accepts (#663), so the validator reaches the provenance
+ *  checks instead of refusing the container. */
 function mutateBundleProvenance(source: string, field: string, value: unknown): string {
   const root = tmp('tw-research-bundle-mutation-');
-  const unpacked = join(root, 'unpacked');
-  mkdirSync(unpacked);
-  execFileSync('tar', ['-xzf', source, '-C', unpacked]);
-  const provenancePath = join(unpacked, 'provenance.json');
-  const provenance = JSON.parse(readFileSync(provenancePath, 'utf8')) as Record<string, unknown>;
-  provenance[field] = value;
-  writeFileSync(provenancePath, JSON.stringify(provenance, null, 2) + '\n');
-  const out = join(root, `${field}.tgz`);
-  execFileSync('tar', [
-    '-czf', out, '-C', unpacked,
-    'ledger/pairs/honest--1.json', 'summary.json', 'report.txt', 'provenance.json',
-  ]);
-  return out;
+  const entries = tarEntries(source).map((entry) => {
+    if (entry.name !== 'provenance.json') return entry;
+    const provenance = JSON.parse(entry.bytes.toString('utf8')) as Record<string, unknown>;
+    provenance[field] = value;
+    return { name: entry.name, bytes: Buffer.from(JSON.stringify(provenance, null, 2) + '\n') };
+  });
+  return tarArchive(join(root, `${field}.tgz`), entries);
 }
 
 /** A fake agent: honest on the `honest` task, guts the protected test on `tamper`.
@@ -305,19 +302,21 @@ describe('research authoring, reports and bundles (#481)', () => {
     mkdirSync(join(ledger, 'pairs'), { recursive: true });
     writeFileSync(join(ledger, 'pairs', 'honest--1.json'), JSON.stringify(validPair(), null, 2) + '\n');
     const archive = createResearchBundle({ ledger, out: join(dir, 'research.tgz') });
-    const mutations: Array<[string, unknown]> = [
-      ['records', 99],
-      ['adapter', { name: 'forged', layers: ['envelope'] }],
-      ['model', 'forged-model'],
-      ['tamperward_version', '0.0.0'],
-      ['agent_argv', ['forged-agent']],
-      ['agent_budget', 99],
-      ['manifest_sha256', 'c'.repeat(64)],
-      ['unknown', true],
+    // Each field is refused for its own reason: the exact message pins that the
+    // binding check for that field fired, not an earlier refusal on the path.
+    const mutations: Array<[string, unknown, RegExp]> = [
+      ['records', 99, /^research bundle provenance record count disagrees with pair records$/],
+      ['adapter', { name: 'forged', layers: ['envelope'] }, /^research bundle provenance adapter disagrees with summary$/],
+      ['model', 'forged-model', /^research bundle provenance model disagrees with summary$/],
+      ['tamperward_version', '0.0.0', /^research bundle provenance TamperWard version disagrees with summary$/],
+      ['agent_argv', ['forged-agent'], /^research bundle provenance agent argv disagrees with summary$/],
+      ['agent_budget', 99, /^research bundle provenance agent budget disagrees with summary$/],
+      ['manifest_sha256', 'c'.repeat(64), /^research bundle provenance manifest hash disagrees with summary$/],
+      ['unknown', true, /^research bundle provenance contains unknown field unknown$/],
     ];
-    for (const [field, value] of mutations) {
+    for (const [field, value, message] of mutations) {
       const mutated = mutateBundleProvenance(archive, field, value);
-      expect(() => validateResearchBundle(mutated), field).toThrow(/provenance|pair records|summary/);
+      expect(() => validateResearchBundle(mutated), field).toThrow(message);
     }
   });
 
