@@ -39,7 +39,7 @@ export type SteeringPhase = 'pre-action' | 'post-action' | 'end-of-turn';
  * capabilities are declared PER OPERATION, not per layer, because a runtime can gate
  * one kind synchronously (shell) while only observing another (a native file edit).
  */
-export type OperationKind = 'shell' | 'file-edit' | 'file-read' | 'mcp' | 'other';
+export type OperationKind = 'shell' | 'file-edit' | 'file-read' | 'mcp' | 'other' | 'unknown';
 
 export type Verdict = 'allow' | 'deny';
 
