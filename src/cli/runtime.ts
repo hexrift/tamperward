@@ -203,6 +203,19 @@ function validateStoredReport(value: unknown): { report: RuntimeQualificationRep
     if (!source || typeof detail !== 'string') return { reason: 'invalid capability evidence' };
     capabilities.push({ id, state, evidence: { source, detail } });
   }
+  const capabilityIds = capabilities.map((c) => c.id);
+  const capabilitySet = new Set(capabilityIds);
+  const testedSet = new Set(testedCapabilities);
+  if (
+    capabilityIds.length !== capabilitySet.size ||
+    testedCapabilities.length !== testedSet.size ||
+    capabilitySet.size !== testedSet.size ||
+    capabilityIds.some((id) => !testedSet.has(id)) ||
+    testedCapabilities.some((id) => !capabilitySet.has(id))
+  ) {
+    return { reason: 'capabilities do not exactly match tested_capabilities' };
+  }
+
   const inLoop = value.in_loop_protection;
   if (inLoop !== 'FULL' && inLoop !== 'PARTIAL' && inLoop !== 'NONE') return { reason: 'invalid in_loop_protection' };
   if (value.final_authority !== FINAL_AUTHORITY) return { reason: 'invalid final_authority' };
