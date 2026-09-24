@@ -708,8 +708,6 @@ describe('machine-readable schema v1 (#333)', () => {
     expect(validateDoc('run', doc)).toEqual([]);
   }, 45_000);
 });
-));
-}
 
 type NpmPackEntry = { filename: string; files?: Array<{ path: string }> };
 
