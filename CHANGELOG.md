@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.38.2] — 2026-09-24
+
+### Fixed
+
+- **Runtime qualification aggregation and persisted-report validation** (#599).
+  Incomplete or duplicated required capability evidence can no longer produce a
+  `FULL` in-loop posture, and `runtime status` now rejects contradictory
+  unrecorded or incomplete capability matrices instead of rendering them as
+  trusted posture.
+
 ## [2.38.1] — 2026-09-24
 
 ### Fixed
