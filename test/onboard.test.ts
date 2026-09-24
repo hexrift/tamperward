@@ -179,7 +179,8 @@ describe('happy path', () => {
     const s = await onboard(d, ['n'], { noGithub: true, skipDemo: true });
     expect(s.out).toMatch(/RUNTIME\s+Detected Cursor/);
     expect(s.out).toMatch(/NOTE[^\n]*Claude Code only/);
-    expect(s.out).toMatch(/QUALIFY\s+Cursor: run.*runtime verify --runtime cursor/);
+    expect(s.out).toMatch(/QUALIFY\s+Cursor: no shipped qualification adapter/);
+    expect(s.out).not.toContain('runtime verify --runtime cursor');
     expect(s.out).toContain('#482');
   });
 });
