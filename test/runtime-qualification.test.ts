@@ -278,6 +278,19 @@ describe('in-loop aggregation cannot launder a fail-open (#599)', () => {
     expect(aggregateInLoop(assessCapabilities(allProven))).toBe('PARTIAL');
   });
 
+  it('missing or duplicate required capability coverage is never rendered as FULL', () => {
+    const complete: CapabilityAssessment[] = RUNTIME_CAPABILITY_IDS.map((id) => ({
+      id,
+      state: 'PROVEN',
+      evidence: { source: 'committed-evidence', detail: 'synthetic complete coverage' },
+    }));
+    const incomplete = complete.filter((a) => a.id !== 'transport:empty');
+    expect(aggregateInLoop(incomplete)).not.toBe('FULL');
+
+    const duplicate = [...complete, complete.find((a) => a.id === 'transport:empty')!];
+    expect(aggregateInLoop(duplicate)).not.toBe('FULL');
+  });
+
   it('a FAIL-OPEN in the required set is never rendered as FULL', () => {
     const withFailOpen: RuntimeCapabilities = {
       preDeny: OPERATION_KINDS,
@@ -498,6 +511,21 @@ describe('runtime CLI end-to-end (#599)', () => {
     for (const c of store.records['claude-code'].capabilities) c.state = 'PROVEN';
     store.records['claude-code'].in_loop_protection = 'FULL';
     writeFileSync(storeFileOf(cwd), JSON.stringify(store));
+    const doc = JSON.parse(run(cwd, ['runtime', 'status', '--runtime', 'claude-code', '--json'], { TAMPERWARD_RUNTIME_VERSION: '1.0.0' }));
+    expect(doc.recorded).toBe(false);
+    expect(doc.capabilities).toEqual([]);
+    expect(doc.in_loop_protection).toBe('NONE');
+    expect(doc.note).toMatch(/rejected/);
+  });
+
+  it('finding 2: status rejects a contradictory recorded:false report', () => {
+    const cwd = initRepo();
+    run(cwd, ['runtime', 'verify', '--runtime', 'claude-code', '--json'], { TAMPERWARD_RUNTIME_VERSION: '1.0.0' });
+    const store = JSON.parse(readFileSync(storeFileOf(cwd), 'utf8'));
+    // Keep the valid evidence and capability posture, but contradict it with recorded:false.
+    store.records['claude-code'].recorded = false;
+    writeFileSync(storeFileOf(cwd), JSON.stringify(store));
+
     const doc = JSON.parse(run(cwd, ['runtime', 'status', '--runtime', 'claude-code', '--json'], { TAMPERWARD_RUNTIME_VERSION: '1.0.0' }));
     expect(doc.recorded).toBe(false);
     expect(doc.capabilities).toEqual([]);
