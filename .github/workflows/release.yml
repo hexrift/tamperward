@@ -262,17 +262,20 @@ jobs:
           VERSION: ${{ steps.plan.outputs.version }}
         run: |
           set -euo pipefail
-          schemas=(check verify run doctor research audit stats status runtime-qualification receipt reconcile research-stdio)
-          for name in "${schemas[@]}"; do
-            file="schemas/${name}-v1.schema.json"
+          shopt -s nullglob
+          schemas=(schemas/*-v1.schema.json)
+          for file in "${schemas[@]}"; do
+            name="${file#schemas/}"
             id="$(node -e 'const fs=require("fs"); const s=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(s["$id"] || "")' "$file")"
-            expected="https://raw.githubusercontent.com/hexrift/tamperward/v${VERSION}/schemas/${name}-v1.schema.json"
-            [ "$id" = "$expected" ] || { echo "canonical id mismatch in $file: $id"; exit 1; }
+            case "$id" in
+              https://raw.githubusercontent.com/hexrift/tamperward/v*/schemas/"$name") ;;
+              *) echo "canonical id is not an immutable release URL in $file: $id"; exit 1 ;;
+            esac
             tmp="$(mktemp)"
             ok=false
-            for attempt in 1 2 3 4 5; do
+            for attempt in $(seq 1 10); do
               if curl --fail --silent --show-error --location "$id" -o "$tmp" && cmp -s "$tmp" "$file"; then ok=true; break; fi
-              sleep 2
+              sleep 3
             done
             [ "$ok" = true ] || { echo "canonical URL bytes differ for $file: $id"; exit 1; }
             rm -f "$tmp"
