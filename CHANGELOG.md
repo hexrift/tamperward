@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.38.1] — 2026-09-24
+
+### Fixed
+
+- **Research bundle provenance is bound to the evidence it describes** (#664).
+  `research validate` recomputed the pair records, the summary and the report, but
+  took the rest of `provenance.json` on trust. It now refuses a provenance field
+  outside the bundle contract and holds every remaining claim to what the archive
+  proves: the manifest hash, adapter, model, TamperWard version, agent argv and agent
+  budget must equal the summary derived from the pair records, and the recorded record
+  count must equal the pair records actually parsed. A forged or drifted provenance is
+  refused before any output is written, with a message naming the field that disagrees.
+
 ## [2.38.0] — 2026-09-23
 
 ### Added

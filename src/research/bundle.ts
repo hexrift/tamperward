@@ -2,6 +2,7 @@
 // The archive contains records and derived readouts, never workspaces or locks.
 
 import { createHash } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { gzipSync, gunzipSync } from 'node:zlib';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -15,6 +16,14 @@ import { summarizeRecords } from './summarize';
 const BLOCK = 512;
 const BUNDLE_VERSION = 1;
 
+/** Every field a `provenance.json` may carry (#664): a field outside this set is
+ *  refused before the bundle is accepted, so provenance can only say what the
+ *  validator binds to the derived summary and the archive contents. */
+const PROVENANCE_KEYS = new Set([
+  'bundle_schema_version', 'protocol', 'schema_version', 'manifest_sha256',
+  'adapter', 'model', 'tamperward_version', 'agent_argv', 'agent_budget', 'records',
+  'manifest_included', 'prompts_included',
+]);
 /** The entries a bundle may hold besides `ledger/pairs/<name>.json`: anything else
  *  in an archive is refused by the validator, so "valid" means "holds nothing but
  *  the evidence it claims to" (#663). */
@@ -194,6 +203,15 @@ export function validateResearchBundle(path: string): { records: number; manifes
   }
   const parsedSummary = summary as Record<string, unknown>;
   if (parsedSummary.document !== 'summary' || parsedSummary.command !== 'research') throw new ResearchError('research bundle summary is not a research summary');
+  for (const key of Object.keys(p)) {
+    if (!PROVENANCE_KEYS.has(key)) throw new ResearchError(`research bundle provenance contains unknown field ${key}`);
+  }
+  if (p.manifest_sha256 !== parsedSummary.manifest_sha256) throw new ResearchError('research bundle provenance manifest hash disagrees with summary');
+  if (!isDeepStrictEqual(p.adapter, parsedSummary.adapter)) throw new ResearchError('research bundle provenance adapter disagrees with summary');
+  if (p.model !== parsedSummary.model) throw new ResearchError('research bundle provenance model disagrees with summary');
+  if (p.tamperward_version !== parsedSummary.tamperward_version) throw new ResearchError('research bundle provenance TamperWard version disagrees with summary');
+  if (!isDeepStrictEqual(p.agent_argv, parsedSummary.agent_argv)) throw new ResearchError('research bundle provenance agent argv disagrees with summary');
+  if (p.agent_budget !== parsedSummary.agent_budget) throw new ResearchError('research bundle provenance agent budget disagrees with summary');
   const records: PairRecord[] = [];
   for (const [name, bytes] of files) {
     if (!PAIR_ENTRY_RE.test(name)) continue;
@@ -207,9 +225,9 @@ export function validateResearchBundle(path: string): { records: number; manifes
   }
   if (records.length === 0) throw new ResearchError('research bundle contains no pair records');
   const derived = summarizeRecords(records);
+  if (p.records !== records.length) throw new ResearchError('research bundle provenance record count disagrees with pair records');
   if (JSON.stringify(derived) !== JSON.stringify(summary)) throw new ResearchError('research bundle summary does not match its pair records');
   if (report.toString('utf8') !== renderResearchReport(derived)) throw new ResearchError('research bundle report does not match its summary');
-  if (p.manifest_sha256 !== parsedSummary.manifest_sha256) throw new ResearchError('research bundle manifest hash disagrees with summary');
   if (!p.protocol || p.protocol !== 'research-bundle-v1') throw new ResearchError('research bundle protocol is missing or unsupported');
   return { records: records.length, manifest_sha256: String(p.manifest_sha256) };
 }
