@@ -208,6 +208,11 @@ function validateStoredReport(value: unknown): { report: RuntimeQualificationRep
   if (value.final_authority !== FINAL_AUTHORITY) return { reason: 'invalid final_authority' };
   const note = value.note;
   if (typeof note !== 'string') return { reason: 'invalid note' };
+  // An unrecorded persisted record must not carry any trusted capability posture. Reject the
+  // contradictory shape so callers fall back to the canonical empty/unrecorded response.
+  if (!recorded && (capabilities.length > 0 || inLoop !== 'NONE')) {
+    return { reason: 'unrecorded report carries capability data' };
+  }
 
   // Recompute the deterministic evidence_id from the stored binding + states, and the aggregate
   // from the states, and require both to match what was recorded. A tampered record (states edited
