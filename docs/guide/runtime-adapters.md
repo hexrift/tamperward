@@ -377,8 +377,8 @@ wire formats, and the adapter accepts **both**:
 
 Normalization is field-by-field with the snake_case spelling winning and the camelCase spelling
 as a fallback, so either mode normalizes sensibly. Known read-only and control-plane tools are
-explicitly allowlisted; any other non-empty tool name fails closed with `unknown-tool`. `tool_use_id` is **not** a documented Copilot
-field and is not read. `apply_patch` (the OpenAI patch envelope, shared with Codex) is
+explicitly allowlisted; any other non-empty tool name fails closed with `unknown-tool`.
+`tool_use_id` is **not** a documented Copilot field and is not read. `apply_patch` (the OpenAI patch envelope, shared with Codex) is
 reconstructed via the shared `applyPatchChanges`; `str_replace_editor` is modelled for its
 `str_replace` and `create` sub-ops and **fails closed** on any other sub-op (e.g. `insert`)
 pending a real pinned-run payload. A shell-session write (`write_bash` / `write_powershell`)
