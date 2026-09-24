@@ -128,6 +128,14 @@ describe('copilotOperationKind — both documented tool vocabularies', () => {
     // MCP remains an explicitly non-mutating path; unknown names stay distinct so the adapter can fail closed.
     expect(copilotOperationKind('mcp__filesystem__write_file')).toBe('mcp');
     expect(copilotOperationKind('fetch')).toBe('unknown');
+    expect(copilotOperationKind('grep')).toBe('file-read');
+    expect(copilotOperationKind('rg')).toBe('file-read');
+    expect(copilotOperationKind('glob')).toBe('file-read');
+    expect(copilotOperationKind('Grep')).toBe('file-read');
+    expect(copilotOperationKind('Glob')).toBe('file-read');
+    for (const name of ['web_fetch', 'web_search', 'ask_user', 'report_intent', 'task', 'skill', 'update_todo', 'web_fetch', 'WebFetch', 'AskUserQuestion', 'Agent', 'TodoWrite']) {
+      expect(copilotOperationKind(name)).toBe('other');
+    }
     expect(copilotOperationKind(undefined)).toBe('other');
   });
 });
@@ -221,8 +229,33 @@ describe('CopilotRuntimeAdapter.decide — pre-action denies protected mutations
       });
       const r = copilotAdapter.decide(raw, 'pre-action', cwd);
       expect(r.decision?.verdict).toBe('deny');
-      expect(r.decision?.findings[0].rule).toBe('tamperward-unavailable');
+      expect(r.decision?.findings[0].rule).toBe('unknown-tool');
       expect(JSON.parse(r.wire as string).permissionDecision).toBe('deny');
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    ['grep', (cwd: string) => nativePre(cwd, 'grep', { pattern: 'needle' })],
+    ['glob', (cwd: string) => nativePre(cwd, 'glob', { pattern: '**/*.ts' })],
+    ['web_fetch', (cwd: string) => nativePre(cwd, 'web_fetch', { url: 'https://example.com' })],
+    ['ask_user', (cwd: string) => nativePre(cwd, 'ask_user', { question: 'continue?' })],
+    ['task', (cwd: string) => nativePre(cwd, 'task', { prompt: 'inspect' })],
+    ['skill', (cwd: string) => nativePre(cwd, 'skill', { name: 'review' })],
+    ['update_todo', (cwd: string) => nativePre(cwd, 'update_todo', { todos: [] })],
+    ['Grep', (cwd: string) => pascalPre(cwd, 'Grep', { pattern: 'needle' })],
+    ['Glob', (cwd: string) => pascalPre(cwd, 'Glob', { pattern: '**/*.ts' })],
+    ['WebFetch', (cwd: string) => pascalPre(cwd, 'WebFetch', { url: 'https://example.com' })],
+    ['AskUserQuestion', (cwd: string) => pascalPre(cwd, 'AskUserQuestion', { question: 'continue?' })],
+    ['Agent', (cwd: string) => pascalPre(cwd, 'Agent', { prompt: 'inspect' })],
+    ['TodoWrite', (cwd: string) => pascalPre(cwd, 'TodoWrite', { todos: [] })],
+  ])('allows known non-mutating tool %s without treating it as an unknown no-op', (_name, mk) => {
+    const cwd = repoFixture();
+    try {
+      const r = copilotAdapter.decide(mk(cwd), 'pre-action', cwd);
+      expect(r.decision?.verdict).toBe('allow');
+      expect(r.wire).toBe('');
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
