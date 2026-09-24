@@ -15,6 +15,12 @@ field, changing its type, or changing a discriminator's meaning requires
 The JSON schemas describe **data shape**, not process status — exit codes are a separate
 public protocol, documented on [Exit codes](./exit-codes.md).
 
+Every published v1 schema carries a canonical `$id` at the immutable release-tag URL
+`https://raw.githubusercontent.com/hexrift/tamperward/v2.38.0/schemas/<schema>-v1.schema.json`. The release workflow creates that tag only
+after publishing the exact commit and then fetches every advertised URL over HTTPS,
+comparing the returned bytes with the shipped schema files. Mutable branch refs and
+self-referential commit pins are not canonical identifiers.
+
 [[toc]]
 
 ## Choosing a format: `--format` / `--json`

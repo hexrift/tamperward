@@ -92,8 +92,10 @@
     CI-side with `git cat-file blob FETCH_HEAD`) so the documented transport works
     end to end.
 
-  Shared-schema `$id` reform (#662/#665) is a separate follow-up; the new schemas
-  match the current sibling `v1` ref convention.
+  - **Canonical schema identifiers** (#662/#665). All published v1 schemas now use
+    the immutable release-tag URL for version **2.38.0**. The release workflow verifies
+    every advertised identifier over HTTPS against the exact shipped schema bytes, so
+    mutable branch refs and self-referential commit pins cannot be published.
 
 ## [2.37.2] — 2026-09-23
 

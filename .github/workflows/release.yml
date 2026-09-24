@@ -255,6 +255,29 @@ jobs:
           git tag "v${VERSION}"
           git push origin "v${VERSION}"
 
+      # Verify every canonical schema URL after the immutable release tag exists.
+      - name: Verify published schema identifiers
+        if: steps.plan.outputs.tag_missing == 'true' || steps.plan.outputs.release_missing == 'true'
+        env:
+          VERSION: ${{ steps.plan.outputs.version }}
+        run: |
+          set -euo pipefail
+          schemas=(check verify run doctor research audit stats status runtime-qualification receipt reconcile research-stdio)
+          for name in "${schemas[@]}"; do
+            file="schemas/${name}-v1.schema.json"
+            id="$(node -e 'const fs=require("fs"); const s=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(s["$id"] || "")' "$file")"
+            expected="https://raw.githubusercontent.com/hexrift/tamperward/v${VERSION}/schemas/${name}-v1.schema.json"
+            [ "$id" = "$expected" ] || { echo "canonical id mismatch in $file: $id"; exit 1; }
+            tmp="$(mktemp)"
+            ok=false
+            for attempt in 1 2 3 4 5; do
+              if curl --fail --silent --show-error --location "$id" -o "$tmp" && cmp -s "$tmp" "$file"; then ok=true; break; fi
+              sleep 2
+            done
+            [ "$ok" = true ] || { echo "canonical URL bytes differ for $file: $id"; exit 1; }
+            rm -f "$tmp"
+          done
+
       # The release body is the CHANGELOG section for this version — written once, shown
       # everywhere — not the auto-generated PR list, which in a solo repo repeats
       # "by @<owner>" after every line and says nothing the changelog doesn't say better.
