@@ -15,13 +15,15 @@ field, changing its type, or changing a discriminator's meaning requires
 The JSON schemas describe **data shape**, not process status — exit codes are a separate
 public protocol, documented on [Exit codes](./exit-codes.md).
 
-Every published v1 schema carries a canonical `$id` at the immutable release-tag URL for
-the first release that shipped those exact schema bytes, for example
-`https://raw.githubusercontent.com/hexrift/tamperward/v<first-release-tag>/schemas/<schema>-v1.schema.json`.
-The ID is not rewritten when a later release leaves the schema bytes unchanged. The release workflow
-creates the current tag after publishing the exact commit and then fetches every advertised URL over HTTPS,
-comparing the returned bytes with the shipped schema files. Mutable branch refs and
-self-referential commit pins are not canonical identifiers.
+Every published v1 schema carries a canonical `$id` at an immutable release-tag URL,
+`https://raw.githubusercontent.com/hexrift/tamperward/<tag>/schemas/<schema>-v1.schema.json`,
+where `<tag>` is the release that first shipped those exact bytes. A schema keeps its
+identifier across later releases until its bytes change, and then it ships under the
+next release tag. The release workflow creates each tag only after publishing the exact
+commit, then fetches every advertised URL over HTTPS and compares the returned bytes
+with the shipped schema files; the offline schema test enforces the same rule against
+the local tags. Mutable branch refs and self-referential commit pins are not canonical
+identifiers.
 
 [[toc]]
 

@@ -92,10 +92,13 @@
     CI-side with `git cat-file blob FETCH_HEAD`) so the documented transport works
     end to end.
 
-  - **Canonical schema identifiers** (#662/#665). All published v1 schemas now use
-    the immutable release-tag URL for version **2.38.0**. The release workflow verifies
-    every advertised identifier over HTTPS against the exact shipped schema bytes, so
-    mutable branch refs and self-referential commit pins cannot be published.
+  - **Canonical schema identifiers** (#662/#665). Every published v1 schema now carries
+    its `$id` at the immutable release-tag URL of the release that first shipped its
+    bytes (`v2.38.0` for all twelve in this release); an unchanged schema keeps its
+    identifier across later releases. After tagging, the release workflow verifies every
+    advertised identifier over HTTPS against the exact shipped schema bytes, and the
+    offline schema test enforces the same rule, so mutable branch refs and
+    self-referential commit pins cannot be published.
 
 ## [2.37.2] — 2026-09-23
 
