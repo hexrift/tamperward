@@ -17,6 +17,7 @@ import { runWatch } from './watch';
 import { runOnboard, OnboardOpts } from './onboard';
 import { runResearchCommand, RESEARCH_SUBCOMMANDS } from './research';
 import { runRuntime, parseRuntime, RUNTIME_SUBCOMMANDS } from './runtime';
+import { runReceipt, RECEIPT_SUBCOMMANDS } from './receipt';
 import { runStats, type StatsOpts } from './audit';
 import { runSignoffLabel, SignoffLabelOpts } from './signoff-label';
 
@@ -505,6 +506,30 @@ export function validateCliArgs(cmd: string, args: string[]): string | undefined
     return `unknown research subcommand "${sub}" (${RESEARCH_SUBCOMMANDS.join(' | ')})`;
   }
 
+  if (cmd === 'receipt') {
+    const [sub, ...rest] = args;
+    if (sub === undefined) return `receipt requires a subcommand (${RECEIPT_SUBCOMMANDS.join(' | ')})`;
+    if (sub === 'export') {
+      return validateFlatArgs(rest, {
+        values: { '--out': 'string', '--cwd': 'string' },
+      }).error;
+    }
+    if (sub === 'reconcile') {
+      return validateFlatArgs(rest, {
+        flags: ['--json', '--require-ancestor'],
+        values: {
+          '--base': 'string',
+          '--cmd': 'string',
+          '--budget': 'positive',
+          '--cwd': 'string',
+          '--receipt': 'string',
+          '--ci-result': 'string',
+        },
+      }).error;
+    }
+    return `unknown receipt subcommand "${sub}" (${RECEIPT_SUBCOMMANDS.join(' | ')})`;
+  }
+
   return undefined;
 }
 
@@ -641,6 +666,23 @@ Formats:
                                             emits the versioned status document for
                                             editors, CI and dashboards. Local CURRENT
                                             is posture, never repository/CI authority.
+  tamperward receipt export [--out F]       emit the bounded, transportable verification
+             [--cwd D]                      receipt for the CURRENT verified state (to F,
+                                            else stdout). Refuses when the state is not
+                                            CURRENT. Raw evidence otherwise stays under
+                                            .git/tamperward/, never in the tracked tree.
+  tamperward receipt reconcile [--base R]   CI reruns the canonical verification FIRST,
+             [--cmd C] [--budget S]         then reconciles a claimed receipt against its
+             [--receipt F] [--ci-result F]  own adjudication. --receipt is the claimed
+             [--require-ancestor] [--json]  local receipt (absent → NO_CLAIM, never a
+             [--cwd D]                       failure by itself); --ci-result consumes a
+                                            preceding "verify --json" so the suite runs
+                                            once. Prints LOCAL / CI / RESULT and (--json)
+                                            a machine-readable reconciliation document,
+                                            plus a GitHub job summary. The receipt is
+                                            evidence, never authority: a stale, mismatched,
+                                            tampered, missing or unknown-schema receipt can
+                                            NEVER promote a CI result. Exit is CI's verdict.
   tamperward runtime verify [--runtime ID]  qualify the in-loop runtime: an operation-
              [--mode headless|interactive]  specific capability matrix (pre-deny:shell,
              [--model M] [--json] [--cwd D]  native-edit, mcp, end-of-turn, transport:*,
@@ -734,6 +776,8 @@ export function main(argv: string[]): number | Promise<number> {
       const { sub, opts } = parseRuntime(rest);
       return runRuntime(sub, opts);
     }
+    case 'receipt':
+      return runReceipt(rest);
     case 'run':
       return runEnvelope({
         ...parseRun(rest),

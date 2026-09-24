@@ -64,6 +64,12 @@ jobs:
         node: [20, 22, 24]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The schema-identifier test dereferences an earlier release tag when a schema's
+      # bytes have not changed since it (#662). The depth-1 checkout carries no tags,
+      # and `fetch-tags: true` only auto-follows tags that point at the fetched commit,
+      # so fetch every release tag shallowly (a few MB) rather than the full history.
+      - name: Fetch release tags
+        run: git fetch --no-tags --depth=1 origin '+refs/tags/v*:refs/tags/v*'
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ matrix.node == 20 && '20.19' || matrix.node }}

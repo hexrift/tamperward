@@ -80,9 +80,11 @@ import {
   beginVerifying,
   endVerifying,
   invalidateVerificationRecordIfCurrent,
+  readVerificationRecord,
   recordVerification,
   type VerificationInputs,
 } from '../verification-state';
+import { receiptFromRecord, removeStoredReceipt, storeReceipt } from '../verification-receipt';
 import {
   diagnosticLines,
   runCapturedProcessSync,
@@ -1675,6 +1677,11 @@ function runVerifyImpl(opts: VerifyOpts): number {
       // Reuse the tree fingerprint proved unchanged above (finding 6): the record
       // binds the same tree without a second full read of the worktree.
       recordVerification(cwd, inputs, treeBefore);
+      // Emit the transportable receipt (#601) bound to the SAME state, stored
+      // under `.git/tamperward/` — outside the candidate-controlled tree. It is
+      // a projection of the record just written, so it re-derives no identity.
+      const written = readVerificationRecord(cwd);
+      if (written) storeReceipt(cwd, receiptFromRecord(written));
     } catch {
       // Evidence only. Recording must never change the verification verdict.
     }
@@ -1685,7 +1692,12 @@ function runVerifyImpl(opts: VerifyOpts): number {
     // still matches the live state; a record for a different state is left as
     // STALE. Evidence only: a failure here never changes the verdict.
     try {
-      invalidateVerificationRecordIfCurrent(cwd);
+      // Remove the transportable receipt whenever the #600 record it projects is
+      // invalidated (#601 finding 3): otherwise a red run on the same tree would
+      // leave `verification-receipt.json` behind, and it could still be exported
+      // or transported as a claim for a state that is no longer verified. The
+      // receipt is a projection of the record — it must never outlive it.
+      if (invalidateVerificationRecordIfCurrent(cwd)) removeStoredReceipt(cwd);
     } catch {
       // Evidence only. Reconciliation must never change the verification verdict.
     }
@@ -1705,6 +1717,15 @@ function runVerifyImpl(opts: VerifyOpts): number {
         schema_version: MACHINE_SCHEMA_VERSION,
         verdict,
         base,
+        // The candidate tree fingerprint this run actually ADJUDICATED — the same
+        // identity `verify` binds into the #600 record (`treeBefore`). Additive
+        // (verify-v1 is `additionalProperties: true`), it lets `receipt reconcile`
+        // tell whether CI's verdict is about the receipt's tree or a different one:
+        // in a `pull_request` run the enforcement verify runs over the MERGE result,
+        // so when the branch is behind its base this differs from the branch-tip
+        // tree a receipt binds, and reconcile must report NON_APPLICABLE rather than
+        // attribute CI's verdict to a tree CI never ran (#601 re-review).
+        adjudicated_tree: treeBefore,
         command: cmd,
         budget_secs: budget,
         visible: stageJson(visible),
