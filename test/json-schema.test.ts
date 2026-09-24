@@ -300,7 +300,7 @@ describe('machine-readable schema v1 (#333)', () => {
   it('all published v1 schema IDs resolve to the release tag convention (#662)', () => {
     const validator = ajv();
     for (const filename of PUBLISHED_SCHEMA_FILES) {
-      const schema = JSON.parse(readFileSync(join(ROOT, 'schemas', filename), 'utf8')) as { $id?: unknown };
+      const schema = JSON.parse(readFileSync(join(ROOT, 'schemas', filename), 'utf8'));
       expect(schema.$id).toBe(PUBLISHED_SCHEMA_BASE + '/' + filename);
       expect(validator.validateSchema(schema), filename + ': ' + JSON.stringify(validator.errors)).toBe(true);
     }
