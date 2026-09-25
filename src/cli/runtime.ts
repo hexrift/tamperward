@@ -575,7 +575,8 @@ export function storedQualification(adapter: RuntimeAdapter, cwd: string, opts: 
   const validated = validateStoredReport(raw);
   if ('reason' in validated) return { state: 'rejected', reason: validated.reason };
   const stored = validated.report;
-  const { binding: current } = buildQualification(adapter, opts, cwd);
+  const currentQualification = buildQualification(adapter, opts, cwd);
+  const current = currentQualification.binding;
   const storedBinding: QualificationBinding = {
     runtime: stored.runtime,
     tamperward: stored.tamperward,
@@ -589,6 +590,18 @@ export function storedQualification(adapter: RuntimeAdapter, cwd: string, opts: 
     evidence_id: stored.evidence_id,
   };
   const staleness = qualificationStaleness(storedBinding, current);
+  if (
+    !staleness.stale &&
+    (
+      stored.evidence_id !== current.evidence_id ||
+      JSON.stringify(stored.capabilities) !== JSON.stringify(currentQualification.assessments)
+    )
+  ) {
+    return {
+      state: 'rejected',
+      reason: 'stored qualification posture does not match retained evidence for the current binding',
+    };
+  }
   return { state: 'recorded', report: stored, stale: staleness.stale, changed_inputs: staleness.changed };
 }
 
