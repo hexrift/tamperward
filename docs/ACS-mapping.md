@@ -30,7 +30,7 @@ implementation:
 
 | TamperWard mechanism | ACS-adjacent concept | Status |
 | --- | --- | --- |
-| `pre-action` deny (PreToolUse) | a **synchronous policy-enforcement / interception point** on a proposed action, returning allow/deny before execution | **Implemented** for Claude's declared non-MCP surface (`shell`, `file-edit`, `file-read`, `other`); **MCP pre-deny is unproven** because MCP calls are not reconstructed into `Change[]` before evaluation |
+| `pre-action` deny (PreToolUse) | a **synchronous policy-enforcement / interception point** on a proposed action, returning allow/deny before execution | **Implemented** for Claude's declared modeled surface (`shell`, `file-edit`, `file-read`); **MCP and catch-all `other` pre-deny are unproven** because those calls are not reconstructed into `Change[]` before evaluation |
 | `end-of-turn` mandatory sweep (Stop) | **post-turn reconciliation** of the actual resulting state against policy | **Implemented** (Claude `Stop`) |
 | fail-closed on parse/transport failure | a **control that denies when it cannot evaluate** (no fail-open on control-plane failure) | **Implemented** (`HookInputError` → `failClosed`; `parse-failure` / `transport-failure` → deny) |
 | per-operation capability descriptor | **explicit declaration of which controls are enforced**, per operation, so uncovered operations are visible | **Implemented** (`RuntimeCapabilities`: `preDeny` / `postObserve` / `endOfTurn` / `unsupported`) |
@@ -58,8 +58,8 @@ capabilities:
 - **Cross-runtime equivalence.** Only Claude Code is implemented in-loop. A future partial
   adapter maps only the operation kinds it actually enforces and records the rest in
   `unsupported`; it does not inherit this table's "Implemented" marks for uncovered
-  operations. Claude itself currently leaves MCP pre-deny unproven and relies on the
-  end-of-turn sweep plus repository/CI authority for any MCP mutation that lands.
+  operations. Claude itself currently leaves MCP and catch-all `other` pre-deny unproven and relies on the
+  end-of-turn sweep plus repository/CI authority for mutations from those unmodelled operations.
 
 ## Why the mapping is by mechanism, not by hook name
 

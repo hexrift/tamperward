@@ -53,12 +53,10 @@ covers:
 - `endOfTurn` — whether it delivers a stop event that can run the mandatory sweep;
 - `unsupported` — semantics it explicitly does **not** provide, as prose tags.
 
-**Claude Code declares `preDeny` for `shell`, `file-edit`, `file-read`, and `other`, plus
-`endOfTurn`. MCP is deliberately absent from `preDeny`: although Claude Code delivers MCP
-calls through PreToolUse, TamperWard does not currently reconstruct MCP arguments into the
-shared `Change[]` model, so content-aware MCP pre-deny is **unproven** rather than implied.
+**Claude Code declares `preDeny` for `shell`, `file-edit`, and `file-read`, plus
+`endOfTurn`. MCP and catch-all `other` are deliberately absent from `preDeny`: although Claude Code delivers those calls through PreToolUse, TamperWard does not currently reconstruct them into the shared `Change[]` model, so content-aware pre-deny for those operation classes is **unproven** rather than implied.
 It has no live per-tool `post-action` veto, so `postObserve` is empty and `unsupported`
-names that MCP gap along with the boundaries TamperWard does not police at all
+names those MCP/catch-all gaps along with the boundaries TamperWard does not police at all
 (network-egress control, identity/authentication).
 
 Because `post-action` is observation-only, `decide(..., 'post-action')` for Claude returns
@@ -116,7 +114,7 @@ silently compares different treatments. The neutral contract maps onto it direct
 
 The per-**operation** capabilities refine this coarse mapping: a runtime records the
 `pre-tool-use` layer only for the operation kinds it can actually pre-deny. Claude's own
-current declaration is intentionally partial with respect to MCP, so MCP is not recorded
+current declaration is intentionally partial with respect to MCP and catch-all `other`, so neither is recorded
 as equivalent to its declared shell/file-edit surface. (This is a doc/type mapping; it
 changes no research-runtime behaviour.)
 
@@ -127,7 +125,7 @@ file-edit pre-deny — is a **scoped partial adapter**. It records the gap in `u
 and does not inherit capabilities it has not established. A cross-runtime study reads the
 capability descriptor precisely so it never presents a narrower interception surface as
 equivalent to a broader one. For operation kinds an adapter cannot pre-deny — including
-Claude MCP today — the run envelope and CI remain the security boundary, and the mandatory
+Claude MCP and catch-all unmodelled tools today — the run envelope and CI remain the security boundary, and the mandatory
 end-of-turn sweep still catches a mutation the pre-action layer could not veto.
 
 ## Explicit failure states, and the fail-closed rule
