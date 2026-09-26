@@ -72,18 +72,12 @@ function eventFrom(input: ClaudeHookInput, phase: SteeringPhase): SteeringEvent 
 export class ClaudeRuntimeAdapter implements RuntimeAdapter {
   readonly name = 'claude-code';
 
-  /**
-   * Claude Code's live PreToolUse fires for EVERY tool and can synchronously deny it —
-   * shell, file edit, file read, MCP, and anything else — even under
-   * `--dangerously-skip-permissions`. The end-of-turn Stop sweep is live too. There is no
-   * live per-tool PostToolUse veto (Stop is the post-turn reconciliation), so `postObserve`
-   * is empty and `unsupported` names that gap explicitly rather than implying it.
-   */
   readonly capabilities: RuntimeCapabilities = {
-    preDeny: OPERATION_KINDS,
+    preDeny: OPERATION_KINDS.filter((kind) => kind !== 'mcp'),
     postObserve: [],
     endOfTurn: true,
     unsupported: [
+      'MCP pre-deny is not declared because Claude MCP calls are not reconstructed into Change[] before evaluation',
       'per-operation post-action veto (end-of-turn Stop sweep is the post-turn reconciliation)',
       'network-egress control',
       'identity / authentication',
