@@ -352,6 +352,8 @@ describe('CodexRuntimeAdapter.decide — end-of-turn sweep in Codex wire', () =>
       const r = codexAdapter.decide(raw, 'end-of-turn', cwd);
       expect(r.outcome).toBe('ok');
       expect(r.decision?.verdict).toBe('deny');
+      expect(r.decision?.findings[0]?.rule).toBe('test-deletion');
+      expect(r.decision?.findings[0]?.file).toBe('src/a.spec.ts');
       const j = JSON.parse(r.wire as string);
       // Stop output has NO hookSpecificOutput (stop.command.output.schema.json).
       expect(j.decision).toBe('block');
@@ -367,6 +369,7 @@ describe('CodexRuntimeAdapter.decide — end-of-turn sweep in Codex wire', () =>
     try {
       const r = codexAdapter.decide(JSON.stringify({ cwd }), 'end-of-turn', cwd);
       expect(r.decision?.verdict).toBe('allow');
+      expect(r.decision?.findings).toEqual([]);
       expect(r.wire).toBe('');
     } finally {
       rmSync(cwd, { recursive: true, force: true });

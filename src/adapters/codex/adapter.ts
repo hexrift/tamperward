@@ -122,8 +122,9 @@ export class CodexRuntimeAdapter implements RuntimeAdapter {
       // The canonical git sweep's Stop wire is ALREADY Codex's `{decision:"block",reason}`
       // shape (stop.command.output.schema.json), so it passes through unchanged. The verdict
       // is entirely the canonical stopFromRaw's; the adapter reshapes nothing.
-      const wire = stopFromRaw(raw, defaultCwd, idv.trustedRoot).stdout;
-      return { outcome: 'ok', wire, decision: { verdict: wire ? 'deny' : 'allow', findings: [], reason: wire || undefined } };
+      const swept = stopFromRaw(raw, defaultCwd, idv.trustedRoot);
+      const findings = swept.findings ? [...swept.findings] : [];
+      return { outcome: 'ok', wire: swept.stdout, decision: { verdict: swept.stdout ? 'deny' : 'allow', findings, reason: swept.stdout || undefined } };
     }
 
     try {

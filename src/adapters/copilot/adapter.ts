@@ -152,8 +152,9 @@ export class CopilotRuntimeAdapter implements RuntimeAdapter {
         const wire = this.denyPayload(findings, 'end-of-turn');
         return { outcome: 'parse-failure', detail: stopInput.detail, wire, decision: { verdict: 'deny', findings, reason: wire } };
       }
-      const wire = stopFromRaw(stopInput, defaultCwd, idv.trustedRoot).stdout;
-      return { outcome: 'ok', wire, decision: { verdict: wire ? 'deny' : 'allow', findings: [], reason: wire || undefined } };
+      const swept = stopFromRaw(stopInput, defaultCwd, idv.trustedRoot);
+      const findings = swept.findings ? [...swept.findings] : [];
+      return { outcome: 'ok', wire: swept.stdout, decision: { verdict: swept.stdout ? 'deny' : 'allow', findings, reason: swept.stdout || undefined } };
     }
 
     if (parsed.operation.kind === 'unknown') {
