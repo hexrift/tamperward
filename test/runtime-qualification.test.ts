@@ -518,6 +518,33 @@ describe('runtime CLI end-to-end (#599)', () => {
     expect(doc.note).toMatch(/rejected/);
   });
 
+  it('status rejects a self-consistent forged current capability posture', () => {
+    const cwd = initRepo();
+    run(cwd, ['runtime', 'verify', '--runtime', 'claude-code', '--json'], { TAMPERWARD_RUNTIME_VERSION: '1.0.0' });
+    const store = JSON.parse(readFileSync(storeFileOf(cwd), 'utf8'));
+    const record = store.records['claude-code'];
+
+    for (const capability of record.capabilities) capability.state = 'PROVEN';
+    record.in_loop_protection = aggregateInLoop(record.capabilities);
+    record.evidence_id = evidenceId({
+      runtime: record.runtime,
+      tamperward: record.tamperward,
+      adapter: record.adapter,
+      hook_config_hash: record.hook_config_hash,
+      execution_mode: record.execution_mode,
+      platform: record.platform,
+      model: record.model,
+      tested_capabilities: record.tested_capabilities,
+    }, record.capabilities);
+    writeFileSync(storeFileOf(cwd), JSON.stringify(store));
+
+    const doc = JSON.parse(run(cwd, ['runtime', 'status', '--runtime', 'claude-code', '--json'], { TAMPERWARD_RUNTIME_VERSION: '1.0.0' }));
+    expect(doc.recorded).toBe(false);
+    expect(doc.capabilities).toEqual([]);
+    expect(doc.in_loop_protection).toBe('NONE');
+    expect(doc.note).toMatch(/does not match retained evidence/);
+  });
+
   it('finding 2: status rejects a contradictory recorded:false report', () => {
     const cwd = initRepo();
     run(cwd, ['runtime', 'verify', '--runtime', 'claude-code', '--json'], { TAMPERWARD_RUNTIME_VERSION: '1.0.0' });
