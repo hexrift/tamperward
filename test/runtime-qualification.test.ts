@@ -53,7 +53,9 @@ describe('capability derivation is honest (#599)', () => {
   });
 
   it('a static preDeny declaration is honest about the unreconstructed MCP gap', () => {
-    expect(claudeAdapter.capabilities.preDeny).toEqual(OPERATION_KINDS.filter((kind) => kind !== 'mcp'));
+    expect(claudeAdapter.capabilities.preDeny).toEqual(
+      OPERATION_KINDS.filter((kind) => kind !== 'mcp' && kind !== 'other'),
+    );
     expect(matchRetainedEvidence({
       runtime_id: 'claude-code', runtime_version: '9.9.9', component_versions: [],
       tamperward_version: '2.37.0+deadbeef', adapter_capability_hash: 'abc', tested_capabilities: [],
@@ -66,6 +68,7 @@ describe('capability derivation is honest (#599)', () => {
     }
     expect(stateOf(a, 'pre-deny:mcp')).toBe('UNPROVEN');
     expect(a.find((x) => x.id === 'pre-deny:mcp')!.evidence.source).toBe('adapter-unsupported');
+    expect(claudeAdapter.capabilities.preDeny).not.toContain('other');
     expect(stateOf(a, 'end-of-turn')).toBe('PARTIAL');
     expect(a.some((x) => x.state === 'PROVEN')).toBe(false);
   });
