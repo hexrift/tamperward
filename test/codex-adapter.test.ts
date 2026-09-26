@@ -167,6 +167,7 @@ describe('CodexRuntimeAdapter.decide — pre-action content verdict via the SAME
       const raw = JSON.stringify({ tool_name: 'Bash', cwd, tool_input: { command: 'git reset HEAD -- src/a.spec.ts' } });
       const r = codexAdapter.decide(raw, 'pre-action', cwd);
       expect(r.decision?.verdict).toBe('allow');
+      expect(r.decision?.findings).toEqual([]);
       expect(r.wire).toBe('');
     } finally {
       rmSync(cwd, { recursive: true, force: true });
@@ -352,6 +353,8 @@ describe('CodexRuntimeAdapter.decide — end-of-turn sweep in Codex wire', () =>
       const r = codexAdapter.decide(raw, 'end-of-turn', cwd);
       expect(r.outcome).toBe('ok');
       expect(r.decision?.verdict).toBe('deny');
+      expect(r.decision?.findings[0]?.rule).toBe('test-deletion');
+      expect(r.decision?.findings[0]?.file).toBe('src/a.spec.ts');
       const j = JSON.parse(r.wire as string);
       // Stop output has NO hookSpecificOutput (stop.command.output.schema.json).
       expect(j.decision).toBe('block');

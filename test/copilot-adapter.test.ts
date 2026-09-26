@@ -255,6 +255,7 @@ describe('CopilotRuntimeAdapter.decide — pre-action denies protected mutations
     try {
       const r = copilotAdapter.decide(mk(cwd), 'pre-action', cwd);
       expect(r.decision?.verdict).toBe('allow');
+      expect(r.decision?.findings).toEqual([]);
       expect(r.wire).toBe('');
     } finally {
       rmSync(cwd, { recursive: true, force: true });
@@ -450,6 +451,8 @@ describe('CopilotRuntimeAdapter.decide — end-of-turn sweep over both stop form
       writeFileSync(join(cwd, 'src', 'a.spec.ts'), `it('one', () => {});\n`);
       const r = copilotAdapter.decide(JSON.stringify({ session_id: 's', cwd }), 'end-of-turn', cwd);
       expect(r.decision?.verdict).toBe('deny');
+      expect(r.decision?.findings[0]?.rule).toBe('test-deletion');
+      expect(r.decision?.findings[0]?.file).toBe('src/a.spec.ts');
       const j = JSON.parse(r.wire as string);
       expect(j.decision).toBe('block');
       expect(j.reason).toContain('test-deletion');
