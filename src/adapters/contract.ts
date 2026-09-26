@@ -109,6 +109,15 @@ export interface RuntimeCapabilities {
   unsupported: readonly string[];
 }
 
+export function immutableRuntimeCapabilities(caps: RuntimeCapabilities): RuntimeCapabilities {
+  return Object.freeze({
+    preDeny: Object.freeze([...caps.preDeny]),
+    postObserve: Object.freeze([...caps.postObserve]),
+    endOfTurn: caps.endOfTurn,
+    unsupported: Object.freeze([...caps.unsupported]),
+  });
+}
+
 /**
  * The explicit outcome of a steering attempt. The failure states are first-class so a
  * runtime that could not participate is never confused with one that ALLOWED:
