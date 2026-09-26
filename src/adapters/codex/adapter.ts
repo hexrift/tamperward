@@ -23,6 +23,7 @@ import {
   OperationKind,
   RuntimeAdapter,
   RuntimeCapabilities,
+  immutableRuntimeCapabilities,
   SteeringEvent,
   SteeringPhase,
   SteeringResult,
@@ -48,7 +49,7 @@ export class CodexRuntimeAdapter implements RuntimeAdapter {
    * stop, so those are declared; every real gap is named in `unsupported`. The
    * `probe:codex-runtime` harness is what may later justify moving a kind into `preDeny`.
    */
-  readonly capabilities: RuntimeCapabilities = {
+  readonly capabilities: RuntimeCapabilities = immutableRuntimeCapabilities({
     preDeny: [],
     postObserve: POST_OBSERVE,
     endOfTurn: true,
@@ -58,7 +59,7 @@ export class CodexRuntimeAdapter implements RuntimeAdapter {
       'network-egress control',
       'identity / authentication',
     ],
-  };
+  });
 
   parseEvent(raw: string, phase: SteeringPhase): SteeringEvent | { failure: 'parse-failure'; detail: string } {
     return normalizeCodexEvent(raw, phase);

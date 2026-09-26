@@ -41,6 +41,25 @@ import { TW_VERSION } from '../src/wiring';
 const ROOT = resolve(__dirname, '..');
 const stateOf = (a: CapabilityAssessment[], id: RuntimeCapabilityId) => a.find((x) => x.id === id)!.state;
 
+describe('runtime capability descriptors are immutable', () => {
+  const adapters = [claudeAdapter, codexAdapter, copilotAdapter, copilotSdkAdapter];
+
+  it('freezes the descriptor and every exposed collection', () => {
+    for (const adapter of adapters) {
+      expect(Object.isFrozen(adapter.capabilities), adapter.name).toBe(true);
+      expect(Object.isFrozen(adapter.capabilities.preDeny), adapter.name).toBe(true);
+      expect(Object.isFrozen(adapter.capabilities.postObserve), adapter.name).toBe(true);
+      expect(Object.isFrozen(adapter.capabilities.unsupported), adapter.name).toBe(true);
+    }
+  });
+
+  it('mutation cannot change the capability hash', () => {
+    const before = capabilityHash(claudeAdapter.capabilities);
+    expect(() => (claudeAdapter.capabilities.unsupported as string[]).push('mutated')).toThrow();
+    expect(capabilityHash(claudeAdapter.capabilities)).toBe(before);
+  });
+});
+
 describe('capability derivation is honest (#599)', () => {
   it('assesses every listed capability, exactly once, with a legal state', () => {
     const a = assessCapabilities(claudeAdapter.capabilities);
