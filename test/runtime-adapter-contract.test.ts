@@ -107,14 +107,12 @@ describe('ClaudeRuntimeAdapter — conformance to the neutral RuntimeAdapter con
     expect(new ClaudeRuntimeAdapter().name).toBe('claude-code');
   });
 
-  it('declares Claude = all-operation pre-deny + end-of-turn; post-observe empty; gaps explicit', () => {
+  it('declares only reconstructable Claude pre-deny operations and names the MCP gap', () => {
     const caps = claudeAdapter.capabilities;
-    // pre-deny covers EVERY operation kind (PreToolUse fires for all tools).
-    expect([...caps.preDeny].sort()).toEqual([...OPERATION_KINDS].sort());
+    expect([...caps.preDeny].sort()).toEqual([...OPERATION_KINDS.filter((kind) => kind !== 'mcp')].sort());
     expect(caps.endOfTurn).toBe(true);
-    // No live per-tool post-action veto — the Stop sweep is the post-turn reconciliation.
     expect(caps.postObserve).toEqual([]);
-    expect(caps.unsupported.length).toBeGreaterThan(0);
+    expect(caps.unsupported.join('\n')).toMatch(/MCP pre-deny is not declared/i);
   });
 });
 

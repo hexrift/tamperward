@@ -52,24 +52,21 @@ describe('capability derivation is honest (#599)', () => {
     }
   });
 
-  it('a full static preDeny declaration alone is PARTIAL, never PROVEN (the review fix)', () => {
-    // Guard the premise: Claude Code really declares every operation kind in preDeny...
-    expect(claudeAdapter.capabilities.preDeny).toEqual(OPERATION_KINDS);
-    // ...and there is NO retained real-runtime probe for it, so nothing may be PROVEN.
+  it('a static preDeny declaration is honest about the unreconstructed MCP gap', () => {
+    expect(claudeAdapter.capabilities.preDeny).toEqual(OPERATION_KINDS.filter((kind) => kind !== 'mcp'));
     expect(matchRetainedEvidence({
       runtime_id: 'claude-code', runtime_version: '9.9.9', component_versions: [],
       tamperward_version: '2.37.0+deadbeef', adapter_capability_hash: 'abc', tested_capabilities: [],
       model: null, platform: `${process.platform}-${process.arch}`, execution_mode: 'headless', hook_config_hash: null,
     })).toBeNull();
     const a = assessCapabilities(claudeAdapter.capabilities);
-    // The maintainer's exact objection: static preDeny membership must NOT become PROVEN.
-    for (const id of ['pre-deny:shell', 'pre-deny:native-edit', 'pre-deny:mcp', 'pre-deny:git-mutation', 'pre-deny:delete', 'pre-deny:rename'] as const) {
+    for (const id of ['pre-deny:shell', 'pre-deny:native-edit', 'pre-deny:git-mutation', 'pre-deny:delete', 'pre-deny:rename'] as const) {
       expect(stateOf(a, id), id).toBe('PARTIAL');
       expect(a.find((x) => x.id === id)!.evidence.source).toBe('adapter-declaration');
     }
-    // The declared stop event is likewise only PARTIAL absent a probe that proves the sweep lands.
+    expect(stateOf(a, 'pre-deny:mcp')).toBe('UNPROVEN');
+    expect(a.find((x) => x.id === 'pre-deny:mcp')!.evidence.source).toBe('adapter-unsupported');
     expect(stateOf(a, 'end-of-turn')).toBe('PARTIAL');
-    // Nothing at all is PROVEN from a static declaration.
     expect(a.some((x) => x.state === 'PROVEN')).toBe(false);
   });
 
