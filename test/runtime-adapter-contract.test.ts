@@ -109,10 +109,13 @@ describe('ClaudeRuntimeAdapter — conformance to the neutral RuntimeAdapter con
 
   it('declares only reconstructable Claude pre-deny operations and names the MCP gap', () => {
     const caps = claudeAdapter.capabilities;
-    expect([...caps.preDeny].sort()).toEqual([...OPERATION_KINDS.filter((kind) => kind !== 'mcp')].sort());
+    expect([...caps.preDeny].sort()).toEqual(
+      [...OPERATION_KINDS.filter((kind) => kind !== 'mcp' && kind !== 'other')].sort(),
+    );
     expect(caps.endOfTurn).toBe(true);
     expect(caps.postObserve).toEqual([]);
     expect(caps.unsupported.join('\n')).toMatch(/MCP pre-deny is not declared/i);
+    expect(caps.unsupported.join('\n')).toMatch(/other-tool pre-deny is not declared/i);
   });
 });
 

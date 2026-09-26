@@ -44,10 +44,6 @@ function hookKindFor(phase: SteeringPhase): 'PreToolUse' | 'Stop' {
   throw new Error(`no deny-capable Claude hook for the observation-only phase "${phase}"`);
 }
 
-/** Claude's tool name → neutral operation kind. Read-only tools and unknown tools are
- *  classified but produce no Change downstream (src/adapters/claude/changes.ts), which is
- *  why Claude can DECLARE pre-deny for every kind: PreToolUse fires for all of them and
- *  can deny any — it simply finds nothing to block on a pure read. */
 function operationKind(toolName: string | undefined): OperationKind {
   if (!toolName) return 'other';
   if (toolName === 'Bash' || toolName === 'BashOutput' || toolName === 'KillShell') return 'shell';
@@ -73,11 +69,12 @@ export class ClaudeRuntimeAdapter implements RuntimeAdapter {
   readonly name = 'claude-code';
 
   readonly capabilities: RuntimeCapabilities = {
-    preDeny: OPERATION_KINDS.filter((kind) => kind !== 'mcp'),
+    preDeny: OPERATION_KINDS.filter((kind) => kind !== 'mcp' && kind !== 'other'),
     postObserve: [],
     endOfTurn: true,
     unsupported: [
       'MCP pre-deny is not declared because Claude MCP calls are not reconstructed into Change[] before evaluation',
+      'catch-all other-tool pre-deny is not declared because unmodelled Claude tools are not reconstructed into Change[] before evaluation',
       'per-operation post-action veto (end-of-turn Stop sweep is the post-turn reconciliation)',
       'network-egress control',
       'identity / authentication',
