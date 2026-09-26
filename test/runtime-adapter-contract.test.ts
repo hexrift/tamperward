@@ -132,6 +132,7 @@ describe('ClaudeRuntimeAdapter.decide — byte-identical to the legacy hook path
         expect(result.wire, `${fx.name}: wire bytes`).toBe(legacy.stdout);
         expect(result.outcome).toBe('ok');
         expect(result.decision?.verdict).toBe('deny');
+        expect(result.decision?.findings).toEqual(legacy.findings);
       }
     } finally {
       rmSync(cwd, { recursive: true, force: true });
@@ -152,6 +153,7 @@ describe('ClaudeRuntimeAdapter.decide — byte-identical to the legacy hook path
       expect(result.wire).toBe('');
       expect(result.outcome).toBe('ok');
       expect(result.decision?.verdict).toBe('allow');
+      expect(result.decision?.findings).toEqual([]);
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
@@ -179,6 +181,8 @@ describe('ClaudeRuntimeAdapter.decide — byte-identical to the legacy hook path
       expect(result.wire).toBe(legacy.stdout);
       expect(result.outcome).toBe('ok');
       expect(result.decision?.verdict).toBe('deny');
+      expect(result.decision?.findings).toEqual(legacy.findings);
+      expect(result.decision?.findings[0]?.rule).toBe('test-deletion');
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
@@ -226,8 +230,11 @@ describe('ClaudeRuntimeAdapter — failure states fail closed (deny)', () => {
     expect(result.outcome).toBe('parse-failure');
     expect(result.decision?.verdict).toBe('deny');
     expect(result.wire && result.wire.length).toBeGreaterThan(0);
+    const live = preToolUseFromRaw(raw);
+    expect(result.decision?.findings).toEqual(live.findings);
+    expect(result.decision?.findings[0]?.rule).toBe('tamperward-unavailable');
     // Byte-identical to the live fail-closed path.
-    expect(result.wire).toBe(preToolUseFromRaw(raw).stdout);
+    expect(result.wire).toBe(live.stdout);
     const j = JSON.parse(result.wire as string);
     expect(j.hookSpecificOutput.permissionDecision).toBe('deny');
   });

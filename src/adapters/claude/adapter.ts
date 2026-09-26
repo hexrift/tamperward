@@ -159,11 +159,12 @@ export class ClaudeRuntimeAdapter implements RuntimeAdapter {
       // The live path fails CLOSED on an unparseable payload; take its byte-identical wire
       // and relabel the outcome as parse-failure.
       const live = phase === 'end-of-turn' ? stopFromRaw(raw, defaultCwd) : preToolUseFromRaw(raw, defaultCwd);
+      const findings = live.findings ? [...live.findings] : [];
       return {
         outcome: 'parse-failure',
         detail: parsed.detail,
         wire: live.stdout,
-        decision: { verdict: 'deny', findings: [], reason: live.stdout },
+        decision: { verdict: 'deny', findings, reason: live.stdout },
       };
     }
     const idv = this.validateIdentity(parsed.identity, defaultCwd);
@@ -177,10 +178,11 @@ export class ClaudeRuntimeAdapter implements RuntimeAdapter {
     const live = phase === 'end-of-turn' ? stopFromRaw(raw, defaultCwd, idv.trustedRoot) : preToolUseFromRaw(raw, defaultCwd, idv.trustedRoot);
     const wire = live.stdout;
     const denied = wire.length > 0;
+    const findings = live.findings ? [...live.findings] : [];
     return {
       outcome: 'ok',
       wire,
-      decision: { verdict: denied ? 'deny' : 'allow', findings: [], reason: denied ? wire : undefined },
+      decision: { verdict: denied ? 'deny' : 'allow', findings, reason: denied ? wire : undefined },
     };
   }
 
