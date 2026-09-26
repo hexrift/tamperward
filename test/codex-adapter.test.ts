@@ -167,7 +167,6 @@ describe('CodexRuntimeAdapter.decide — pre-action content verdict via the SAME
       const raw = JSON.stringify({ tool_name: 'Bash', cwd, tool_input: { command: 'git reset HEAD -- src/a.spec.ts' } });
       const r = codexAdapter.decide(raw, 'pre-action', cwd);
       expect(r.decision?.verdict).toBe('allow');
-      expect(r.decision?.findings).toEqual([]);
       expect(r.wire).toBe('');
     } finally {
       rmSync(cwd, { recursive: true, force: true });
@@ -370,6 +369,7 @@ describe('CodexRuntimeAdapter.decide — end-of-turn sweep in Codex wire', () =>
     try {
       const r = codexAdapter.decide(JSON.stringify({ cwd }), 'end-of-turn', cwd);
       expect(r.decision?.verdict).toBe('allow');
+      expect(r.decision?.findings).toEqual([]);
       expect(r.wire).toBe('');
     } finally {
       rmSync(cwd, { recursive: true, force: true });
