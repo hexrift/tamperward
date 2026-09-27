@@ -1,16 +1,20 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   applyLocalSignoffs,
   applyOobSignoffs,
   compactOobToken,
+  honoredAt,
+  LEDGER_TTL_MS,
   oobToken,
   appendEntry,
   makeEntry,
   fingerprintOf,
+  readLedger,
 } from '../src/signoff';
+import { PolicyError } from '../src/policy-load';
 import { changesFromClaudeHook } from '../src/adapters/claude/changes';
 import { preToolUseVerdict } from '../src/cli/hook';
 import { evaluate } from '../src/engine';
@@ -144,5 +148,121 @@ describe('oobToken — the one matcher behind check --diff and verify', () => {
   it('rejects malformed compact tokens and abbreviated heads', () => {
     expect(compactOobToken('verify', '1234567')).toBeNull();
     expect(oobToken('verify', ['tw1:not-a-digest'], HEAD)).toBeNull();
+  });
+});
+
+// #699: the LOCAL layer trusts the ledger as "a one-time human judgment on one tamper, not a
+// standing license", and the loader refuses a `signoff.ledger` that NAMES a location outside
+// the repository. The reader used to hold neither half: `existsSync` + `readFileSync` followed
+// a symbolic link to a file no git view shows, and any `expiresAt` a line claimed was honored.
+describe('#699 — the LOCAL layer honors only a ledger `allow` could have written', () => {
+  const f = blockFinding();
+  const onPosix = process.platform !== 'win32'; // symlink creation needs a privilege on Windows
+  const YEARS_10 = 10 * 365 * 24 * 3600 * 1000;
+  const twoDirs = (fn: (repo: string, outside: string) => void) => {
+    const repo = mkdtempSync(join(tmpdir(), 'hf-699-repo-'));
+    const outside = mkdtempSync(join(tmpdir(), 'hf-699-outside-'));
+    try {
+      fn(repo, outside);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
+    }
+  };
+
+  it('a real ledger with a fresh `allow` entry still clears the finding; an absent one is simply no sign-off', () => {
+    twoDirs((repo) => {
+      expect(readLedger(repo, P)).toEqual([]); // no .tamperward/ at all
+      expect(applyLocalSignoffs([f], repo, P).cleared).toHaveLength(0);
+      mkdirSync(join(repo, '.tamperward'));
+      expect(readLedger(repo, P)).toEqual([]); // the directory, no file
+      appendEntry(repo, P, makeEntry(f, 'reviewed', Date.now()));
+      expect(readLedger(repo, P)).toHaveLength(1);
+      expect(applyLocalSignoffs([f], repo, P).cleared).toHaveLength(1);
+    });
+  });
+
+  it.skipIf(!onPosix)('refuses a ledger FILE that is a symbolic link to a file outside the repository (RED: it was honored)', () => {
+    twoDirs((repo, outside) => {
+      writeFileSync(join(outside, 'shared.jsonl'), JSON.stringify(makeEntry(f, 'planted', Date.now())) + '\n');
+      mkdirSync(join(repo, '.tamperward'));
+      symlinkSync(join(outside, 'shared.jsonl'), join(repo, '.tamperward', 'ledger.jsonl'));
+      expect(() => applyLocalSignoffs([f], repo, P)).toThrow(PolicyError);
+      expect(() => readLedger(repo, P)).toThrow(/\.tamperward\/ledger\.jsonl is a symbolic link/);
+    });
+  });
+
+  it.skipIf(!onPosix)('refuses a `.tamperward` DIRECTORY that is a symbolic link (RED: the file behind it was honored)', () => {
+    twoDirs((repo, outside) => {
+      writeFileSync(join(outside, 'ledger.jsonl'), JSON.stringify(makeEntry(f, 'planted', Date.now())) + '\n');
+      symlinkSync(outside, join(repo, '.tamperward'));
+      expect(() => applyLocalSignoffs([f], repo, P)).toThrow(/\.tamperward is a symbolic link/);
+    });
+  });
+
+  it('refuses a ledger path that is not a regular file', () => {
+    twoDirs((repo) => {
+      mkdirSync(join(repo, '.tamperward', 'ledger.jsonl'), { recursive: true }); // a directory where the file goes
+      expect(() => readLedger(repo, P)).toThrow(/ledger\.jsonl is a directory/);
+      expect(() => appendEntry(repo, P, makeEntry(f, 'r', Date.now()))).toThrow(PolicyError);
+    });
+  });
+
+  it.skipIf(!onPosix)('`allow` never writes through a link: appendEntry refuses and the file outside stays untouched', () => {
+    twoDirs((repo, outside) => {
+      writeFileSync(join(outside, 'shared.jsonl'), '');
+      mkdirSync(join(repo, '.tamperward'));
+      symlinkSync(join(outside, 'shared.jsonl'), join(repo, '.tamperward', 'ledger.jsonl'));
+      expect(() => appendEntry(repo, P, makeEntry(f, 'r', Date.now()))).toThrow(PolicyError);
+      expect(readFileSync(join(outside, 'shared.jsonl'), 'utf8')).toBe('');
+    });
+  });
+
+  it.skipIf(!onPosix)('a stat failure that is not ENOENT is never "absent": readLedger and appendEntry refuse instead of dropping the entries (RED: readLedger returned [])', () => {
+    // Two deterministic non-ENOENT failures that need no privilege drop (the suite may run
+    // as root, where a chmod 000 directory still traverses): a component longer than
+    // NAME_MAX (ENAMETOOLONG), and a repository path that runs through a link loop (ELOOP).
+    twoDirs((repo, outside) => {
+      const tooLong = { ...P, signoff: { ...P.signoff, ledger: `${'a'.repeat(300)}/ledger.jsonl` } };
+      expect(() => readLedger(repo, tooLong)).toThrow(PolicyError);
+      expect(() => readLedger(repo, tooLong)).toThrow(/cannot stat a{300} \(.*ENAMETOOLONG/);
+      expect(() => appendEntry(repo, tooLong, makeEntry(f, 'r', Date.now()))).toThrow(/cannot stat a{300}/);
+
+      symlinkSync('loop', join(outside, 'loop'));
+      const throughLoop = join(outside, 'loop', 'repo');
+      expect(() => readLedger(throughLoop, P)).toThrow(PolicyError);
+      expect(() => readLedger(throughLoop, P)).toThrow(/cannot stat \.tamperward \(.*ELOOP/);
+      expect(() => appendEntry(throughLoop, P, makeEntry(f, 'r', Date.now()))).toThrow(/cannot stat \.tamperward/);
+    });
+  });
+
+  it('honoredAt: inside the window `allow` writes and nowhere else', () => {
+    const now = Date.now();
+    const e = makeEntry(f, 'reviewed', now);
+    expect(honoredAt(e, now)).toBe(true);
+    expect(honoredAt(e, now + LEDGER_TTL_MS - 1)).toBe(true); // the last moment of its 30 days
+    expect(honoredAt(e, now + LEDGER_TTL_MS)).toBe(false); // expired
+    expect(honoredAt({ ...e, expiresAt: 9e15 }, now + YEARS_10)).toBe(false); // a hand-written standing license
+    expect(honoredAt({ ...e, expiresAt: e.recordedAt + LEDGER_TTL_MS + 1 }, now)).toBe(false); // one ms longer than allow grants
+    expect(honoredAt({ ...e, expiresAt: e.recordedAt + LEDGER_TTL_MS }, now)).toBe(true); // exactly what allow grants
+    expect(honoredAt(makeEntry(f, 'later', now + 5 * 365 * 24 * 3600 * 1000), now)).toBe(false); // recorded in the future
+    expect(honoredAt(makeEntry(f, 'earlier', now - LEDGER_TTL_MS + 1000), now)).toBe(true); // 30 days minus a second old
+    expect(honoredAt({ ...e, expiresAt: Number.NaN }, now)).toBe(false);
+    expect(honoredAt({ ...e, recordedAt: Number.NaN }, now)).toBe(false);
+  });
+
+  it('end to end: a planted standing license or a future entry clears nothing; a fresh entry still does (RED: all three cleared)', () => {
+    twoDirs((repo) => {
+      const now = Date.now();
+      appendEntry(repo, P, { ...makeEntry(f, 'standing license', now), expiresAt: 9e15 });
+      expect(applyLocalSignoffs([f], repo, P, now + YEARS_10).cleared).toHaveLength(0);
+      expect(applyLocalSignoffs([f], repo, P, now).cleared).toHaveLength(0); // its lifetime is not one allow grants, even today
+      appendEntry(repo, P, makeEntry(f, 'from the future', now + YEARS_10));
+      expect(applyLocalSignoffs([f], repo, P, now).cleared).toHaveLength(0);
+      appendEntry(repo, P, makeEntry(f, 'reviewed', now));
+      const r = applyLocalSignoffs([f], repo, P, now);
+      expect(r.cleared).toHaveLength(1);
+      expect(r.findings).toHaveLength(0);
+    });
   });
 });
