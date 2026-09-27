@@ -5,12 +5,12 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore — untyped .mjs helper, imported for behaviour like the release-discipline tests
-import { bumpCommit, versionOf, gather, main, MANIFEST } from '../.github/scripts/bump-commit.mjs';
+import { bumpCommit, versionOf, gather, main, manifestAt, MANIFEST } from '../.github/scripts/bump-commit.mjs';
 
 const SCRIPT = join(__dirname, '..', '.github', 'scripts', 'bump-commit.mjs');
 
@@ -89,7 +89,7 @@ describe('#701 bump-commit.mjs against fixture repositories', () => {
     expect(r.stdout.trim()).toBe(bumpSha);
     expect(r.stderr).toBe('');
   });
-  it('gather walks newest first and stops being needed at the first version change', () => {
+  it('gather walks newest first, taking each parent from the log rather than from a failed read', () => {
     const rows = [...gather(repo)] as Array<{ sha: string; version: string | null; parent: string | null }>;
     expect(rows.map((r) => r.sha)).toEqual([depsSha, bumpSha, rootSha]);
     expect(rows[0]).toEqual({ sha: depsSha, version: '1.0.1', parent: '1.0.1' });
@@ -117,6 +117,51 @@ describe('#701 bump-commit.mjs against fixture repositories', () => {
       writeFileSync(join(d, MANIFEST), pkg('0.1.0'));
       const root = commitAll('root', d);
       expect(run(d).stdout.trim()).toBe(root);
+    } finally {
+      rmSync(d, { recursive: true, force: true });
+    }
+  });
+  it('a manifest first added after the root: its parent LACKS the path, which is absence, not failure', () => {
+    const d = mkdtempSync(join(tmpdir(), 'tw-bump-commit-added-'));
+    try {
+      g(['init', '-q'], d);
+      writeFileSync(join(d, 'README.md'), 'x\n');
+      const root = commitAll('root without a manifest', d);
+      writeFileSync(join(d, MANIFEST), pkg('1.0.0'));
+      const added = commitAll('add package.json', d);
+      expect(manifestAt(root, MANIFEST, d)).toBeNull();
+      expect(versionOf(manifestAt(added, MANIFEST, d))).toBe('1.0.0');
+      expect([...gather(d)]).toEqual([{ sha: added, version: '1.0.0', parent: null }]);
+      expect(run(d).stdout.trim()).toBe(added);
+    } finally {
+      rmSync(d, { recursive: true, force: true });
+    }
+  });
+  it('RED: a parent manifest that EXISTS but cannot be read is a failure, never "no parent version" — the CLI exits 1 without a sha', () => {
+    const d = mkdtempSync(join(tmpdir(), 'tw-bump-commit-corrupt-'));
+    try {
+      g(['init', '-q'], d);
+      writeFileSync(join(d, MANIFEST), pkg('1.0.0'));
+      commitAll('root', d);
+      writeFileSync(join(d, MANIFEST), pkg('1.0.1'));
+      const bump = commitAll('release: 1.0.1', d);
+      writeFileSync(join(d, MANIFEST), pkg('1.0.1', { vitest: '5.0.1' }));
+      const head = commitAll('build(deps-dev): bump vitest', d);
+      // Remove the loose object behind the bump commit's manifest: the tree still lists
+      // it (presence is known), but the blob can no longer be read.
+      const blob = g(['rev-parse', `${bump}:${MANIFEST}`], d);
+      const objectPath = join(d, '.git', 'objects', blob.slice(0, 2), blob.slice(2));
+      chmodSync(objectPath, 0o644);
+      rmSync(objectPath);
+      expect(() => manifestAt(bump, MANIFEST, d)).toThrow(/git show/);
+      // The old resolution read the unreadable parent as "no version" and named HEAD.
+      const r = run(d);
+      expect(r.status).toBe(1);
+      expect(r.stdout).toBe('');
+      expect(r.stderr).toMatch(/^::error::bump-commit: git show /);
+      expect(r.stderr).toContain('cannot be identified');
+      expect(r.stderr).not.toContain('\n    at '); // a line, not a stack
+      expect(r.stdout).not.toContain(head);
     } finally {
       rmSync(d, { recursive: true, force: true });
     }

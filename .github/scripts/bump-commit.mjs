@@ -13,9 +13,14 @@
 // first whose version differs from its parent's.
 //
 // Pure `bumpCommit()` over rows is unit-tested against literal inputs; the git-backed
-// walk is lazy (two blob reads per commit, stopping at the first change) and is
-// exercised against fixture repositories in test/release-bump-commit.test.ts. Node
-// built-ins only: the plan step runs before `npm ci`.
+// walk is lazy (it stops at the first change) and is exercised against fixture
+// repositories in test/release-bump-commit.test.ts. It distinguishes EXPECTED absence
+// from failure: a root commit has no parent (the parent list comes from the log itself),
+// and a tree may lack the manifest (`ls-tree` lists nothing) — both read as "no version".
+// Any other failure to read a manifest that is known to exist is an error, and the CLI
+// then exits non-zero without naming a commit: a parent that could not be read must
+// never make HEAD look like the bump commit. Node built-ins only: the plan step runs
+// before `npm ci`.
 
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
@@ -49,29 +54,46 @@ export function bumpCommit(rows) {
 
 function git(args, cwd) {
   const r = spawnSync('git', args, { cwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
-  if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${String(r.stderr ?? '').trim()}`);
+  if (r.error) throw new Error(`git ${args.join(' ')} could not run: ${r.error.message}`);
+  if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed (exit ${r.status}): ${String(r.stderr ?? '').trim()}`);
   return r.stdout;
 }
 
-/** The blob at `<rev>:<path>`, or null when the revision or the path does not exist
- *  there (a root commit has no parent; a manifest may not exist yet). */
-function blobOrNull(rev, path, cwd) {
-  const r = spawnSync('git', ['show', `${rev}:${path}`], { cwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
-  return r.status === 0 ? r.stdout : null;
+/** The manifest's text at `rev`, or null ONLY when that tree has no entry at `path`
+ *  (`ls-tree` succeeds and lists nothing). A tree that cannot be listed, or a listed
+ *  blob that cannot be read — corruption, an I/O failure, a broken revision — throws:
+ *  it is never "no version", because a parent that could not be read must not make its
+ *  child look like the commit that introduced the version. */
+export function manifestAt(rev, path, cwd) {
+  if (git(['ls-tree', rev, '--', path], cwd).trim() === '') return null;
+  return git(['show', `${rev}:${path}`], cwd);
 }
 
 /** Rows for every commit that touched the manifest, newest first, read lazily so the
- *  walk stops at the first version change. */
+ *  walk stops at the first version change. The first parent comes from the log itself
+ *  (`%P`), so "no parent" is a fact about the commit, never an inference from a failed
+ *  read; a root commit's parent version is null. */
 export function* gather(cwd = process.cwd(), path = MANIFEST) {
-  const shas = git(['log', '--format=%H', '--', path], cwd).split('\n').filter(Boolean);
-  for (const sha of shas) {
-    yield { sha, version: versionOf(blobOrNull(sha, path, cwd)), parent: versionOf(blobOrNull(`${sha}^`, path, cwd)) };
+  const lines = git(['log', '--format=%H %P', '--', path], cwd).split('\n').filter(Boolean);
+  for (const line of lines) {
+    const [sha, ...parents] = line.split(' ').filter(Boolean);
+    const firstParent = parents.length > 0 ? parents[0] : null;
+    const version = versionOf(manifestAt(sha, path, cwd));
+    const parent = firstParent === null ? null : versionOf(manifestAt(firstParent, path, cwd));
+    yield { sha, version, parent };
   }
 }
 
-/** CLI: print the bump commit's sha, or fail closed when none can be found. */
+/** CLI: print the bump commit's sha, or fail closed — no sha on stdout, one `::error::`
+ *  line — when none can be found or a manifest known to exist could not be read. */
 export function main(cwd = process.cwd()) {
-  const sha = bumpCommit(gather(cwd));
+  let sha;
+  try {
+    sha = bumpCommit(gather(cwd));
+  } catch (e) {
+    const detail = e instanceof Error ? e.message : String(e);
+    return { code: 1, out: '', err: `::error::bump-commit: ${detail.split('\n')[0]}; the bump commit cannot be identified, so nothing is published\n` };
+  }
   if (sha === null) {
     return { code: 1, out: '', err: `::error::no commit in this history changes the version in ${MANIFEST}; the bump commit cannot be identified, so nothing is published\n` };
   }
