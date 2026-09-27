@@ -26,6 +26,7 @@ import {
   RuntimeAdapter,
   RuntimeCapabilities,
   immutableRuntimeCapabilities,
+  immutableRuntimeAdapter,
   SteeringEvent,
   SteeringPhase,
   SteeringResult,
@@ -191,4 +192,4 @@ export class ClaudeRuntimeAdapter implements RuntimeAdapter {
 }
 
 /** The singleton Claude adapter. */
-export const claudeAdapter = new ClaudeRuntimeAdapter();
+export const claudeAdapter = immutableRuntimeAdapter(new ClaudeRuntimeAdapter());
