@@ -38,6 +38,7 @@ import {
   RuntimeAdapter,
   RuntimeCapabilities,
   immutableRuntimeCapabilities,
+  immutableRuntimeAdapter,
   SteeringEvent,
   SteeringPhase,
   SteeringResult,
@@ -195,4 +196,4 @@ export class CopilotRuntimeAdapter implements RuntimeAdapter {
 }
 
 /** The singleton Copilot adapter. */
-export const copilotAdapter = new CopilotRuntimeAdapter();
+export const copilotAdapter = immutableRuntimeAdapter(new CopilotRuntimeAdapter());
