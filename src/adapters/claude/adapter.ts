@@ -25,6 +25,8 @@ import {
   ProposedOperation,
   RuntimeAdapter,
   RuntimeCapabilities,
+  immutableRuntimeCapabilities,
+  immutableRuntimeAdapter,
   SteeringEvent,
   SteeringPhase,
   SteeringResult,
@@ -68,7 +70,7 @@ function eventFrom(input: ClaudeHookInput, phase: SteeringPhase): SteeringEvent 
 export class ClaudeRuntimeAdapter implements RuntimeAdapter {
   readonly name = 'claude-code';
 
-  readonly capabilities: RuntimeCapabilities = {
+  readonly capabilities: RuntimeCapabilities = immutableRuntimeCapabilities({
     preDeny: OPERATION_KINDS.filter((kind) => kind !== 'mcp' && kind !== 'other'),
     postObserve: [],
     endOfTurn: true,
@@ -79,7 +81,7 @@ export class ClaudeRuntimeAdapter implements RuntimeAdapter {
       'network-egress control',
       'identity / authentication',
     ],
-  };
+  });
 
   parseEvent(raw: string, phase: SteeringPhase): SteeringEvent | { failure: 'parse-failure'; detail: string } {
     try {
@@ -190,4 +192,4 @@ export class ClaudeRuntimeAdapter implements RuntimeAdapter {
 }
 
 /** The singleton Claude adapter. */
-export const claudeAdapter = new ClaudeRuntimeAdapter();
+export const claudeAdapter = immutableRuntimeAdapter(new ClaudeRuntimeAdapter());
