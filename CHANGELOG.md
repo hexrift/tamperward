@@ -1,5 +1,41 @@
 # Changelog
 
+## [2.39.5] — 2026-09-27
+
+### Fixed
+
+- **The local sign-off ledger is honored only as `allow` writes it** (#699). The LOCAL layer
+  (`check --staged`, the pre-commit hook) clears a blocking finding on a matching ledger entry
+  and calls that a one-time human judgment, never a standing license; the loader already refuses
+  a `signoff.ledger` that names a location outside the repository. The reader held neither half:
+  it followed a symbolic link at `.tamperward/ledger.jsonl`, or at `.tamperward/` itself, to a
+  file outside the repository that no git view shows (and `tamperward allow` appended through
+  the same link), and it honored any `expiresAt` a line claimed, so a hand-written expiry years
+  out, or a `recordedAt` in the future, cleared the same fingerprint for good. The ledger is now
+  read and appended only as a regular file reached inside the repository without following a
+  link (every path component checked, the file opened `O_NOFOLLOW` where the platform has it);
+  anything else is exit 2 with one line on stderr, like an escaping path. An entry is honored
+  only inside the window `allow` writes: unexpired, recorded no later than now, and living at
+  most the 30 days `allow` grants. The agent layer never read the ledger and CI honors only the
+  out-of-band label, so no CI verdict changes.
+
+## [2.39.4] — 2026-09-27
+
+### Fixed
+
+- **The retained-evidence catalogue is pinned to the committed capture it transcribes** (#697).
+  Each record now carries `committed_artifact_sha256`, the SHA-256 of the committed sanitized
+  capture at `source` (distinct from `source_artifact_sha256`, which stays the identity of the
+  original uncommitted capture), and each observation names the capture row it was transcribed
+  from through `capture_path`. A lineage test opens every record's capture and checks the
+  transcription field by field: the two hashes, the binding against the capture's provenance,
+  the tested surface against the observation ids, each `proven` observation against an
+  explicit denied completion that kept the protected state intact after the boundary, and each
+  `fail-open` observation against a row that mutated it. Nothing about matching,
+  grading or the report's wire format changes; a catalogue that drifts from its evidence, or
+  evidence that changes under the catalogue, now fails the suite instead of still grading
+  `PROVEN`.
+
 ## [2.39.3] — 2026-09-27
 
 ### Fixed
