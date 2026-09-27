@@ -14,7 +14,46 @@
   change `tested_capabilities` in every later qualification binding. An attempted mutation
   now throws and cannot change `matchRetainedEvidence()`, `adapterFor()`, the derived
   assessments or a qualification binding. Same invariant as #689, one boundary further out;
-  adapter instances themselves are not frozen, since an adapter may hold per-turn state.
+  the helper walks plain data only, so an adapter instance's own immutability stays the
+  adapter's construction-time job (#689).
+
+## [2.39.1] — 2026-09-27
+
+This release carries no code change of its own. It cuts the version for five runtime fixes
+that merged after 2.39.0 without one, so that the tag and the changelog describe what
+`main` ships again.
+
+### Fixed
+
+- **A stored runtime qualification must match the retained evidence for the current
+  binding** (#677). `tamperward runtime status`, and onboarding through the same reader,
+  now reject a stored record whose evidence id or capability matrix differs from what the
+  retained evidence produces for the current runtime, TamperWard and adapter binding,
+  instead of rendering it as recorded posture. A record that passes the staleness check
+  can no longer present a posture the evidence does not support.
+- **Structured Stop findings reach the steering decision on Codex and Copilot CLI** (#679).
+  The end-of-turn sweep's findings are carried on the decision beside the wire payload
+  instead of being dropped to an empty list, so a consumer of the decision sees why the
+  turn was blocked.
+- **Claude hook findings reach the steering decision** (#681). Both the live
+  PreToolUse/Stop path and the fail-closed parse-failure path carry the canonical findings
+  on the decision instead of an empty list.
+- **The Claude adapter no longer declares MCP pre-deny** (#683). Claude MCP calls are not
+  reconstructed into changes before evaluation, so `mcp` leaves `preDeny` and the gap is
+  named in `unsupported`.
+- **The Claude adapter no longer declares a catch-all `other` pre-deny** (#687). Unmodelled
+  Claude tools are not reconstructed into changes before evaluation either, so `other`
+  leaves `preDeny` and that gap is named in `unsupported` too.
+
+Because #683 and #687 change the Claude adapter's declared capabilities, its capability
+hash changes with them: a qualification recorded by `tamperward runtime verify` under the
+2.39.0 declaration is reported as `STALE` by `runtime status` and onboarding until it is
+re-run.
+
+### Changed
+
+- **Docs**: `docs/ACS-mapping.md` and `docs/guide/runtime-adapters.md` state the corrected
+  Claude MCP capability claims (#685).
 
 ## [2.39.0] — 2026-09-24
 
