@@ -35,6 +35,10 @@ function loadCapture(record: RetainedRuntimeEvidence): { capture: Capture; commi
 
 const sortedJson = (xs: readonly string[]) => JSON.stringify([...xs].sort());
 
+/** The completion error code of a permission DENIAL in the sanitized capture (the same
+ *  code test/copilot-sdk-qualify.test.ts freezes for both credentialed signatures). */
+const DENIED_CODE = 'denied';
+
 /** Every way a catalogue record can misdescribe its capture, as human-readable findings. */
 function lineageFindings(record: RetainedRuntimeEvidence, capture: Capture, committedSha256: string): string[] {
   const findings: string[] = [];
@@ -62,11 +66,19 @@ function lineageFindings(record: RetainedRuntimeEvidence, capture: Capture, comm
       findings.push(`${o.id}: ${o.result}, but ${o.capture_path} is not a signature row of the capture`);
       continue;
     }
-    if (signature.completion.success !== false) findings.push(`${o.id}: ${o.capture_path} did not complete as a denial`);
     if (signature.observations.length === 0) findings.push(`${o.id}: ${o.capture_path} carries no sanitized observation`);
     const mutated = signature.observations.some((x) => x.protected_state_mutated);
     const postBoundary = signature.observations.every((x) => x.completion_host_seq > x.boundary_host_seq);
-    if (o.result === 'proven' && (mutated || !postBoundary)) findings.push(`${o.id}: proven, but ${o.capture_path} mutated protected state or completed before the boundary`);
+    // The completion a row must show depends on the result it supports. A `proven`
+    // denial is a completion that FAILED with the runtime's own denied code: a transport
+    // or runtime failure that happened to leave the state intact proves nothing about
+    // the boundary. A `fail-open` row is proven by the mutation itself; its completion
+    // may well have succeeded, so no denial is asked of it.
+    if (o.result === 'proven') {
+      const denied = signature.completion.success === false && signature.completion.error_code === DENIED_CODE;
+      if (!denied) findings.push(`${o.id}: proven, but ${o.capture_path} did not complete as a denial (success ${signature.completion.success}, error_code ${signature.completion.error_code})`);
+      if (mutated || !postBoundary) findings.push(`${o.id}: proven, but ${o.capture_path} mutated protected state or completed before the boundary`);
+    }
     if (o.result === 'fail-open' && !mutated) findings.push(`${o.id}: fail-open, but ${o.capture_path} never mutated protected state`);
   }
   return findings;
@@ -155,5 +167,21 @@ describe('#697 the lineage checks bite (RED on a drifted transcription)', () => 
   });
   it('a fail-open observation needs a row that actually mutated protected state', () => {
     expect(findingsAfter((r) => { r.observations[0].result = 'fail-open'; })).toEqual([expect.stringContaining('fail-open')]);
+  });
+  it('a proven observation whose row failed for any reason other than a denial', () => {
+    const transport: Capture = JSON.parse(JSON.stringify(capture)) as Capture;
+    transport.signatures[0].completion.error_code = 'transport';
+    expect(lineageFindings(record, transport, committedSha256)).toEqual([expect.stringContaining('did not complete as a denial')]);
+    const succeeded: Capture = JSON.parse(JSON.stringify(capture)) as Capture;
+    succeeded.signatures[0].completion.success = true;
+    expect(lineageFindings(record, succeeded, committedSha256)).toEqual([expect.stringContaining('did not complete as a denial')]);
+  });
+  it('a fail-open observation is satisfied by a completion that SUCCEEDED and mutated protected state: no denial is asked of it', () => {
+    const open: Capture = JSON.parse(JSON.stringify(capture)) as Capture;
+    open.signatures[0].completion = { success: true, error_code: '', message_hash: '' };
+    for (const x of open.signatures[0].observations) x.protected_state_mutated = true;
+    const drifted = copyOf(record);
+    drifted.observations[0].result = 'fail-open';
+    expect(lineageFindings(drifted, open, committedSha256)).toEqual([]);
   });
 });

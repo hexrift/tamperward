@@ -10,8 +10,9 @@
   original uncommitted capture), and each observation names the capture row it was transcribed
   from through `capture_path`. A lineage test opens every record's capture and checks the
   transcription field by field: the two hashes, the binding against the capture's provenance,
-  the tested surface against the observation ids, and each `proven` observation against a
-  denial that kept the protected state intact after the boundary. Nothing about matching,
+  the tested surface against the observation ids, each `proven` observation against an
+  explicit denied completion that kept the protected state intact after the boundary, and each
+  `fail-open` observation against a row that mutated it. Nothing about matching,
   grading or the report's wire format changes; a catalogue that drifts from its evidence, or
   evidence that changes under the catalogue, now fails the suite instead of still grading
   `PROVEN`.

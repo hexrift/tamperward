@@ -49,7 +49,8 @@ export interface RetainedObservation {
   /** The row of the committed capture this observation was transcribed from: a `signatures[].path`
    *  for a `proven` / `fail-open` result, an `inconclusive[].path` for an `inconclusive` one.
    *  test/retained-evidence-lineage.test.ts follows the pointer and checks the row supports the
-   *  result (a denial with the protected state intact, recorded after the boundary), so a
+   *  result (`proven`: an explicit denied completion with the protected state intact, recorded
+   *  after the boundary; `fail-open`: a mutated protected state, whatever the completion), so a
    *  transcription cannot claim more than its capture shows (#697). */
   capture_path: string;
 }
