@@ -187,7 +187,7 @@ export interface IdentityValidation {
 export interface RuntimeAdapter {
   /** Stable adapter id (e.g. 'claude-code'). */
   name: string;
-  /** What this runtime can do, per operation. */
+  /** Immutable process-lifetime capability declaration; construct it with immutableRuntimeCapabilities(). */
   capabilities: RuntimeCapabilities;
   /** Parse raw runtime bytes for `phase` into the neutral event, or a parse failure. */
   parseEvent(raw: string, phase: SteeringPhase): SteeringEvent | { failure: 'parse-failure'; detail: string };
