@@ -9,8 +9,9 @@
 //
 // `deepFreeze` walks PLAIN data only: arrays and plain objects. Class instances, functions
 // and primitives are returned untouched, so a registry of adapter instances freezes the
-// registry without freezing an adapter that legitimately holds per-turn state. It is
-// cycle-safe and returns its argument, typed as given, so a declaration reads
+// registry and leaves each instance to its own construction-time freeze: instance
+// immutability is the adapter's job (#689), not this walker's. It is cycle-safe and
+// returns its argument, typed as given, so a declaration reads
 // `export const X: readonly T[] = deepFreeze([...])`.
 
 function isPlainData(value: unknown): value is object {

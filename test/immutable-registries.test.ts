@@ -72,7 +72,7 @@ describe('#695 deepFreeze', () => {
     expect(Object.isFrozen(instance)).toBe(false);
     expect(Object.isFrozen(instance.inner)).toBe(false);
     expect(Object.isFrozen(fn)).toBe(false);
-    instance.turn = 1; // an instance may hold per-turn state
+    instance.turn = 1; // instances are outside the walk by design
     expect(instance.turn).toBe(1);
   });
 });
@@ -112,7 +112,7 @@ describe('#695 the retained-evidence catalogue is immutable', () => {
 });
 
 describe('#695 the adapter registry is immutable', () => {
-  it('freezes the registry array and the label map, not the adapter instances', () => {
+  it('freezes the registry array and the label map (instance immutability is the adapter\'s own job, #689)', () => {
     expect(Object.isFrozen(RUNTIME_ADAPTERS)).toBe(true);
     expect(Object.isFrozen(ADAPTER_LABELS)).toBe(true);
     expect(RUNTIME_ADAPTERS).toContain(claudeAdapter);
