@@ -19,6 +19,7 @@
 // convenience for the setup narrative — never a security boundary, because the
 // marker files it reads are candidate-controlled.
 
+import { deepFreeze } from './immutable';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -146,7 +147,7 @@ function claudeSettingsBeyondTamperward(cwd: string): boolean {
  * files `init` never writes and its generated hook file is judged by content, not
  * mere presence (#526) — otherwise every onboarded repository would report Claude.
  */
-export const KNOWN_RUNTIMES: readonly RuntimeDescriptor[] = [
+export const KNOWN_RUNTIMES: readonly RuntimeDescriptor[] = deepFreeze([
   {
     id: 'claude-code',
     // Markers are Claude Code files `init` never writes, so detection never mistakes
@@ -183,7 +184,7 @@ export const KNOWN_RUNTIMES: readonly RuntimeDescriptor[] = [
     adapterTracking: '#482',
     note: 'agent-neutral layers (pre-commit + CI) today; a native in-loop adapter is tracked in #482.',
   },
-] as const;
+] as const);
 
 export interface DetectedRuntime extends RuntimeDescriptor {
   /** The first marker that matched, so the narrative can point at concrete evidence. */

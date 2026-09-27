@@ -1,5 +1,22 @@
 # Changelog
 
+## [2.39.3] — 2026-09-27
+
+### Fixed
+
+- **Trust-bearing registries are immutable at runtime** (#695). The retained real-runtime
+  evidence catalogue that gates `PROVEN` capability states, the shipped-adapter registry and
+  its label and alias maps, the known-runtime descriptors, and the contract and
+  qualification enumerations (operation kinds, steering phases, capability ids, states,
+  evidence sources, in-loop aggregates) are frozen after module initialisation, deeply for
+  plain data. TypeScript's `readonly` had been the only guard: a consumer could push an
+  evidence record whose binding matched the current runtime, or add a capability id and
+  change `tested_capabilities` in every later qualification binding. An attempted mutation
+  now throws and cannot change `matchRetainedEvidence()`, `adapterFor()`, the derived
+  assessments or a qualification binding. Same invariant as #689, one boundary further out;
+  the helper walks plain data only, so an adapter instance's own immutability stays the
+  adapter's construction-time job (#689).
+
 ## [2.39.2] — 2026-09-27
 
 ### Fixed

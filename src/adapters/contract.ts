@@ -16,6 +16,7 @@
 // capabilities, explicit failure states, and "runtime-supplied identity is a claim to
 // validate, not a trusted fact").
 
+import { deepFreeze } from '../immutable';
 import { Finding } from '../types';
 
 /**
@@ -220,7 +221,7 @@ export function immutableRuntimeAdapter<T extends RuntimeAdapter>(adapter: T): R
 // ————————————————————————————————————————————————————————————————————————
 
 /** The three phases, for iteration in tests/docs. */
-export const STEERING_PHASES: readonly SteeringPhase[] = ['pre-action', 'post-action', 'end-of-turn'];
+export const STEERING_PHASES: readonly SteeringPhase[] = Object.freeze(['pre-action', 'post-action', 'end-of-turn']);
 
 /**
  * The coarse research-ledger layer names (`src/research/adapter.ts` `ADAPTER_LAYERS`).
@@ -245,7 +246,7 @@ export interface ContractLayerMapping {
  * shell/MCP interception as the same treatment as Claude's all-operation PreToolUse. This
  * is a doc/type mapping only — it changes no research-runtime behaviour.
  */
-export const CONTRACT_TO_RESEARCH_LAYER: readonly ContractLayerMapping[] = [
+export const CONTRACT_TO_RESEARCH_LAYER: readonly ContractLayerMapping[] = deepFreeze([
   { source: 'pre-action', layer: 'pre-tool-use', note: 'synchronous pre-execution deny (Claude PreToolUse)' },
   { source: 'end-of-turn', layer: 'stop-sweep', note: 'mandatory end-of-turn reconciliation (Claude Stop)' },
   {
@@ -253,7 +254,7 @@ export const CONTRACT_TO_RESEARCH_LAYER: readonly ContractLayerMapping[] = [
     layer: 'envelope',
     note: "the run envelope around the whole agent process; post-action outcome observation lives here, not in a per-tool veto",
   },
-];
+]);
 
 /**
  * A fail-closed finding for a non-empty Copilot tool name outside the adapter's explicit
@@ -280,7 +281,7 @@ export function unknownToolFinding(toolName: string): Finding {
  * `unknown` is intentionally absent: it is a Copilot adapter classification outcome for
  * an unmapped non-empty tool name, never a capability a runtime may claim to cover.
  */
-export const OPERATION_KINDS: readonly OperationKind[] = ['shell', 'file-edit', 'file-read', 'mcp', 'other'];
+export const OPERATION_KINDS: readonly OperationKind[] = Object.freeze(['shell', 'file-edit', 'file-read', 'mcp', 'other']);
 
 /** True when `outcome` is one that MUST fail closed (deny) rather than allow. */
 export function failsClosed(outcome: SteeringOutcome): boolean {
