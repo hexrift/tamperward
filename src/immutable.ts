@@ -13,11 +13,10 @@
 // cycle-safe and returns its argument, typed as given, so a declaration reads
 // `export const X: readonly T[] = deepFreeze([...])`.
 
-const PLAIN_PROTOTYPES = new Set<object | null>([Object.prototype, Array.prototype, null]);
-
 function isPlainData(value: unknown): value is object {
   if (value === null || typeof value !== 'object') return false;
-  return PLAIN_PROTOTYPES.has(Object.getPrototypeOf(value) as object | null);
+  const proto: unknown = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === Array.prototype || proto === null;
 }
 
 /** Freeze a plain-data graph in place (arrays and plain objects, recursively) and return it. */
@@ -27,9 +26,7 @@ export function deepFreeze<T>(value: T): T {
     if (!isPlainData(node) || seen.has(node)) return;
     seen.add(node);
     Object.freeze(node);
-    for (const key of Reflect.ownKeys(node)) {
-      walk((node as Record<PropertyKey, unknown>)[key]);
-    }
+    for (const key of Reflect.ownKeys(node)) walk(Reflect.get(node, key));
   };
   walk(value);
   return value;
