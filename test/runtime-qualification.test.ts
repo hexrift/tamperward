@@ -68,7 +68,7 @@ describe('runtime capability descriptors are immutable', () => {
     expect(capabilities.postObserve).not.toBe(postObserve);
     expect(capabilities.unsupported).not.toBe(unsupported);
 
-    preDeny.push('delete');
+    preDeny.push('file-read');
     postObserve.push('file-edit');
     unsupported.push('mutated');
 
