@@ -29,7 +29,7 @@ import { appendFileSync, closeSync, constants, fstatSync, lstatSync, mkdirSync, 
 import { dirname, join, posix } from 'node:path';
 import { Finding, Policy } from './types';
 import { ledgerInsideRepo, PolicyError } from './policy-load';
-import { isRecord } from './narrow';
+import { errnoCode, errorMessage, isRecord } from './narrow';
 
 export interface LedgerEntry {
   rule: string;
@@ -86,11 +86,19 @@ export function ledgerPath(cwd: string, policy: Policy): string {
   return join(cwd, rel);
 }
 
-function lstatOrNull(path: string): Stats | null {
+/** `lstat` that reports ABSENCE only for ENOENT. Any other failure — a directory that
+ *  refuses traversal, a name too long, a link loop on the way in — is a ledger that exists
+ *  for all the gate knows but cannot be read, and treating it as absent would silently
+ *  drop every sign-off in it. That is not fail-closed either way, so it is a PolicyError
+ *  naming the component (#699 review). */
+function lstatOrAbsent(rel: string, shown: string, path: string): Stats | null {
   try {
     return lstatSync(path);
-  } catch {
-    return null;
+  } catch (e) {
+    if (errnoCode(e) === 'ENOENT') return null;
+    throw new PolicyError(
+      `signoff.ledger ${JSON.stringify(rel)}: cannot stat ${shown} (${errorMessage(e)}); refusing to treat the sign-off ledger as absent`,
+    );
   }
 }
 
@@ -117,12 +125,13 @@ function ledgerOnDisk(cwd: string, policy: Policy): { rel: string; path: string;
   let path = cwd;
   for (let i = 0; i < parts.length; i++) {
     const next = join(path, parts[i]);
-    const st = lstatOrNull(next);
+    const shown = parts.slice(0, i + 1).join('/');
+    const st = lstatOrAbsent(rel, shown, next);
     if (st === null) return { rel, path: join(cwd, ...parts), exists: false };
     const last = i === parts.length - 1;
     if (st.isSymbolicLink() || (last ? !st.isFile() : !st.isDirectory())) {
       throw new PolicyError(
-        `signoff.ledger ${JSON.stringify(rel)}: ${parts.slice(0, i + 1).join('/')} is ${kindOf(st)}; the sign-off ledger is honored only as a regular file inside the repository, reached without following a link`,
+        `signoff.ledger ${JSON.stringify(rel)}: ${shown} is ${kindOf(st)}; the sign-off ledger is honored only as a regular file inside the repository, reached without following a link`,
       );
     }
     path = next;
@@ -171,7 +180,11 @@ export function readLedger(cwd: string, policy: Policy): LedgerEntry[] {
 
 export function appendEntry(cwd: string, policy: Policy, e: LedgerEntry): void {
   const { rel, path } = ledgerOnDisk(cwd, policy);
-  mkdirSync(dirname(path), { recursive: true });
+  try {
+    mkdirSync(dirname(path), { recursive: true });
+  } catch (err) {
+    throw new PolicyError(`signoff.ledger ${JSON.stringify(rel)}: cannot create ${dirname(path)} (${errorMessage(err)})`);
+  }
   const fd = openLedger(rel, path, constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT);
   try {
     appendFileSync(fd, JSON.stringify(e) + '\n');

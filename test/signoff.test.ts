@@ -218,6 +218,24 @@ describe('#699 — the LOCAL layer honors only a ledger `allow` could have writt
     });
   });
 
+  it.skipIf(!onPosix)('a stat failure that is not ENOENT is never "absent": readLedger and appendEntry refuse instead of dropping the entries (RED: readLedger returned [])', () => {
+    // Two deterministic non-ENOENT failures that need no privilege drop (the suite may run
+    // as root, where a chmod 000 directory still traverses): a component longer than
+    // NAME_MAX (ENAMETOOLONG), and a repository path that runs through a link loop (ELOOP).
+    twoDirs((repo, outside) => {
+      const tooLong = { ...P, signoff: { ...P.signoff, ledger: `${'a'.repeat(300)}/ledger.jsonl` } };
+      expect(() => readLedger(repo, tooLong)).toThrow(PolicyError);
+      expect(() => readLedger(repo, tooLong)).toThrow(/cannot stat a{300} \(.*ENAMETOOLONG/);
+      expect(() => appendEntry(repo, tooLong, makeEntry(f, 'r', Date.now()))).toThrow(/cannot stat a{300}/);
+
+      symlinkSync('loop', join(outside, 'loop'));
+      const throughLoop = join(outside, 'loop', 'repo');
+      expect(() => readLedger(throughLoop, P)).toThrow(PolicyError);
+      expect(() => readLedger(throughLoop, P)).toThrow(/cannot stat \.tamperward \(.*ELOOP/);
+      expect(() => appendEntry(throughLoop, P, makeEntry(f, 'r', Date.now()))).toThrow(/cannot stat \.tamperward/);
+    });
+  });
+
   it('honoredAt: inside the window `allow` writes and nowhere else', () => {
     const now = Date.now();
     const e = makeEntry(f, 'reviewed', now);
