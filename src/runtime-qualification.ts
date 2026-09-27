@@ -50,14 +50,14 @@ import type { RetainedRuntimeEvidence, RetainedObservation } from './adapters/ev
  *  - `INCONCLUSIVE` — evidence exists but does not resolve the state (reserved for committed
  *                     records that conflict; no current adapter produces it).
  */
-export const CAPABILITY_STATES = [
+export const CAPABILITY_STATES = Object.freeze([
   'PROVEN',
   'PARTIAL',
   'UNPROVEN',
   'UNSUPPORTED',
   'FAIL-OPEN',
   'INCONCLUSIVE',
-] as const;
+] as const);
 export type CapabilityState = (typeof CAPABILITY_STATES)[number];
 
 /**
@@ -65,7 +65,7 @@ export type CapabilityState = (typeof CAPABILITY_STATES)[number];
  * concrete in-loop control or failure mode, at a finer granularity than the adapter's
  * OperationKind declaration — the derivation below records WHICH declared kind backs each.
  */
-export const RUNTIME_CAPABILITY_IDS = [
+export const RUNTIME_CAPABILITY_IDS = Object.freeze([
   'pre-deny:shell',
   'pre-deny:native-edit',
   'pre-deny:delete',
@@ -83,18 +83,18 @@ export const RUNTIME_CAPABILITY_IDS = [
   'transport:empty',
   'hook-not-invoked',
   'detached/quiescence',
-] as const;
+] as const);
 export type RuntimeCapabilityId = (typeof RUNTIME_CAPABILITY_IDS)[number];
 
 /** Where a capability's state came from — so the derivation is auditable, and a declaration
  *  is never silently presented as a live probe result. */
-export const EVIDENCE_SOURCES = [
+export const EVIDENCE_SOURCES = Object.freeze([
   'adapter-declaration', // structural preDeny / postObserve / endOfTurn membership
   'adapter-unsupported', // named verbatim in the adapter's `unsupported[]` prose
   'contract', // the neutral steering contract guarantees this at the adapter boundary
   'committed-evidence', // a committed real-runtime evidence record proved it
   'not-declared', // absent from every declaration — no proof either way
-] as const;
+] as const);
 export type EvidenceSource = (typeof EVIDENCE_SOURCES)[number];
 
 export interface CapabilityEvidence {
@@ -112,7 +112,7 @@ export interface CapabilityAssessment {
 
 /** The in-loop steering aggregate. `FULL` is reachable ONLY when every required capability
  *  is `PROVEN` and none is `FAIL-OPEN`/`INCONCLUSIVE` — the honesty invariant the issue names. */
-export const IN_LOOP_AGGREGATES = ['FULL', 'PARTIAL', 'NONE'] as const;
+export const IN_LOOP_AGGREGATES = Object.freeze(['FULL', 'PARTIAL', 'NONE'] as const);
 export type InLoopAggregate = (typeof IN_LOOP_AGGREGATES)[number];
 
 /** Final authority (CI / pristine verification) is independent of the runtime hook, so this

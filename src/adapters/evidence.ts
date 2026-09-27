@@ -30,6 +30,7 @@
 // consult the retained probe observations and grade against them. No retained evidence for a
 // binding means the capability is NOT proven — stated plainly, never fabricated.
 
+import { deepFreeze } from '../immutable';
 import type { RuntimeCapabilityId } from '../runtime-qualification';
 
 /** How a retained observation grades the capability it names:
@@ -98,7 +99,7 @@ export interface RetainedRuntimeEvidence {
  * hung callback stayed intrinsically unobservable (inconclusive). Every other shipped runtime,
  * Claude Code included, has NO retained real-runtime probe, so nothing about it is `PROVEN`.
  */
-export const RETAINED_EVIDENCE: readonly RetainedRuntimeEvidence[] = [
+export const RETAINED_EVIDENCE: readonly RetainedRuntimeEvidence[] = deepFreeze([
   {
     ref: 'copilot-sdk-capture-2026-09-20',
     source: 'harness/adapters/copilot-sdk/evidence/capture-2026-09-20.json',
@@ -142,7 +143,7 @@ export const RETAINED_EVIDENCE: readonly RetainedRuntimeEvidence[] = [
       },
     ],
   },
-];
+]);
 
 /** Every evidence-defining field the applicability match compares (#599). Retained evidence
  *  proves a capability ONLY for the exact binding it ran under, so ALL of these are load-bearing:
