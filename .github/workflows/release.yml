@@ -122,11 +122,19 @@ jobs:
       # an unrelated change, that later push would publish the unrelated commit under
       # the reviewed version: provenance and the tag then point at code the CHANGELOG
       # entry never described. So when there is anything to do, HEAD must be the commit
-      # that last changed package.json — the bump commit that review approved — unless
-      # a `workflow_dispatch` says `allow_non_bump_head: true`, which makes the
-      # divergence a conscious act with both SHAs in the log. When there is nothing to
-      # do (already published, tagged and released) the check is skipped, so ordinary
-      # non-bump merges stay a quiet no-op.
+      # that last changed the VERSION in package.json — the bump commit that review
+      # approved — unless a `workflow_dispatch` says `allow_non_bump_head: true`, which
+      # makes the divergence a conscious act with both SHAs in the log. When there is
+      # nothing to do (already published, tagged and released) the check is skipped, so
+      # ordinary non-bump merges stay a quiet no-op.
+      #
+      # The bump commit is found by CONTENT (.github/scripts/bump-commit.mjs, #701), not
+      # as the last commit that touched the file: a dependency, script or `files` edit
+      # to package.json — a Dependabot dev-dependency bump is the common case — used to
+      # satisfy `git log -1 -- package.json` without moving the version, so exactly in
+      # the window this check exists for, such a merge compared equal to HEAD and would
+      # have been published as the pending release. The script fails closed (exit 1,
+      # and `set -e` stops the plan) when no commit in the history changes the version.
       - name: Decide whether this push releases
         id: plan
         env:
@@ -156,15 +164,15 @@ jobs:
             echo "GitHub release v${VERSION} does not exist — it will be created."
             RELEASE_MISSING=true
           fi
-          BUMP_SHA="$(git log -1 --format=%H -- package.json)"
-          echo "bump commit (last to touch package.json): ${BUMP_SHA}"
+          BUMP_SHA="$(node .github/scripts/bump-commit.mjs)"
+          echo "bump commit (last to change the version in package.json): ${BUMP_SHA}"
           echo "head commit (GITHUB_SHA):                  ${GITHUB_SHA}"
           if [ "$PUBLISH" = true ] || [ "$TAG_MISSING" = true ] || [ "$RELEASE_MISSING" = true ]; then
             if [ "$BUMP_SHA" != "$GITHUB_SHA" ]; then
               if [ "$ALLOW_NON_BUMP_HEAD" = "true" ]; then
                 echo "::warning::HEAD ${GITHUB_SHA} is not the bump commit ${BUMP_SHA}; proceeding because allow_non_bump_head=true. The tag and provenance for v${VERSION} will point at HEAD."
               else
-                echo "::error::HEAD ${GITHUB_SHA} is not the commit that last changed package.json (${BUMP_SHA}). Publishing it would ship changes the CHANGELOG entry for ${VERSION} never described. Re-run via workflow_dispatch with allow_non_bump_head=true to publish HEAD deliberately, or bump the version in a new PR."
+                echo "::error::HEAD ${GITHUB_SHA} is not the commit that last changed the version in package.json (${BUMP_SHA}). Publishing it would ship changes the CHANGELOG entry for ${VERSION} never described. Re-run via workflow_dispatch with allow_non_bump_head=true to publish HEAD deliberately, or bump the version in a new PR."
                 exit 1
               fi
             fi
