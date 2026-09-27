@@ -154,6 +154,19 @@ Every release with a behaviour change gets a `CHANGELOG.md` entry naming what it
 Security advisories reference versions, so "which release fixed that bypass" must be
 answerable from the changelog alone.
 
+The required `gate` check enforces the merge-side half of that rule (#693). A pull
+request that changes the shipped surface — `src/`, or `schemas/`, which `package.json`
+`files` publishes as-is — must move `package.json`'s version forward and carry a dated
+`## [<version>] — YYYY-MM-DD` heading as the newest `CHANGELOG.md` entry, with
+`package-lock.json` in step; an `[Unreleased]` heading fails the check outright. A change
+that genuinely ships no behaviour (an internal refactor, a comment) is recorded rather than
+waved through: a maintainer applies the label `release-none:<head-sha prefix>` (at least
+seven hex characters of the exact head; a later push needs a new label, exactly as the
+`tw1:` sign-off is bound to its head) and the step logs that decision. The helper is
+`.github/scripts/release-discipline.mjs`, unit-tested in `test/release-discipline.test.ts`;
+it cannot judge patch versus minor — the table above does — it only refuses to let the
+question go unanswered.
+
 ### Actions are SHA-pinned; Dependabot moves them
 
 Every `uses:` in `.github/workflows/` names a full commit SHA with a `# vX.Y.Z` comment
@@ -172,6 +185,9 @@ guard runs on the `semver` devDependency `npm ci` installs, not an ad-hoc `npx` 
 - **Changing a protected asset will block your own PR.** That is working as intended.
   A reviewed, legitimate change is cleared by a maintainer applying a
   `tamperward:allow:<rule>` label — never by weakening the policy to get past the gate.
+- **Changing `src/` or `schemas/` without a version bump fails the `gate`.** Bump and
+  date a changelog entry, or ask a maintainer for the head-bound `release-none:<head-sha>`
+  label when the change ships no behaviour — see "Releasing".
 - Keep the diff to what the change needs. The detectors are the security boundary; a
   drive-by refactor in `src/detectors/` costs more review than it saves.
 - **No Claude session links, and no agent attribution, on any public surface** —

@@ -19,7 +19,9 @@ agent produces here.
   that changes behaviour bumps `package.json` (patch for a bypass fix or a false-positive
   fix, minor for new surface, major only as CONTRIBUTING "Versioning" defines) and dates
   its `CHANGELOG.md` entry under that version. Merging the bump is the release; never
-  leave an `[Unreleased]` section behind.
+  leave an `[Unreleased]` section behind. CI's `gate` fails a PR that changes `src/` or
+  `schemas/` without the bump and dated entry; the only exception is a maintainer's
+  head-bound `release-none:<head-sha>` label recording that no behaviour shipped.
 - Run `npm run typecheck`, `npx vitest run`, `npm run build`, and the repo's own gate
   (`node dist/cli/index.js check --staged`) before every push.
 - **Counted-round records reach `main` only through a maintainer-merged green PR.** Every
