@@ -30,11 +30,12 @@ import {
   type CapabilityAssessment,
   type RuntimeCapabilityId,
 } from '../src/runtime-qualification';
-import { RuntimeCapabilities, OPERATION_KINDS } from '../src/adapters/contract';
+import { immutableRuntimeCapabilities, RuntimeCapabilities, OPERATION_KINDS } from '../src/adapters/contract';
 import { claudeAdapter } from '../src/adapters/claude/adapter';
 import { codexAdapter } from '../src/adapters/codex/adapter';
 import { copilotAdapter } from '../src/adapters/copilot/adapter';
 import { copilotSdkAdapter } from '../src/adapters/copilot-sdk/adapter';
+import { RUNTIME_ADAPTERS } from '../src/adapters/registry';
 import { RETAINED_EVIDENCE, matchRetainedEvidence, evidenceBindingMatches, type EvidenceMatchKey, type RetainedRuntimeEvidence } from '../src/adapters/evidence';
 import { TW_VERSION } from '../src/wiring';
 
@@ -42,15 +43,39 @@ const ROOT = resolve(__dirname, '..');
 const stateOf = (a: CapabilityAssessment[], id: RuntimeCapabilityId) => a.find((x) => x.id === id)!.state;
 
 describe('runtime capability descriptors are immutable', () => {
-  const adapters = [claudeAdapter, codexAdapter, copilotAdapter, copilotSdkAdapter];
-
-  it('freezes the descriptor and every exposed collection', () => {
-    for (const adapter of adapters) {
+  it('freezes the descriptor and every exposed collection for every shipped adapter', () => {
+    for (const adapter of RUNTIME_ADAPTERS) {
       expect(Object.isFrozen(adapter.capabilities), adapter.name).toBe(true);
       expect(Object.isFrozen(adapter.capabilities.preDeny), adapter.name).toBe(true);
       expect(Object.isFrozen(adapter.capabilities.postObserve), adapter.name).toBe(true);
       expect(Object.isFrozen(adapter.capabilities.unsupported), adapter.name).toBe(true);
     }
+  });
+
+  it('copies caller-owned collections before freezing', () => {
+    const preDeny: Array<(typeof OPERATION_KINDS)[number]> = ['shell'];
+    const postObserve: Array<(typeof OPERATION_KINDS)[number]> = ['mcp'];
+    const unsupported = ['caller-owned'];
+    const capabilities = immutableRuntimeCapabilities({
+      preDeny,
+      postObserve,
+      endOfTurn: true,
+      unsupported,
+    });
+    const before = capabilityHash(capabilities);
+
+    expect(capabilities.preDeny).not.toBe(preDeny);
+    expect(capabilities.postObserve).not.toBe(postObserve);
+    expect(capabilities.unsupported).not.toBe(unsupported);
+
+    preDeny.push('delete');
+    postObserve.push('file-edit');
+    unsupported.push('mutated');
+
+    expect(capabilities.preDeny).toEqual(['shell']);
+    expect(capabilities.postObserve).toEqual(['mcp']);
+    expect(capabilities.unsupported).toEqual(['caller-owned']);
+    expect(capabilityHash(capabilities)).toBe(before);
   });
 
   it('mutation cannot change the capability hash', () => {
