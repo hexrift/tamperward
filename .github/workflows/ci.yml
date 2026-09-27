@@ -493,6 +493,26 @@ jobs:
           [ "$fail" -eq 0 ] && echo "clean: no session links (body/commits/diff) and no agent attribution (body/commits)"
           exit "$fail"
 
+      # CLAUDE.md's release rule — "every behaviour change ships with its bump ... never
+      # leave an [Unreleased] section behind" — had no mechanical half: five behaviour
+      # changes merged on 2026-09-26 without a bump and main shipped unreleased behaviour
+      # under the previous tag (#691). This step is that half for the surfaces a
+      # pull_request run can see (#693): a change under src/ or schemas/ (the published
+      # surface) must move package.json's version forward, with a dated
+      # "## [<version>] — YYYY-MM-DD" heading as the newest CHANGELOG entry and the lock
+      # file in step; an [Unreleased] heading fails outright. A change that ships no
+      # behaviour is recorded, not waved through: a maintainer applies the label
+      # `release-none:<head-sha prefix>` — bound to the exact head, like `tw1:`, so a label
+      # earned for one push does not clear the next. SHAs and label text go through env,
+      # never shell interpolation. Helper unit-tested in test/release-discipline.test.ts.
+      - name: Shipped code moves the version (release discipline)
+        if: github.event_name == 'pull_request'
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PR_LABELS_JSON: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: node .github/scripts/release-discipline.mjs "$PR_BASE" "$PR_HEAD"
+
       - name: Resolve out-of-band sign-off from PR labels
         id: oob
         if: github.event_name == 'pull_request'
