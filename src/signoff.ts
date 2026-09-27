@@ -7,7 +7,11 @@
 //   LOCAL  (pre-commit / `check --staged`): MAY honor a ledger entry, but bound to the SPECIFIC
 //          triggering tamper (rule + file + evidence fingerprint) and an expiry — a one-time
 //          human judgment on one tamper, not a standing license. A developer at their machine is
-//          a human; residual pre-plant risk is visible in the diff and backstopped by CI.
+//          a human; residual pre-plant risk is visible in the diff and backstopped by CI. The
+//          reader holds that contract itself (#699): the ledger is honored only as a regular
+//          file reached inside the repository without following a link, and an entry only
+//          inside the window `allow` writes — never a link to a file outside every git view,
+//          never a hand-written expiry that turns one judgment into a standing license.
 //   CI     (`check --diff`, `verify`): honors ONLY an out-of-band signal (a reviewed-label/
 //          CODEOWNERS approval surfaced via env by the workflow), NEVER the committed ledger —
 //          anything in the repo is something the PR (and thus the agent) can author. For
@@ -21,8 +25,8 @@
 // covered by it either.
 
 import { createHash } from 'node:crypto';
-import { appendFileSync, mkdirSync, readFileSync, existsSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { appendFileSync, closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, type Stats } from 'node:fs';
+import { dirname, join, posix } from 'node:path';
 import { Finding, Policy } from './types';
 import { ledgerInsideRepo, PolicyError } from './policy-load';
 import { isRecord } from './narrow';
@@ -36,7 +40,10 @@ export interface LedgerEntry {
   expiresAt: number;
 }
 
-const DEFAULT_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+/** The lifetime `allow` grants a sign-off — and the longest one the reader honors (#699). */
+export const LEDGER_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+const DEFAULT_TTL_MS = LEDGER_TTL_MS;
+const DEFAULT_LEDGER = '.tamperward/ledger.jsonl';
 const COMPACT_OOB_PREFIX = 'tw1:';
 const FULL_OBJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
 
@@ -72,18 +79,85 @@ export const fingerprintOf = (f: Finding): string => fingerprint(f.rule, f.file,
  *  the loader already refuses `../x.jsonl` and absolute paths, and this guard holds
  *  for a Policy built any other way, so no caller can be handed a ledger outside cwd. */
 export function ledgerPath(cwd: string, policy: Policy): string {
-  const rel = policy.signoff?.ledger ?? '.tamperward/ledger.jsonl';
+  const rel = policy.signoff?.ledger ?? DEFAULT_LEDGER;
   if (!ledgerInsideRepo(rel)) {
     throw new PolicyError(`signoff.ledger must be a relative path inside the repository, got ${JSON.stringify(rel)}`);
   }
   return join(cwd, rel);
 }
 
+function lstatOrNull(path: string): Stats | null {
+  try {
+    return lstatSync(path);
+  } catch {
+    return null;
+  }
+}
+
+function kindOf(st: Stats): string {
+  if (st.isSymbolicLink()) return 'a symbolic link';
+  if (st.isDirectory()) return 'a directory';
+  if (st.isFIFO()) return 'a FIFO';
+  if (st.isSocket()) return 'a socket';
+  if (st.isCharacterDevice() || st.isBlockDevice()) return 'a device';
+  return 'not a regular file';
+}
+
+/** The ledger as it exists on disk, checked component by component WITHOUT following a
+ *  link. `ledgerInsideRepo` refuses a policy that NAMES a location outside the repository;
+ *  a symbolic link at the ledger's path, or at a directory above it, reaches one without
+ *  naming it — a file no git view shows, honored by the local gate — so the same guard is
+ *  held against the path as it exists, not only as written (#699). Every existing component
+ *  must be a real directory and the file itself a regular file; anything else fails CLOSED
+ *  like an escaping path does. A path that does not exist yet is simply absent. */
+function ledgerOnDisk(cwd: string, policy: Policy): { rel: string; path: string; exists: boolean } {
+  const rel = policy.signoff?.ledger ?? DEFAULT_LEDGER;
+  ledgerPath(cwd, policy); // the D-7 check on the path as written
+  const parts = posix.normalize(rel.replace(/\\/g, '/')).split('/').filter((part) => part && part !== '.');
+  let path = cwd;
+  for (let i = 0; i < parts.length; i++) {
+    const next = join(path, parts[i]);
+    const st = lstatOrNull(next);
+    if (st === null) return { rel, path: join(cwd, ...parts), exists: false };
+    const last = i === parts.length - 1;
+    if (st.isSymbolicLink() || (last ? !st.isFile() : !st.isDirectory())) {
+      throw new PolicyError(
+        `signoff.ledger ${JSON.stringify(rel)}: ${parts.slice(0, i + 1).join('/')} is ${kindOf(st)}; the sign-off ledger is honored only as a regular file inside the repository, reached without following a link`,
+      );
+    }
+    path = next;
+  }
+  return { rel, path, exists: true };
+}
+
+/** Open the ledger without following a link at its final component (where the platform
+ *  has O_NOFOLLOW), and prove the opened file is a regular one before it is used. */
+function openLedger(rel: string, path: string, flags: number): number {
+  let fd: number;
+  try {
+    fd = openSync(path, flags | (constants.O_NOFOLLOW ?? 0), 0o644);
+  } catch (e) {
+    throw new PolicyError(`signoff.ledger ${JSON.stringify(rel)}: cannot open ${path} (${e instanceof Error ? e.message : String(e)})`);
+  }
+  if (!fstatSync(fd).isFile()) {
+    closeSync(fd);
+    throw new PolicyError(`signoff.ledger ${JSON.stringify(rel)}: ${path} is not a regular file; refusing to use it`);
+  }
+  return fd;
+}
+
 export function readLedger(cwd: string, policy: Policy): LedgerEntry[] {
-  const p = ledgerPath(cwd, policy);
-  if (!existsSync(p)) return [];
+  const { rel, path, exists } = ledgerOnDisk(cwd, policy);
+  if (!exists) return [];
+  const fd = openLedger(rel, path, constants.O_RDONLY);
+  let text: string;
+  try {
+    text = readFileSync(fd, 'utf8');
+  } finally {
+    closeSync(fd);
+  }
   const out: LedgerEntry[] = [];
-  for (const line of readFileSync(p, 'utf8').split('\n')) {
+  for (const line of text.split('\n')) {
     if (!line.trim()) continue;
     try {
       const e = ledgerEntryFrom(JSON.parse(line));
@@ -96,9 +170,14 @@ export function readLedger(cwd: string, policy: Policy): LedgerEntry[] {
 }
 
 export function appendEntry(cwd: string, policy: Policy, e: LedgerEntry): void {
-  const p = ledgerPath(cwd, policy);
-  mkdirSync(dirname(p), { recursive: true });
-  appendFileSync(p, JSON.stringify(e) + '\n');
+  const { rel, path } = ledgerOnDisk(cwd, policy);
+  mkdirSync(dirname(path), { recursive: true });
+  const fd = openLedger(rel, path, constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT);
+  try {
+    appendFileSync(fd, JSON.stringify(e) + '\n');
+  } finally {
+    closeSync(fd);
+  }
 }
 
 export function makeEntry(f: Finding, reason: string, now: number, ttlMs = DEFAULT_TTL_MS): LedgerEntry {
@@ -110,9 +189,19 @@ export interface SignoffResult {
   cleared: Finding[]; // dropped by a valid sign-off
 }
 
+/** Whether an entry is inside the window `allow` would have written for it at `now`:
+ *  unexpired, recorded no later than now, and living no longer than the 30 days `allow`
+ *  grants (#699). The expiry is what makes a sign-off a one-time judgment rather than a
+ *  standing license, so the reader holds it whatever the line claims: a hand-written
+ *  `expiresAt` years out, or a `recordedAt` in the future, clears nothing — exactly as an
+ *  expired line clears nothing. */
+export function honoredAt(e: LedgerEntry, now: number): boolean {
+  return e.expiresAt > now && e.recordedAt <= now && e.expiresAt - e.recordedAt <= LEDGER_TTL_MS;
+}
+
 /** LOCAL layer: drop block findings that a valid (matching fingerprint, unexpired) ledger entry signs off. */
 export function applyLocalSignoffs(findings: Finding[], cwd: string, policy: Policy, now: number = Date.now()): SignoffResult {
-  const ledger = readLedger(cwd, policy).filter((e) => e.expiresAt > now);
+  const ledger = readLedger(cwd, policy).filter((e) => honoredAt(e, now));
   const valid = new Set(ledger.map((e) => e.fingerprint));
   const cleared: Finding[] = [];
   const remaining: Finding[] = [];
