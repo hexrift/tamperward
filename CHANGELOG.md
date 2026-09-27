@@ -12,10 +12,12 @@
   hand (skip-worktree, assume-unchanged) were synthesized from an absent baseline, so a
   gutted spec read as a fresh add — an object-store or I/O failure silently weakened the
   gate. Absence is now
-  established by the tree: the reader reads null only when `ls-tree` (or `ls-files -s` for
-  the index) lists no entry at exactly that path, or lists something that is not content (a
-  gitlink, a tree); a listed blob that cannot be read, or a tree that cannot be listed, is an
-  error, so `check` exits 2 naming the object and the hook layers deny. The listing runs only
+  established by the tree: when a read fails, the reader lists exactly that path (`ls-tree`,
+  or `ls-files -s` for the index) and reads null only when nothing is there, or what is there
+  is not a blob (a gitlink whose commit this store lacks); a listed blob that cannot be read,
+  or a tree that cannot be listed, is an error, so `check` exits 2 naming the object and the
+  hook layers deny. A read that succeeds is returned as before (a directory path still
+  renders as git's listing, which the callers refuse as content). The listing runs only
   when a read fails, so an ordinary view costs nothing more.
 
 ## [2.39.5] — 2026-09-27

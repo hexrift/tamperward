@@ -124,7 +124,15 @@ describe('#705 a blob the gate cannot read is never taken for an absent one', ()
   it('a path absent at a revision, or in the index, still reads null', () => {
     expect(fileAt(head, 'src/nope.ts', { cwd: repo })).toBeNull();
     expect(fileAt('', 'src/nope.ts', { cwd: repo })).toBeNull();
-    expect(fileAt(head, 'src', { cwd: repo })).not.toBeNull(); // a tree shows as a listing today; unchanged
+  });
+
+  it('a tree entry keeps its pre-existing meaning: `git show` renders it, so the reader returns that listing, never null', () => {
+    // The classification runs only after a failed read; a directory path never fails
+    // to read. Callers treat the listing as content that is not a file (the policy
+    // loader refuses it as YAML), exactly as before this change.
+    const listing = fileAt(head, 'src', { cwd: repo });
+    expect(listing).not.toBeNull();
+    expect(listing).toContain('a.ts');
   });
 
   it('a policy genuinely absent at the base still loads the baseline: null, not a throw', () => {
