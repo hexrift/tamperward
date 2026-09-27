@@ -36,6 +36,7 @@ import {
   RuntimeAdapter,
   RuntimeCapabilities,
   immutableRuntimeCapabilities,
+  immutableRuntimeAdapter,
   SteeringEvent,
   SteeringPhase,
   SteeringResult,
@@ -196,4 +197,4 @@ export class CopilotSdkHostedAdapter implements RuntimeAdapter {
 }
 
 /** The singleton hosted-SDK adapter. */
-export const copilotSdkAdapter = new CopilotSdkHostedAdapter();
+export const copilotSdkAdapter = immutableRuntimeAdapter(new CopilotSdkHostedAdapter());
