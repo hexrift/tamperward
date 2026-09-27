@@ -177,6 +177,8 @@ describe('#693 release discipline — CLI against a throwaway repository', () =>
   let baseSha = '';
   let noBumpSha = '';
   let bumpSha = '';
+  let renameSrcSha = '';
+  let renameSchemaSha = '';
 
   const g = (args: string[]): string => {
     const r = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', '-c', 'commit.gpgsign=false', ...args], { cwd: repo, encoding: 'utf8' });
@@ -202,6 +204,8 @@ describe('#693 release discipline — CLI against a throwaway repository', () =>
     write('package-lock.json', lock('1.0.0'));
     write('CHANGELOG.md', changelog('1.0.0', '2026-01-01'));
     write('src/a.ts', 'export const a = 1;\n');
+    mkdirSync(join(repo, 'schemas'));
+    write('schemas/x.json', '{}\n');
     baseSha = commitAll('base');
     write('src/a.ts', 'export const a = 2;\n');
     noBumpSha = commitAll('change without a bump');
@@ -209,6 +213,12 @@ describe('#693 release discipline — CLI against a throwaway repository', () =>
     write('package-lock.json', lock('1.0.1'));
     write('CHANGELOG.md', changelog('1.0.1'));
     bumpSha = commitAll('release 1.0.1');
+    mkdirSync(join(repo, 'docs'));
+    g(['mv', 'src/a.ts', 'docs/a.ts']);
+    renameSrcSha = commitAll('move a shipped file out of src without a bump');
+    mkdirSync(join(repo, 'other'));
+    g(['mv', 'schemas/x.json', 'other/x.json']);
+    renameSchemaSha = commitAll('move a schema out of schemas without a bump');
   });
   afterAll(() => {
     if (repo) rmSync(repo, { recursive: true, force: true });
@@ -233,6 +243,19 @@ describe('#693 release discipline — CLI against a throwaway repository', () =>
     const r = run(baseSha, bumpSha);
     expect(r.status).toBe(0);
     expect(r.stdout).toContain('version moves 1.0.0 → 1.0.1');
+  });
+  it('a rename out of src/ is a shipped-file removal, which rename detection would hide behind the postimage', () => {
+    // The trap: with rename detection on, name-only lists only docs/a.ts.
+    expect(g(['diff', '--name-only', '-M', `${bumpSha}...${renameSrcSha}`])).toBe('docs/a.ts');
+    const r = run(bumpSha, renameSrcSha);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain('shipped code changed (src/a.ts)');
+  });
+  it('a rename out of schemas/ is caught the same way', () => {
+    expect(g(['diff', '--name-only', '-M', `${renameSrcSha}...${renameSchemaSha}`])).toBe('other/x.json');
+    const r = run(renameSrcSha, renameSchemaSha);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain('shipped code changed (schemas/x.json)');
   });
   it('the range is base...head, so the earlier no-bump commit is covered by the later bump', () => {
     expect(run(noBumpSha, bumpSha).status).toBe(0);

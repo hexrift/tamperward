@@ -170,7 +170,11 @@ function lockVersionsAt(sha) {
 /** Everything the decision needs, read from the PR range. Labels arrive as the JSON array
  *  `toJSON(github.event.pull_request.labels.*.name)` through the environment. */
 export function gather(baseSha, headSha, labelsJson) {
-  const changedPaths = git(['diff', '--name-only', `${baseSha}...${headSha}`]).split('\n').filter(Boolean);
+  // `--no-renames`: a rename OUT of the shipped surface is a shipped-file removal
+  // (`git mv src/a.ts docs/a.ts`), and rename detection would list only the postimage
+  // `docs/a.ts`. With detection off the move is a deletion plus an addition, so both
+  // the preimage and the postimage paths reach the decision.
+  const changedPaths = git(['diff', '--name-only', '--no-renames', `${baseSha}...${headSha}`]).split('\n').filter(Boolean);
   const parsed = JSON.parse(labelsJson || '[]');
   if (!Array.isArray(parsed) || parsed.some((l) => typeof l !== 'string')) throw new Error('PR_LABELS_JSON is not a JSON array of strings');
   return {
