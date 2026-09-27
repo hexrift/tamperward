@@ -155,8 +155,11 @@ Security advisories reference versions, so "which release fixed that bypass" mus
 answerable from the changelog alone.
 
 The required `gate` check enforces the merge-side half of that rule (#693). A pull
-request that changes the shipped surface — `src/`, or `schemas/`, which `package.json`
-`files` publishes as-is — must move `package.json`'s version forward and carry a dated
+request that changes the shipped surface — `src/`; `schemas/`, `LICENSE` and `NOTICE`,
+which `package.json` `files` publishes as-is; or a published `package.json` field, the
+runtime dependency ranges, `engines`, `os`/`cpu`, `bin`, `main`/`exports`/`imports`,
+`type`, `files` and the install-time scripts, compared by content (#703) — must move
+`package.json`'s version forward and carry a dated
 `## [<version>] — YYYY-MM-DD` heading as the newest `CHANGELOG.md` entry, with
 `package-lock.json` in step; an `[Unreleased]` heading fails the check outright. A change
 that genuinely ships no behaviour (an internal refactor, a comment) is recorded rather than
@@ -185,9 +188,11 @@ guard runs on the `semver` devDependency `npm ci` installs, not an ad-hoc `npx` 
 - **Changing a protected asset will block your own PR.** That is working as intended.
   A reviewed, legitimate change is cleared by a maintainer applying a
   `tamperward:allow:<rule>` label — never by weakening the policy to get past the gate.
-- **Changing `src/` or `schemas/` without a version bump fails the `gate`.** Bump and
-  date a changelog entry, or ask a maintainer for the head-bound `release-none:<head-sha>`
-  label when the change ships no behaviour — see "Releasing".
+- **Changing the shipped surface without a version bump fails the `gate`** — `src/`,
+  `schemas/`, `LICENSE`, `NOTICE`, or a published `package.json` field such as a runtime
+  dependency range. Bump and date a changelog entry, or ask a maintainer for the
+  head-bound `release-none:<head-sha>` label when the change ships no behaviour — see
+  "Releasing". `devDependencies` and the test/build scripts are not shipped.
 - Keep the diff to what the change needs. The detectors are the security boundary; a
   drive-by refactor in `src/detectors/` costs more review than it saves.
 - **No Claude session links, and no agent attribution, on any public surface** —
