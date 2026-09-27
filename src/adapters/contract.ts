@@ -110,6 +110,15 @@ export interface RuntimeCapabilities {
   unsupported: readonly string[];
 }
 
+export function immutableRuntimeCapabilities(caps: RuntimeCapabilities): RuntimeCapabilities {
+  return Object.freeze({
+    preDeny: Object.freeze([...caps.preDeny]),
+    postObserve: Object.freeze([...caps.postObserve]),
+    endOfTurn: caps.endOfTurn,
+    unsupported: Object.freeze([...caps.unsupported]),
+  });
+}
+
 /**
  * The explicit outcome of a steering attempt. The failure states are first-class so a
  * runtime that could not participate is never confused with one that ALLOWED:
@@ -177,10 +186,10 @@ export interface IdentityValidation {
  * re-implement enforcement per runtime.
  */
 export interface RuntimeAdapter {
-  /** Stable adapter id (e.g. 'claude-code'). */
-  name: string;
-  /** What this runtime can do, per operation. */
-  capabilities: RuntimeCapabilities;
+  /** Stable process-lifetime adapter id (e.g. 'claude-code'). */
+  readonly name: string;
+  /** Immutable process-lifetime capability declaration; construct it with immutableRuntimeCapabilities(). */
+  readonly capabilities: RuntimeCapabilities;
   /** Parse raw runtime bytes for `phase` into the neutral event, or a parse failure. */
   parseEvent(raw: string, phase: SteeringPhase): SteeringEvent | { failure: 'parse-failure'; detail: string };
   /**
@@ -200,6 +209,11 @@ export interface RuntimeAdapter {
    * the observable output is byte-identical.
    */
   decide(raw: string, phase: SteeringPhase, defaultCwd?: string): SteeringResult;
+}
+
+/** Freeze a fully constructed stateless adapter so its trust-bearing identity cannot be replaced. */
+export function immutableRuntimeAdapter<T extends RuntimeAdapter>(adapter: T): Readonly<T> {
+  return Object.freeze(adapter);
 }
 
 // ————————————————————————————————————————————————————————————————————————

@@ -35,6 +35,8 @@ import {
   IdentityValidation,
   RuntimeAdapter,
   RuntimeCapabilities,
+  immutableRuntimeCapabilities,
+  immutableRuntimeAdapter,
   SteeringEvent,
   SteeringPhase,
   SteeringResult,
@@ -63,7 +65,7 @@ export class CopilotSdkHostedAdapter implements RuntimeAdapter {
    * no post-execution veto). `endOfTurn` is true via `onAgentStop`. Every real gap is named in
    * `unsupported`, at the granularity #611 asks for.
    */
-  readonly capabilities: RuntimeCapabilities = {
+  readonly capabilities: RuntimeCapabilities = immutableRuntimeCapabilities({
     preDeny: [],
     postObserve: [],
     endOfTurn: true,
@@ -75,7 +77,7 @@ export class CopilotSdkHostedAdapter implements RuntimeAdapter {
       'network-egress control',
       'identity / authentication',
     ],
-  };
+  });
 
   parseEvent(raw: string, phase: SteeringPhase): SteeringEvent | { failure: 'parse-failure'; detail: string } {
     return normalizeCopilotSdkEvent(raw, phase);
@@ -195,4 +197,4 @@ export class CopilotSdkHostedAdapter implements RuntimeAdapter {
 }
 
 /** The singleton hosted-SDK adapter. */
-export const copilotSdkAdapter = new CopilotSdkHostedAdapter();
+export const copilotSdkAdapter = immutableRuntimeAdapter(new CopilotSdkHostedAdapter());

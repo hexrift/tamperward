@@ -37,6 +37,8 @@ import {
   IdentityValidation,
   RuntimeAdapter,
   RuntimeCapabilities,
+  immutableRuntimeCapabilities,
+  immutableRuntimeAdapter,
   SteeringEvent,
   SteeringPhase,
   SteeringResult,
@@ -62,7 +64,7 @@ export class CopilotRuntimeAdapter implements RuntimeAdapter {
    * does not report. Every real gap is named in `unsupported`. The `probe:copilot-runtime`
    * harness is what may later justify moving a kind into `preDeny` or populating `postObserve`.
    */
-  readonly capabilities: RuntimeCapabilities = {
+  readonly capabilities: RuntimeCapabilities = immutableRuntimeCapabilities({
     preDeny: [],
     postObserve: [],
     endOfTurn: true,
@@ -76,7 +78,7 @@ export class CopilotRuntimeAdapter implements RuntimeAdapter {
       'network-egress control',
       'identity / authentication',
     ],
-  };
+  });
 
   parseEvent(raw: string, phase: SteeringPhase): SteeringEvent | { failure: 'parse-failure'; detail: string } {
     return normalizeCopilotEvent(raw, phase);
@@ -194,4 +196,4 @@ export class CopilotRuntimeAdapter implements RuntimeAdapter {
 }
 
 /** The singleton Copilot adapter. */
-export const copilotAdapter = new CopilotRuntimeAdapter();
+export const copilotAdapter = immutableRuntimeAdapter(new CopilotRuntimeAdapter());

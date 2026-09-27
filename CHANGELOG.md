@@ -17,6 +17,16 @@
   the helper walks plain data only, so an adapter instance's own immutability stays the
   adapter's construction-time job (#689).
 
+## [2.39.2] — 2026-09-27
+
+### Fixed
+
+- **Runtime capability identity is immutable after adapter construction** (#689). Each
+  capability descriptor now copies and freezes its exposed collections, and every shipped
+  stateless adapter instance is frozen so callers cannot replace its `name` or
+  `capabilities` reference. Runtime lookup and capability hashes therefore remain stable
+  after attempted mutation.
+
 ## [2.39.1] — 2026-09-27
 
 This release carries no code change of its own. It cuts the version for five runtime fixes
