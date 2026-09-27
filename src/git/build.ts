@@ -57,12 +57,46 @@ function git(args: string[], cwd?: string): string {
   }
 }
 
-/** Content of `path` at a revision (or `:path` for the index). null if absent. */
+/** What the tree at `rev` (the index when `rev` is '') holds at EXACTLY `path`:
+ *  nothing, a blob (a regular file or a symbolic link, both content git can show), or
+ *  something that is not content (a gitlink, a tree). The listing itself failing — an
+ *  invalid or unreadable revision — throws. `:(literal)` keeps a path with glob
+ *  characters from being read as a pattern, and the path column is compared exactly
+ *  because a pathspec also matches everything below a directory of that name. */
+function entryKindAt(rev: string, path: string, cwd?: string): 'absent' | 'blob' | 'other' {
+  const listing = rev === ''
+    ? git(['ls-files', '-s', '-z', '--', `:(literal)${path}`], cwd)
+    : git(['ls-tree', '-z', rev, '--', `:(literal)${path}`], cwd);
+  for (const record of listing.split('\0')) {
+    const tab = record.indexOf('\t');
+    if (tab === -1 || record.slice(tab + 1) !== path) continue;
+    const meta = record.slice(0, tab).split(' ');
+    // ls-tree prints "<mode> <type> <object>", ls-files -s prints "<mode> <object> <stage>";
+    // a gitlink is mode 160000 in both, a tree is type "tree" / mode 040000.
+    const mode = meta[0] ?? '';
+    const isBlob = rev === '' ? mode !== '160000' && !mode.startsWith('04') : meta[1] === 'blob';
+    return isBlob ? 'blob' : 'other';
+  }
+  return 'absent';
+}
+
+/** Content of `path` at a revision (or `:path` for the index). null when the tree has
+ *  no entry there, or holds something that is not content (a gitlink whose commit is
+ *  not in this object store, a tree). A blob the tree LISTS but git cannot read, or a
+ *  tree that cannot be listed, throws: absence is established by the tree, never
+ *  inferred from a failed read (#705). Every caller falls back on null — the
+ *  trusted-base policy to the baseline, a changed file's `before`/`after` to empty
+ *  content — so an object-store or I/O failure used to make the gate judge a weaker
+ *  change than the one landing, silently. The listing runs only on the failure path,
+ *  so an ordinary view costs nothing more. */
 function blobAt(rev: string, path: string, cwd?: string): string | null {
   try {
     return git(['show', `${rev}:${path}`], cwd);
-  } catch {
-    return null;
+  } catch (e) {
+    if (entryKindAt(rev, path, cwd) !== 'blob') return null;
+    const detail = (e instanceof Error ? e.message : String(e)).split('\n')[0];
+    const where = rev === '' ? 'the index entry ' : `${rev}:`;
+    throw new Error(`cannot read ${where}${path} although the tree lists it as a blob (${detail}); refusing to judge it as absent`);
   }
 }
 

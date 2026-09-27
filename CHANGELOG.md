@@ -1,5 +1,23 @@
 # Changelog
 
+## [2.39.6] — 2026-09-27
+
+### Fixed
+
+- **A git blob the gate cannot read is no longer taken for an absent one** (#705). Every
+  git view reads file content through one reader that mapped any `git show` failure to
+  "absent", so a trusted-base `.tamperward.yml` that existed but could not be read made
+  `check --diff`, `verify --base`, the `run` envelope, `trace-verify` and the observer fall
+  back to the baseline policy, and the hidden tracked paths the worktree views reconstruct by
+  hand (skip-worktree, assume-unchanged) were synthesized from an absent baseline, so a
+  gutted spec read as a fresh add — an object-store or I/O failure silently weakened the
+  gate. Absence is now
+  established by the tree: the reader reads null only when `ls-tree` (or `ls-files -s` for
+  the index) lists no entry at exactly that path, or lists something that is not content (a
+  gitlink, a tree); a listed blob that cannot be read, or a tree that cannot be listed, is an
+  error, so `check` exits 2 naming the object and the hook layers deny. The listing runs only
+  when a read fails, so an ordinary view costs nothing more.
+
 ## [2.39.5] — 2026-09-27
 
 ### Fixed
