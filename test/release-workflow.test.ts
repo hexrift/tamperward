@@ -110,10 +110,13 @@ describe('release.yml gate does not re-run the suite (#420)', () => {
 });
 
 describe('release.yml publishes the bump commit (#420)', () => {
-  it('plan compares the last package.json commit against GITHUB_SHA', () => {
+  it('plan resolves the bump commit by its VERSION change (#701) and compares it against GITHUB_SHA', () => {
     const { steps } = load();
     const plan = byId(steps, 'plan');
-    expect(plan.run).toContain('git log -1 --format=%H -- package.json');
+    // The last commit to TOUCH package.json is not the bump commit: a dependency or
+    // script edit satisfies it without moving the version (#701).
+    expect(plan.run).not.toContain('git log -1 --format=%H -- package.json');
+    expect(plan.run).toContain('BUMP_SHA="$(node .github/scripts/bump-commit.mjs)"');
     expect(plan.run).toContain('GITHUB_SHA');
     expect(plan.run).toContain('ALLOW_NON_BUMP_HEAD');
     expect(plan.env).toBeDefined();
