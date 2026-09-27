@@ -1,5 +1,21 @@
 # Changelog
 
+## [2.39.4] — 2026-09-27
+
+### Fixed
+
+- **The retained-evidence catalogue is pinned to the committed capture it transcribes** (#697).
+  Each record now carries `committed_artifact_sha256`, the SHA-256 of the committed sanitized
+  capture at `source` (distinct from `source_artifact_sha256`, which stays the identity of the
+  original uncommitted capture), and each observation names the capture row it was transcribed
+  from through `capture_path`. A lineage test opens every record's capture and checks the
+  transcription field by field: the two hashes, the binding against the capture's provenance,
+  the tested surface against the observation ids, and each `proven` observation against a
+  denial that kept the protected state intact after the boundary. Nothing about matching,
+  grading or the report's wire format changes; a catalogue that drifts from its evidence, or
+  evidence that changes under the catalogue, now fails the suite instead of still grading
+  `PROVEN`.
+
 ## [2.39.3] — 2026-09-27
 
 ### Fixed

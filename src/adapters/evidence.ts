@@ -46,6 +46,12 @@ export interface RetainedObservation {
   result: ObservationResult;
   /** The exact observation, preserved verbatim so a negative/inconclusive result is never hidden. */
   detail: string;
+  /** The row of the committed capture this observation was transcribed from: a `signatures[].path`
+   *  for a `proven` / `fail-open` result, an `inconclusive[].path` for an `inconclusive` one.
+   *  test/retained-evidence-lineage.test.ts follows the pointer and checks the row supports the
+   *  result (a denial with the protected state intact, recorded after the boundary), so a
+   *  transcription cannot claim more than its capture shows (#697). */
+  capture_path: string;
 }
 
 /** The FULL binding a probe ran under. Every field is load-bearing for a match: retained
@@ -77,14 +83,23 @@ export interface EvidenceBinding {
   hook_config_hash: string | null;
 }
 
-/** A retained real-runtime probe result, transcribed from a committed sanitized capture. */
+/** A retained real-runtime probe result, transcribed from a committed sanitized capture. The
+ *  transcription is checked, not trusted: test/retained-evidence-lineage.test.ts opens `source`,
+ *  recomputes `committed_artifact_sha256`, compares the binding with the capture's provenance and
+ *  follows every observation's `capture_path` (#697). */
 export interface RetainedRuntimeEvidence {
   /** A short, stable id for this retained record, cited in the qualification evidence. */
   ref: string;
   /** The committed source artifact this record was transcribed from (provenance). */
   source: string;
-  /** The immutable identity of the original (uncommitted, credentialed) capture. */
+  /** The immutable identity of the original (uncommitted, credentialed) capture, as the committed
+   *  capture itself records it. NOT the hash of the committed file: that is
+   *  `committed_artifact_sha256`. */
   source_artifact_sha256: string;
+  /** SHA-256 of the committed capture's bytes at `source`. The lineage test recomputes it, so an
+   *  edit to the sanitized evidence must be acknowledged here before the catalogue can keep citing
+   *  it — the same sealed-input discipline as the research bundles (#300, #697). */
+  committed_artifact_sha256: string;
   binding: EvidenceBinding;
   observations: RetainedObservation[];
 }
@@ -104,6 +119,8 @@ export const RETAINED_EVIDENCE: readonly RetainedRuntimeEvidence[] = deepFreeze(
     ref: 'copilot-sdk-capture-2026-09-20',
     source: 'harness/adapters/copilot-sdk/evidence/capture-2026-09-20.json',
     source_artifact_sha256: 'c46fba989dc0e772012c5fdb1291cf099326d24da2b551788be2e1e85113e49a',
+    // sha256sum of the committed capture (#619 re-grounded it on 2026-09-20; #697 pins it).
+    committed_artifact_sha256: '1c2d1acdfabc927e72dfa765cdb8da6fd995e6cbcad89812496d5c34e62e7903',
     binding: {
       runtime_id: 'github-copilot-sdk-hosted',
       runtime_version: 'copilot-runtime@1.0.85',
@@ -126,18 +143,21 @@ export const RETAINED_EVIDENCE: readonly RetainedRuntimeEvidence[] = deepFreeze(
       {
         id: 'pre-deny:shell',
         result: 'proven',
+        capture_path: 'returned-reject',
         detail:
           'returned-reject path (permission.completed result.kind denied): a rejected permission decision blocked shell tool dispatch — protected state not mutated (shell-pre-deny observation, boundary seq 2 < completion seq 3)',
       },
       {
         id: 'hook-not-invoked',
         result: 'proven',
+        capture_path: 'callback-failure',
         detail:
           'callback-failure path: a broken permission callback (sync-throw, reject and adapter-throw, independently) failed CLOSED — the tool did not dispatch and protected state stayed intact',
       },
       {
         id: 'transport:timeout',
         result: 'inconclusive',
+        capture_path: 'callback-timeout',
         detail:
           'callback-timeout path: a hung permission handler emits no permission.completed (the pinned SDK has no handler timeout), so non-dispatch is intrinsically unobservable — timeout is not proven either way',
       },
