@@ -63,6 +63,14 @@ export const PUBLISHED_MANIFEST_FIELDS = [
 /** The npm lifecycle scripts that run on the CONSUMER's machine at install time. */
 export const INSTALL_SCRIPTS = ['preinstall', 'install', 'postinstall'];
 
+/** Published fields whose OBJECT KEY ORDER is part of the contract: Node resolves
+ *  conditional exports and imports by taking the first matching condition in object
+ *  order, so `{ node, default }` and `{ default, node }` load different files. These are
+ *  compared with insertion order kept, throughout the value — a conservative reading that
+ *  also counts a subpath-map reorder as a change — while every other field compares by
+ *  content with keys sorted. */
+export const ORDERED_MANIFEST_FIELDS = ['exports', 'imports'];
+
 /** Maintainer-applied, head-bound override: `release-none:<hex prefix of the head sha>`.
  *  GitHub caps a label at 50 characters, so the full 40-hex sha does not fit behind the
  *  prefix; at least MIN_SHA_PREFIX hex characters of the head sha are required. Binding to
@@ -81,14 +89,16 @@ export function shippedChanges(paths) {
   return paths.filter((p) => SHIPPED_SURFACE.some((s) => p.startsWith(s)) || SHIPPED_FILES.includes(p));
 }
 
-/** Deterministic JSON with recursively sorted object keys, so two manifests compare by
- *  content and not by key order or formatting. `undefined` (an absent field) is its own
- *  value, distinct from `null`. */
-function canonical(value) {
+/** Deterministic JSON so two manifests compare by content and not by formatting.
+ *  Object keys are sorted recursively — except when `ordered` is set, for the fields whose
+ *  key order is semantic (ORDERED_MANIFEST_FIELDS), where insertion order is kept at every
+ *  level. `undefined` (an absent field) is its own value, distinct from `null`. */
+function canonical(value, ordered = false) {
   if (value === undefined) return 'undefined';
   if (value === null || typeof value !== 'object') return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
-  return `{${Object.keys(value).sort().map((k) => `${JSON.stringify(k)}:${canonical(value[k])}`).join(',')}}`;
+  if (Array.isArray(value)) return `[${value.map((v) => canonical(v, ordered)).join(',')}]`;
+  const keys = ordered ? Object.keys(value) : Object.keys(value).sort();
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${canonical(value[k], ordered)}`).join(',')}}`;
 }
 
 function parseManifest(text, where) {
@@ -112,7 +122,8 @@ export function manifestSurfaceChanges(baseText, headText) {
   const head = parseManifest(headText, 'head');
   const changed = [];
   for (const field of PUBLISHED_MANIFEST_FIELDS) {
-    if (canonical(base[field]) !== canonical(head[field])) changed.push(field);
+    const ordered = ORDERED_MANIFEST_FIELDS.includes(field);
+    if (canonical(base[field], ordered) !== canonical(head[field], ordered)) changed.push(field);
   }
   const baseScripts = base.scripts !== null && typeof base.scripts === 'object' ? base.scripts : {};
   const headScripts = head.scripts !== null && typeof head.scripts === 'object' ? head.scripts : {};

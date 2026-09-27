@@ -14,7 +14,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore — untyped .mjs helper, imported for behaviour like the forward-guard tests
-import { decide, shippedChanges, manifestSurfaceChanges, overrideLabels, newestHeading, hasUnreleased, OVERRIDE_PREFIX, MIN_SHA_PREFIX, PUBLISHED_MANIFEST_FIELDS, INSTALL_SCRIPTS, SHIPPED_FILES } from '../.github/scripts/release-discipline.mjs';
+import { decide, shippedChanges, manifestSurfaceChanges, overrideLabels, newestHeading, hasUnreleased, OVERRIDE_PREFIX, MIN_SHA_PREFIX, PUBLISHED_MANIFEST_FIELDS, INSTALL_SCRIPTS, SHIPPED_FILES, ORDERED_MANIFEST_FIELDS } from '../.github/scripts/release-discipline.mjs';
 
 const HEAD = '0123456789abcdef0123456789abcdef01234567';
 const OTHER = 'fedcba9876543210fedcba9876543210fedcba98';
@@ -113,6 +113,25 @@ describe('#703 release discipline — the published manifest fields and LICENSE/
   it('compares by content: a reordering or reformatting of package.json is not a change', () => {
     const reordered = JSON.stringify({ type: 'module', engines: { node: '>=20' }, bin: { fixture: 'dist/cli.js' }, files: ['dist'], scripts: { build: 'esbuild', test: 'vitest run' }, devDependencies: { vitest: '^5.0.0' }, dependencies: { yaml: '^2.6.1' }, version: '1.0.0', name: 'fixture' }, null, 4);
     expect(manifestSurfaceChanges(manifest(), reordered)).toEqual([]);
+    // Inside an order-insensitive map, key order is formatting too.
+    expect(manifestSurfaceChanges(manifest({ dependencies: { a: '1', yaml: '^2.6.1' } }), manifest({ dependencies: { yaml: '^2.6.1', a: '1' } }))).toEqual([]);
+    expect(manifestSurfaceChanges(manifest({ bin: { a: 'a.js', b: 'b.js' } }), manifest({ bin: { b: 'b.js', a: 'a.js' } }))).toEqual([]);
+  });
+  it('RED: a reorder of conditional-export keys IS a change — Node takes the first matching condition in object order', () => {
+    expect(ORDERED_MANIFEST_FIELDS).toEqual(['exports', 'imports']);
+    const before = manifest({ exports: { '.': { node: './node.js', default: './fallback.js' } } });
+    const after = manifest({ exports: { '.': { default: './fallback.js', node: './node.js' } } });
+    expect(manifestSurfaceChanges(before, after)).toEqual(['exports']);
+    // The same two objects reformatted, order intact, are not a change.
+    expect(manifestSurfaceChanges(before, JSON.stringify(JSON.parse(before), null, 4))).toEqual([]);
+    // imports follow the same contract.
+    const importsBefore = manifest({ imports: { '#dep': { node: './n.js', default: './d.js' } } });
+    const importsAfter = manifest({ imports: { '#dep': { default: './d.js', node: './n.js' } } });
+    expect(manifestSurfaceChanges(importsBefore, importsAfter)).toEqual(['imports']);
+    // Conservative on purpose: a subpath-map reorder counts too (order is kept at every level).
+    const subpaths = manifest({ exports: { '.': './a.js', './b': './b.js' } });
+    const subpathsSwapped = manifest({ exports: { './b': './b.js', '.': './a.js' } });
+    expect(manifestSurfaceChanges(subpaths, subpathsSwapped)).toEqual(['exports']);
   });
   it('removing a published field, or adding one, is a change (absence is its own value)', () => {
     expect(manifestSurfaceChanges(manifest(), manifest({ bin: undefined }))).toEqual(['bin']);
