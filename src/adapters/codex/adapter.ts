@@ -24,6 +24,7 @@ import {
   RuntimeAdapter,
   RuntimeCapabilities,
   immutableRuntimeCapabilities,
+  immutableRuntimeAdapter,
   SteeringEvent,
   SteeringPhase,
   SteeringResult,
@@ -160,4 +161,4 @@ export class CodexRuntimeAdapter implements RuntimeAdapter {
 }
 
 /** The singleton Codex adapter. */
-export const codexAdapter = new CodexRuntimeAdapter();
+export const codexAdapter = immutableRuntimeAdapter(new CodexRuntimeAdapter());
