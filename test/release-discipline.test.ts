@@ -14,7 +14,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore — untyped .mjs helper, imported for behaviour like the forward-guard tests
-import { decide, shippedChanges, overrideLabels, newestHeading, hasUnreleased, OVERRIDE_PREFIX, MIN_SHA_PREFIX } from '../.github/scripts/release-discipline.mjs';
+import { decide, shippedChanges, manifestSurfaceChanges, overrideLabels, newestHeading, hasUnreleased, OVERRIDE_PREFIX, MIN_SHA_PREFIX, PUBLISHED_MANIFEST_FIELDS, INSTALL_SCRIPTS, SHIPPED_FILES, ORDERED_MANIFEST_FIELDS } from '../.github/scripts/release-discipline.mjs';
 
 const HEAD = '0123456789abcdef0123456789abcdef01234567';
 const OTHER = 'fedcba9876543210fedcba9876543210fedcba98';
@@ -30,6 +30,7 @@ interface Input {
   lockVersions?: (string | undefined)[];
   labels?: string[];
   headSha: string;
+  manifestChanges?: string[];
 }
 
 const input = (over: Partial<Input> = {}): Input => ({
@@ -78,6 +79,89 @@ describe('#693 release discipline — shipped surface', () => {
     expect(msg).toContain('src/f4.ts');
     expect(msg).not.toContain('src/f5.ts');
     expect(msg).toContain('8 in total');
+  });
+});
+
+describe('#703 release discipline — the published manifest fields and LICENSE/NOTICE ship too', () => {
+  const manifest = (over: Record<string, unknown> = {}) =>
+    JSON.stringify({ name: 'fixture', version: '1.0.0', dependencies: { yaml: '^2.6.1' }, devDependencies: { vitest: '^5.0.0' }, scripts: { test: 'vitest run', build: 'esbuild' }, files: ['dist'], bin: { fixture: 'dist/cli.js' }, engines: { node: '>=20' }, type: 'module', ...over });
+
+  it('LICENSE and NOTICE are shipped files; a docs file next to them is not', () => {
+    expect(SHIPPED_FILES).toEqual(['LICENSE', 'NOTICE']);
+    expect(shippedChanges(['LICENSE', 'NOTICE', 'LICENSES.md', 'README.md'])).toEqual(['LICENSE', 'NOTICE']);
+  });
+  it('RED: a runtime dependency range change is named; a devDependency change is not', () => {
+    expect(manifestSurfaceChanges(manifest(), manifest({ dependencies: { yaml: '^2.7.0' } }))).toEqual(['dependencies']);
+    expect(manifestSurfaceChanges(manifest(), manifest({ devDependencies: { vitest: '^6.0.0' } }))).toEqual([]);
+  });
+  it.each([
+    ['bin', { bin: { fixture: 'dist/other.js' } }],
+    ['engines', { engines: { node: '>=22' } }],
+    ['files', { files: ['dist', 'extra'] }],
+    ['exports', { exports: { '.': './dist/index.js' } }],
+    ['type', { type: 'commonjs' }],
+    ['peerDependencies', { peerDependencies: { typescript: '>=5' } }],
+    ['optionalDependencies', { optionalDependencies: { fsevents: '*' } }],
+  ])('a change to %s is named', (field, over) => {
+    expect(manifestSurfaceChanges(manifest(), manifest(over))).toEqual([field]);
+  });
+  it('an install-time script is shipped; a test or build script is not', () => {
+    expect(manifestSurfaceChanges(manifest(), manifest({ scripts: { test: 'vitest run', build: 'esbuild', postinstall: 'node setup.js' } }))).toEqual(['scripts.postinstall']);
+    expect(manifestSurfaceChanges(manifest(), manifest({ scripts: { test: 'vitest run --coverage', build: 'tsup' } }))).toEqual([]);
+    expect(INSTALL_SCRIPTS).toEqual(['preinstall', 'install', 'postinstall']);
+  });
+  it('compares by content: a reordering or reformatting of package.json is not a change', () => {
+    const reordered = JSON.stringify({ type: 'module', engines: { node: '>=20' }, bin: { fixture: 'dist/cli.js' }, files: ['dist'], scripts: { build: 'esbuild', test: 'vitest run' }, devDependencies: { vitest: '^5.0.0' }, dependencies: { yaml: '^2.6.1' }, version: '1.0.0', name: 'fixture' }, null, 4);
+    expect(manifestSurfaceChanges(manifest(), reordered)).toEqual([]);
+    // Inside an order-insensitive map, key order is formatting too.
+    expect(manifestSurfaceChanges(manifest({ dependencies: { a: '1', yaml: '^2.6.1' } }), manifest({ dependencies: { yaml: '^2.6.1', a: '1' } }))).toEqual([]);
+    expect(manifestSurfaceChanges(manifest({ bin: { a: 'a.js', b: 'b.js' } }), manifest({ bin: { b: 'b.js', a: 'a.js' } }))).toEqual([]);
+  });
+  it('RED: a reorder of conditional-export keys IS a change — Node takes the first matching condition in object order', () => {
+    expect(ORDERED_MANIFEST_FIELDS).toEqual(['exports', 'imports']);
+    const before = manifest({ exports: { '.': { node: './node.js', default: './fallback.js' } } });
+    const after = manifest({ exports: { '.': { default: './fallback.js', node: './node.js' } } });
+    expect(manifestSurfaceChanges(before, after)).toEqual(['exports']);
+    // The same two objects reformatted, order intact, are not a change.
+    expect(manifestSurfaceChanges(before, JSON.stringify(JSON.parse(before), null, 4))).toEqual([]);
+    // imports follow the same contract.
+    const importsBefore = manifest({ imports: { '#dep': { node: './n.js', default: './d.js' } } });
+    const importsAfter = manifest({ imports: { '#dep': { default: './d.js', node: './n.js' } } });
+    expect(manifestSurfaceChanges(importsBefore, importsAfter)).toEqual(['imports']);
+    // Conservative on purpose: a subpath-map reorder counts too (order is kept at every level).
+    const subpaths = manifest({ exports: { '.': './a.js', './b': './b.js' } });
+    const subpathsSwapped = manifest({ exports: { './b': './b.js', '.': './a.js' } });
+    expect(manifestSurfaceChanges(subpaths, subpathsSwapped)).toEqual(['exports']);
+  });
+  it('removing a published field, or adding one, is a change (absence is its own value)', () => {
+    expect(manifestSurfaceChanges(manifest(), manifest({ bin: undefined }))).toEqual(['bin']);
+    expect(manifestSurfaceChanges(manifest({ bin: undefined }), manifest())).toEqual(['bin']);
+    expect(manifestSurfaceChanges(manifest(), manifest({ os: ['linux'] }))).toEqual(['os']);
+  });
+  it('every field in the list is a string, once', () => {
+    expect(new Set(PUBLISHED_MANIFEST_FIELDS).size).toBe(PUBLISHED_MANIFEST_FIELDS.length);
+    expect(PUBLISHED_MANIFEST_FIELDS).toContain('dependencies');
+    expect(PUBLISHED_MANIFEST_FIELDS).not.toContain('devDependencies');
+    expect(PUBLISHED_MANIFEST_FIELDS).not.toContain('version');
+  });
+  it('a manifest that does not parse, or is not an object, throws instead of reading as "no change"', () => {
+    expect(() => manifestSurfaceChanges('{', manifest())).toThrow(/PR base is not valid JSON/);
+    expect(() => manifestSurfaceChanges(manifest(), '[]')).toThrow(/PR head is not a JSON object/);
+    expect(() => manifestSurfaceChanges(manifest(), 'null')).toThrow(/PR head is not a JSON object/);
+  });
+  it('decide: RED a published field change without a bump fails, naming the field as package.json#<field>', () => {
+    const msg = errorsOf(decide(input({ changedPaths: ['package.json', 'package-lock.json'], manifestChanges: ['dependencies'] })));
+    expect(msg).toContain('shipped code changed (package.json#dependencies)');
+    expect(msg).toContain('still reads 1.0.0');
+  });
+  it('decide: the same change with a forward bump passes, and with the head-bound label is recorded', () => {
+    expect(decide(bumped({ changedPaths: ['package.json', 'package-lock.json', 'CHANGELOG.md'], manifestChanges: ['dependencies'] })).ok).toBe(true);
+    const r = decide(input({ changedPaths: ['package.json'], manifestChanges: ['engines'], labels: [`${OVERRIDE_PREFIX}${HEAD.slice(0, 12)}`] }));
+    expect(r.ok).toBe(true);
+    expect(r.notes.join(' ')).toContain('1 shipped change(s) without a version bump');
+  });
+  it('decide: a package.json edit that moved no published field is not shipped', () => {
+    expect(decide(input({ changedPaths: ['package.json'], manifestChanges: [] }))).toEqual({ ok: true, notes: ['no shipped file changed and the version is unchanged'] });
   });
 });
 
@@ -150,7 +234,7 @@ describe('#693 release discipline — the head-bound override label', () => {
   it('a bound label lets a shipped change through without a bump and records who said so', () => {
     const label = `${OVERRIDE_PREFIX}${HEAD.slice(0, 12)}`;
     const r = decide(input({ changedPaths: ['src/a.ts'], labels: [label] }));
-    expect(r).toEqual({ ok: true, notes: [`1 shipped file(s) changed without a version bump; a maintainer recorded "no behaviour shipped" with ${label} for head ${HEAD}`] });
+    expect(r).toEqual({ ok: true, notes: [`1 shipped change(s) without a version bump; a maintainer recorded "no behaviour shipped" with ${label} for head ${HEAD}`] });
   });
   it('a label bound to a previous head does not clear a new push, and the error says so', () => {
     const stale = `${OVERRIDE_PREFIX}${OTHER.slice(0, 12)}`;
@@ -179,6 +263,9 @@ describe('#693 release discipline — CLI against a throwaway repository', () =>
   let bumpSha = '';
   let renameSrcSha = '';
   let renameSchemaSha = '';
+  let runtimeDepSha = '';
+  let devDepSha = '';
+  let licenseSha = '';
 
   const g = (args: string[]): string => {
     const r = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', '-c', 'commit.gpgsign=false', ...args], { cwd: repo, encoding: 'utf8' });
@@ -186,7 +273,7 @@ describe('#693 release discipline — CLI against a throwaway repository', () =>
     return r.stdout.trim();
   };
   const write = (rel: string, text: string) => writeFileSync(join(repo, rel), text);
-  const pkg = (v: string) => JSON.stringify({ name: 'fixture', version: v }, null, 2) + '\n';
+  const pkg = (v: string, extra: Record<string, unknown> = {}) => JSON.stringify({ name: 'fixture', version: v, ...extra }, null, 2) + '\n';
   const lock = (v: string) => JSON.stringify({ name: 'fixture', version: v, lockfileVersion: 3, packages: { '': { name: 'fixture', version: v } } }, null, 2) + '\n';
   const commitAll = (msg: string): string => {
     g(['add', '-A']);
@@ -219,6 +306,14 @@ describe('#693 release discipline — CLI against a throwaway repository', () =>
     mkdirSync(join(repo, 'other'));
     g(['mv', 'schemas/x.json', 'other/x.json']);
     renameSchemaSha = commitAll('move a schema out of schemas without a bump');
+    // #703: manifest edits without a version change — a runtime dependency range (ships),
+    // then a devDependency (does not), then the license text (ships as-is).
+    write('package.json', pkg('1.0.1', { dependencies: { yaml: '^2.7.0' } }));
+    runtimeDepSha = commitAll('build(deps): bump yaml range without a bump');
+    write('package.json', pkg('1.0.1', { dependencies: { yaml: '^2.7.0' }, devDependencies: { vitest: '^6.0.0' } }));
+    devDepSha = commitAll('build(deps-dev): bump vitest without a bump');
+    write('LICENSE', 'MIT, amended\n');
+    licenseSha = commitAll('edit the license without a bump');
   });
   afterAll(() => {
     if (repo) rmSync(repo, { recursive: true, force: true });
@@ -259,6 +354,24 @@ describe('#693 release discipline — CLI against a throwaway repository', () =>
   });
   it('the range is base...head, so the earlier no-bump commit is covered by the later bump', () => {
     expect(run(noBumpSha, bumpSha).status).toBe(0);
+  });
+  it('RED (#703): a runtime dependency range change without a bump fails, naming the field', () => {
+    const r = run(renameSchemaSha, runtimeDepSha);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain('shipped code changed (package.json#dependencies)');
+  });
+  it('a devDependency change alone is not shipped and passes', () => {
+    const r = run(runtimeDepSha, devDepSha);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain('no shipped file changed');
+  });
+  it('a LICENSE edit without a bump fails: the file is published as-is', () => {
+    const r = run(devDepSha, licenseSha);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain('shipped code changed (LICENSE)');
+  });
+  it('the head-bound label clears a manifest-only change like any other', () => {
+    expect(run(renameSchemaSha, runtimeDepSha, [`${OVERRIDE_PREFIX}${runtimeDepSha.slice(0, 12)}`]).status).toBe(0);
   });
   it('rejects malformed shas and unreadable ranges instead of passing by accident', () => {
     expect(run('abc', 'def').status).toBe(1);
