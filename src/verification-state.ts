@@ -32,6 +32,7 @@ import { assertRev } from './git/build';
 import { trustedGitEnv } from './git/trusted';
 import { treeFingerprint } from './fingerprint';
 import { isProtected, matchesAny, defaultPolicy } from './policy';
+import { execFailure } from './narrow';
 import { loadPolicy, loadPolicyAt } from './policy-load';
 import { repoContext, repoRoot } from './repo-context';
 import { claudeConfigDir, TW_VERSION } from './wiring';
@@ -210,13 +211,19 @@ function digest(value: unknown): string {
  *  file the policy protects, plus any declared verify.inputs. This is what
  *  `verify` restores from the trusted base, so a change to that set — a protected
  *  test added, removed or renamed at the base, or the protected/verify.inputs
- *  globs themselves changing — is a load-bearing change. */
+ *  globs themselves changing — is a load-bearing change. A base whose tree cannot
+ *  be listed (the commit resolves, but a tree object under it cannot be read) has
+ *  an UNKNOWN surface, not an empty one: the failure is thrown, so `computeBinding`
+ *  reaches the BROKEN path carrying git's error instead of a `surface` mismatch
+ *  reporting a change that never happened (#707). */
 function surfacePaths(base: string, cwd: string, policy: Policy): string[] {
   let listing: string;
   try {
     listing = git(['ls-tree', '-r', '--name-only', '-z', base], cwd);
-  } catch {
-    return [];
+  } catch (e) {
+    const failure = execFailure(e);
+    const detail = failure.stderr.trim().split('\n')[0] || failure.message.split('\n')[0];
+    throw new Error(`cannot list the protected verification surface at base ${base}: ${detail}`);
   }
   const inputs = policy.verify?.inputs ?? [];
   return listing
@@ -283,9 +290,9 @@ function dependenciesBinding(root: string, policy: Policy, command: string): str
 /**
  * Recompute the binding fingerprints for the CURRENT live state, using the same
  * input resolution the recorded verify used. Throws when the recorded authority
- * wiring can no longer be evaluated (an unresolvable base, an invalid policy, or
- * a verifier command that is no longer configured) — the caller maps that to
- * BROKEN. Never returns a partial binding.
+ * wiring can no longer be evaluated (an unresolvable base, an invalid policy, a
+ * verifier command that is no longer configured, or a base tree that cannot be
+ * listed) — the caller maps that to BROKEN. Never returns a partial binding.
  */
 export function computeBinding(
   cwd: string,
