@@ -15,7 +15,7 @@
 
 import { describe, it, expect, afterAll, afterEach, beforeAll, vi } from 'vitest';
 import { execFileSync, spawn, spawnSync, type ChildProcess } from 'node:child_process';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, linkSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildSync } from 'esbuild';
@@ -149,6 +149,19 @@ describe.skipIf(!posix)('#718 appendRegular', () => {
     expect(() => appendRegular(join(d, 'dev'), 'x\n')).toThrow(/is a symbolic link to \/dev\/null/);
   });
 
+  it('refuses a file with more than one name (a hard link), naming the count, and leaves the other name untouched', () => {
+    const d = tmp();
+    writeFileSync(join(d, 'target'), 'keep\n');
+    linkSync(join(d, 'target'), join(d, 'hard'));
+    expect(() => appendRegular(join(d, 'hard'), 'x\n')).toThrow(StateFileError);
+    expect(() => appendRegular(join(d, 'hard'), 'x\n')).toThrow(/has 2 names/);
+    expect(readFileSync(join(d, 'target'), 'utf8')).toBe('keep\n');
+    // The moment the extra name is gone, the file is an ordinary log again.
+    rmSync(join(d, 'target'));
+    appendRegular(join(d, 'hard'), 'x\n');
+    expect(readFileSync(join(d, 'hard'), 'utf8')).toBe('keep\nx\n');
+  });
+
   it('refuses a directory', () => {
     const d = tmp();
     mkdirSync(join(d, 'dir'));
@@ -203,6 +216,31 @@ describe.skipIf(!posix)("#718 the hook's deny log and audit log", () => {
     expect(denied(denyWrite(cwd))).toBe(true);
     expect(readFileSync(marker(cwd), 'utf8').trim()).toBe(sha0);
     expect(lstatSync(join(cwd, '.git', 'tamperward', 'audit.jsonl')).isSymbolicLink()).toBe(true);
+  });
+
+  it('a deny log HARD-linked to the session marker: the deny is unchanged and the marker is intact', () => {
+    const cwd = repo();
+    expect(allow(cwd).stdout).toBe('');
+    const sha0 = head(cwd);
+    // Same filesystem, same inode: an lstat and an fstat both say "regular file".
+    linkSync(marker(cwd), join(cwd, 'deny.log'));
+    expect(lstatSync(join(cwd, 'deny.log')).nlink).toBe(2);
+    process.env.TAMPERWARD_DENYLOG = join(cwd, 'deny.log');
+    expect(denied(denyWrite(cwd))).toBe(true);
+    expect(readFileSync(marker(cwd), 'utf8').trim()).toBe(sha0);
+    delete process.env.TAMPERWARD_DENYLOG;
+    expect(allow(cwd).stdout).toBe('');
+    expect(readFileSync(marker(cwd), 'utf8').trim()).toBe(sha0);
+  });
+
+  it('the audit log under `auto` HARD-linked to the session marker: the same', () => {
+    const cwd = repo();
+    expect(allow(cwd).stdout).toBe('');
+    const sha0 = head(cwd);
+    linkSync(marker(cwd), join(cwd, '.git', 'tamperward', 'audit.jsonl'));
+    process.env.TAMPERWARD_AUDIT_LOG = 'auto';
+    expect(denied(denyWrite(cwd))).toBe(true);
+    expect(readFileSync(marker(cwd), 'utf8').trim()).toBe(sha0);
   });
 
   it('a dangling link at the deny log creates nothing at its target', () => {
@@ -276,6 +314,24 @@ describe.skipIf(!posix)("#718 the watcher's event log and health record", () => 
       writeFileSync(join(cwd, 'test', 'a.test.js'), 'it.skip("a", () => {});\n');
       expect(await until(() => readWatcherHealth(log)?.state === 'degraded')).toBe(true);
       expect(readWatcherHealth(log)?.last_error).toMatch(/events\.jsonl is a symbolic link to .*target/);
+    } finally {
+      w.close();
+    }
+    expect(readFileSync(join(cwd, 'target'), 'utf8')).toBe('keep\n');
+  });
+
+  it('an event log hard-linked to a file: the event is refused, the other name untouched, the observer degraded naming the count', async () => {
+    process.env.TAMPERWARD_WATCH_NO_RECURSIVE = '1';
+    const cwd = repo();
+    writeFileSync(join(cwd, 'target'), 'keep\n');
+    const log = join(cwd, 'events.jsonl');
+    linkSync(join(cwd, 'target'), log);
+    const w = startWatcher(cwd, log, defaultPolicy());
+    try {
+      await sleep(100);
+      writeFileSync(join(cwd, 'test', 'a.test.js'), 'it.skip("a", () => {});\n');
+      expect(await until(() => readWatcherHealth(log)?.state === 'degraded')).toBe(true);
+      expect(readWatcherHealth(log)?.last_error).toMatch(/events\.jsonl has 2 names/);
     } finally {
       w.close();
     }

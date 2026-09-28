@@ -225,7 +225,14 @@ export function readStateFile(abs: string): string | null {
 const O_APPEND_REGULAR =
   constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0);
 
-const APPEND_REFUSED = '; the gate appends its records only to a regular file — remove what stands there so the record can be kept';
+const APPEND_REFUSED = '; the gate appends its records only to a regular file with one name — remove what stands there so the record can be kept';
+
+/** A regular file reachable under another name as well: an append through this
+ *  name lands in that file too. Only a singly linked file is appended to, and a
+ *  platform that cannot report the count is refused the same way. */
+function multiplyLinked(st: Stats): string | null {
+  return st.nlink === 1 ? null : `has ${st.nlink} names — a hard link is the same file under another name, the session marker's or the policy's, say`;
+}
 
 /**
  * Append `text` to the REGULAR FILE at `abs`, creating it when nothing stands at
@@ -236,9 +243,11 @@ const APPEND_REFUSED = '; the gate appends its records only to a regular file �
  * open until a reader appeared, which in the hook was a deny that never returned.
  * The path is inspected with lstat, opened without following and without waiting,
  * and checked again on the open descriptor before a byte is written. A
- * StateFileError names what was refused: a link wherever it points, a FIFO,
- * socket, device or directory, an entry that changed shape between the checks.
- * Any other write failure is raised as it is. The caller decides what a refused
+ * StateFileError names what was refused: a link wherever it points, a file with
+ * more than one name (a hard link to the marker passes every "regular file"
+ * test and appends into the marker's own inode), a FIFO, socket, device or
+ * directory, an entry that changed shape between the checks. Any other write
+ * failure is raised as it is. The caller decides what a refused
  * line means; for the telemetry channels it is a dropped line, exactly as any
  * write failure already was — the verdict does not depend on it, and no longer
  * waits on it.
@@ -249,6 +258,8 @@ export function appendRegular(abs: string, text: string, mode = 0o666): void {
   // ordinary write failure it always was, raised as the OS reports it.
   const st = lstatSync(abs, { throwIfNoEntry: false });
   if (st !== undefined && !st.isFile()) throw new StateFileError(`${abs} ${notARegularFile(classify(abs, st))}${APPEND_REFUSED}`);
+  const linked = st === undefined ? null : multiplyLinked(st);
+  if (linked !== null) throw new StateFileError(`${abs} ${linked}${APPEND_REFUSED}`);
   let fd: number;
   try {
     fd = openSync(abs, O_APPEND_REGULAR, mode);
@@ -263,8 +274,13 @@ export function appendRegular(abs: string, text: string, mode = 0o666): void {
     throw e;
   }
   try {
+    // The descriptor is what is written: an extra name given to the file after the
+    // lstat shows here, and so does one given to a file created in the O_CREAT
+    // window (a link swapped in after the lstat already failed the open above).
     const now = fstatSync(fd);
     if (!now.isFile()) throw new StateFileError(`${abs} is a ${irregularName(now)}${APPEND_REFUSED}`);
+    const opened = multiplyLinked(now);
+    if (opened !== null) throw new StateFileError(`${abs} ${opened}${APPEND_REFUSED}`);
     const buf = Buffer.from(text, 'utf8');
     let off = 0;
     while (off < buf.length) off += writeSync(fd, buf, off, buf.length - off);

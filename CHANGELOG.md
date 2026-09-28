@@ -15,8 +15,10 @@
   re-established at HEAD, forgetting a mid-turn commit the way #716 refused to; aimed at the
   policy or the hook wiring, it corrupted them. Both paths are same-uid writable, and `.git/`
   is not a protected path. Every such append now goes through one primitive (an `lstat`, an
-  open that follows no link and never waits, an `fstat` after the open), and the watcher's
-  health record is replaced through a rename, which follows nothing. The channels stay what
+  open that follows no link and never waits, an `fstat` after the open, and on both stats a
+  file with more than one name is refused too: a hard link to the marker passes every
+  "regular file" test and appends into the marker's own inode), and the watcher's health
+  record is replaced through a rename, which follows nothing. The channels stay what
   they are documented to be — best effort: a refused entry drops the line exactly as any
   write failure did, and the verdict neither changes nor waits on it; the watcher reports the
   refusal as a degraded observer, naming what stands at the path.
