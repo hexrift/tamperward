@@ -21,6 +21,12 @@
 // are not shipped and stay free of the bump. Fields are compared by content, so a
 // reordering of package.json is not a change; a manifest that cannot be parsed at
 // either end of the range fails the check rather than reading as "no change".
+//
+// The bump itself must be the next step from the base (#711): the next patch, minor or
+// major of a release (or a prerelease of one of those), a later prerelease or the
+// release from a prerelease. Two pull requests opened against the same main each took
+// "the next version" and one of them carried a CHANGELOG that skipped the other's; only
+// a reviewer noticed. The ladder has no gaps, and there is no override for one.
 
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
@@ -170,6 +176,22 @@ export function hasUnreleased(changelog) {
   return UNRELEASED.test(String(changelog ?? ''));
 }
 
+/** Whether `headVersion` is the next step from `baseVersion`, and what the steps are.
+ *  From a release: its next patch, minor or major, or a prerelease of one of those
+ *  (2.39.6 → 2.40.0-rc.1). From a prerelease: a later prerelease of the same version, or
+ *  that version's release (2.40.0-rc.1 → 2.40.0-rc.2 → 2.40.0). Anything else skips a
+ *  step — 2.39.6 → 2.39.8 with 2.39.7 owned by another open pull request — which
+ *  `semver.gt` alone accepted (#711). */
+export function ladderStep(baseVersion, headVersion) {
+  const stem = (v) => `${semver.major(v)}.${semver.minor(v)}.${semver.patch(v)}`;
+  const next = { patch: semver.inc(baseVersion, 'patch'), minor: semver.inc(baseVersion, 'minor'), major: semver.inc(baseVersion, 'major') };
+  if (semver.prerelease(baseVersion)) {
+    const prereleaseOf = stem(baseVersion);
+    return { ok: stem(headVersion) === prereleaseOf && semver.gt(headVersion, baseVersion), next, prereleaseOf };
+  }
+  return { ok: Object.values(next).includes(stem(headVersion)), next, prereleaseOf: null };
+}
+
 /**
  * The merge-side release decision.
  * @param {{ baseVersion: string, headVersion: string, changedPaths: string[], changelog: string,
@@ -210,6 +232,17 @@ export function decide(input) {
   if (bumped) {
     if (!semver.gt(headVersion, baseVersion)) {
       errors.push(`package.json moved from ${baseVersion} to ${headVersion}, which is not a forward move; a release must move the version up.`);
+    } else {
+      const step = ladderStep(baseVersion, headVersion);
+      if (!step.ok) {
+        const where = step.prereleaseOf
+          ? `which is neither a later prerelease of ${step.prereleaseOf} nor its release`
+          : `which is not the next patch (${step.next.patch}), minor (${step.next.minor}) or major (${step.next.major}) of ${baseVersion}`;
+        errors.push(
+          `package.json moves from ${baseVersion} to ${headVersion}, ${where}: the release ladder has no gaps. ` +
+            'If another open pull request owns the version in between, merge it first and bring main in (this entry then sits above it); otherwise renumber this release.',
+        );
+      }
     }
     const heading = newestHeading(changelog);
     if (!heading) {
