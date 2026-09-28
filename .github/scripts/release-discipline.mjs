@@ -12,15 +12,64 @@
 // It cannot judge patch versus minor — CONTRIBUTING "Versioning" does — it only turns
 // "did this PR move the version, or did a maintainer record that it ships no behaviour"
 // into an explicit, reviewed fact instead of an omission.
+//
+// The shipped surface is what `npm publish` delivers (#703): `src/` built into `dist/`,
+// `schemas/`, `LICENSE` and `NOTICE` as-is, and the manifest fields that decide what a
+// consumer's install gets — the runtime dependency ranges (the build is
+// `--packages=external`, so nothing is bundled), engines, bin, exports, files and the
+// install-time scripts. `devDependencies`, `scripts.test` and the rest of package.json
+// are not shipped and stay free of the bump. Fields are compared by content, so a
+// reordering of package.json is not a change; a manifest that cannot be parsed at
+// either end of the range fails the check rather than reading as "no change".
 
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import semver from 'semver';
 
-/** Paths whose change ships to users: `src/` builds into `dist/`, and `schemas/` is
+/** Path prefixes whose change ships to users: `src/` builds into `dist/`, and `schemas/` is
  *  published as-is (package.json `files`). Docs, tests, harness and workflows are not the
  *  shipped surface and need no bump. */
 export const SHIPPED_SURFACE = ['src/', 'schemas/'];
+
+/** Files package.json `files` publishes as-is, so a change to them ships (#703). */
+export const SHIPPED_FILES = ['LICENSE', 'NOTICE'];
+
+/** The package.json fields npm delivers to a consumer's install (#703): what is installed
+ *  alongside, where it runs, what is executable and resolvable, and what is packed.
+ *  `version` is judged separately; `devDependencies`, `scripts` (other than the install
+ *  hooks below), `description` and the like are not shipped. */
+export const PUBLISHED_MANIFEST_FIELDS = [
+  'dependencies',
+  'peerDependencies',
+  'peerDependenciesMeta',
+  'optionalDependencies',
+  'bundleDependencies',
+  'bundledDependencies',
+  'engines',
+  'os',
+  'cpu',
+  'bin',
+  'main',
+  'module',
+  'exports',
+  'imports',
+  'type',
+  'files',
+  'types',
+  'typings',
+  'browser',
+];
+
+/** The npm lifecycle scripts that run on the CONSUMER's machine at install time. */
+export const INSTALL_SCRIPTS = ['preinstall', 'install', 'postinstall'];
+
+/** Published fields whose OBJECT KEY ORDER is part of the contract: Node resolves
+ *  conditional exports and imports by taking the first matching condition in object
+ *  order, so `{ node, default }` and `{ default, node }` load different files. These are
+ *  compared with insertion order kept, throughout the value — a conservative reading that
+ *  also counts a subpath-map reorder as a change — while every other field compares by
+ *  content with keys sorted. */
+export const ORDERED_MANIFEST_FIELDS = ['exports', 'imports'];
 
 /** Maintainer-applied, head-bound override: `release-none:<hex prefix of the head sha>`.
  *  GitHub caps a label at 50 characters, so the full 40-hex sha does not fit behind the
@@ -35,9 +84,53 @@ const DATED_TAIL = /^ — (\d{4})-(\d{2})-(\d{2})\s*$/;
 const UNRELEASED = /^## \[unreleased\]/im;
 const SHA40 = /^[0-9a-f]{40}$/i;
 
-/** The changed paths that ship. */
+/** The changed paths that ship: under a shipped prefix, or one of the files published as-is. */
 export function shippedChanges(paths) {
-  return paths.filter((p) => SHIPPED_SURFACE.some((s) => p.startsWith(s)));
+  return paths.filter((p) => SHIPPED_SURFACE.some((s) => p.startsWith(s)) || SHIPPED_FILES.includes(p));
+}
+
+/** Deterministic JSON so two manifests compare by content and not by formatting.
+ *  Object keys are sorted recursively — except when `ordered` is set, for the fields whose
+ *  key order is semantic (ORDERED_MANIFEST_FIELDS), where insertion order is kept at every
+ *  level. `undefined` (an absent field) is its own value, distinct from `null`. */
+function canonical(value, ordered = false) {
+  if (value === undefined) return 'undefined';
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map((v) => canonical(v, ordered)).join(',')}]`;
+  const keys = ordered ? Object.keys(value) : Object.keys(value).sort();
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${canonical(value[k], ordered)}`).join(',')}}`;
+}
+
+function parseManifest(text, where) {
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch (e) {
+    throw new Error(`package.json at the PR ${where} is not valid JSON: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error(`package.json at the PR ${where} is not a JSON object`);
+  }
+  return parsed;
+}
+
+/** The published manifest fields that differ between the base and head package.json,
+ *  named as `dependencies`, `bin`, `scripts.postinstall`, … (#703). Either manifest failing
+ *  to parse throws: the caller fails closed instead of reading garbage as "no change". */
+export function manifestSurfaceChanges(baseText, headText) {
+  const base = parseManifest(baseText, 'base');
+  const head = parseManifest(headText, 'head');
+  const changed = [];
+  for (const field of PUBLISHED_MANIFEST_FIELDS) {
+    const ordered = ORDERED_MANIFEST_FIELDS.includes(field);
+    if (canonical(base[field], ordered) !== canonical(head[field], ordered)) changed.push(field);
+  }
+  const baseScripts = base.scripts !== null && typeof base.scripts === 'object' ? base.scripts : {};
+  const headScripts = head.scripts !== null && typeof head.scripts === 'object' ? head.scripts : {};
+  for (const script of INSTALL_SCRIPTS) {
+    if (canonical(baseScripts[script]) !== canonical(headScripts[script])) changed.push(`scripts.${script}`);
+  }
+  return changed;
 }
 
 /** The override labels on the PR, split into those bound to `headSha` and the rest
@@ -80,26 +173,29 @@ export function hasUnreleased(changelog) {
 /**
  * The merge-side release decision.
  * @param {{ baseVersion: string, headVersion: string, changedPaths: string[], changelog: string,
- *           lockVersions?: (string|undefined)[], labels?: string[], headSha: string }} input
+ *           lockVersions?: (string|undefined)[], labels?: string[], headSha: string,
+ *           manifestChanges?: string[] }} input
  * @returns {{ ok: true, notes: string[] } | { ok: false, errors: string[] }}
  */
 export function decide(input) {
   const errors = [];
   const notes = [];
-  const { baseVersion, headVersion, changedPaths, changelog, labels = [], headSha } = input;
+  const { baseVersion, headVersion, changedPaths, changelog, labels = [], headSha, manifestChanges = [] } = input;
   if (!semver.valid(headVersion)) {
     return { ok: false, errors: [`package.json at the PR head does not carry a valid semver version: ${JSON.stringify(headVersion)}`] };
   }
   if (!semver.valid(baseVersion)) {
     return { ok: false, errors: [`package.json at the PR base does not carry a valid semver version: ${JSON.stringify(baseVersion)}`] };
   }
-  const shipped = shippedChanges(changedPaths);
+  // Published manifest fields count as shipped like a file under src/ (#703); they are
+  // listed as `package.json#<field>` so the message names what moved.
+  const shipped = [...shippedChanges(changedPaths), ...manifestChanges.map((f) => `package.json#${f}`)];
   const bumped = headVersion !== baseVersion;
   const { bound, stale } = overrideLabels(labels, headSha);
 
   if (shipped.length > 0 && !bumped) {
     if (bound.length > 0) {
-      notes.push(`${shipped.length} shipped file(s) changed without a version bump; a maintainer recorded "no behaviour shipped" with ${bound.join(', ')} for head ${headSha}`);
+      notes.push(`${shipped.length} shipped change(s) without a version bump; a maintainer recorded "no behaviour shipped" with ${bound.join(', ')} for head ${headSha}`);
     } else {
       const sample = shipped.slice(0, 5).join(', ') + (shipped.length > 5 ? `, … ${shipped.length} in total` : '');
       errors.push(
@@ -185,6 +281,9 @@ export function gather(baseSha, headSha, labelsJson) {
     lockVersions: lockVersionsAt(headSha),
     labels: parsed,
     headSha,
+    // Only a range that touched package.json can have moved a published field; when it
+    // did, both manifests must parse or the check fails (fail closed, never "no change").
+    manifestChanges: changedPaths.includes('package.json') ? manifestSurfaceChanges(blob(baseSha, 'package.json'), blob(headSha, 'package.json')) : [],
   };
 }
 
