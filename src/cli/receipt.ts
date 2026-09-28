@@ -39,7 +39,7 @@ import {
   type VerificationReceipt,
 } from '../verification-receipt';
 import { runVerify, type VerifyVerdictSummary } from './verify';
-import { oobToken, oobFromEnv, oobHeadFromEnv } from '../signoff';
+import { oobToken, oobFromEnv, oobHeadFromEnv, oobHeadProblem } from '../signoff';
 import { colourEnabled } from './render/text';
 import { paint, severityColour, BOLD, type Severity } from './render/status';
 
@@ -261,7 +261,13 @@ function ciAdjudicate(cwd: string, opts: ReceiptReconcileOpts): { ci: CiAdjudica
     // validated let a forged `oob_signoff` field flip a MASKED_FAILURE to exit 0
     // (#601 re-review). The document's own field is informational at most; it is
     // not consulted here.
-    const signedOff = check.verdict === 'MASKED_FAILURE' && oobToken('verify', oobFromEnv(), oobHeadFromEnv()) !== null;
+    const oob = oobFromEnv();
+    const oobHead = oobHeadFromEnv();
+    const signedOff = check.verdict === 'MASKED_FAILURE' && oobToken('verify', oob, oobHead) !== null;
+    // The line `verify` prints in the same situation: an approval offered under a head
+    // the gate cannot identify clears nothing, and the misconfiguration is named once (#709).
+    const headProblem = check.verdict === 'MASKED_FAILURE' && oob.length > 0 ? oobHeadProblem(oobHead) : null;
+    if (headProblem) process.stderr.write(`tamperward: ${headProblem}\n`);
     // `adjudicated_tree` is the tree CI's verify actually ran over (may be the merge
     // result, not the receipt's tip tree). Passed through verbatim; undefined for an
     // older verify document, which reconcile degrades to NON_APPLICABLE (#601).

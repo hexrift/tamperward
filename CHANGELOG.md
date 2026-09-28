@@ -1,5 +1,24 @@
 # Changelog
 
+## [2.39.8] — 2026-09-28
+
+### Fixed
+
+- **A set-but-malformed `TAMPERWARD_OOB_HEAD` no longer re-enables unbound approvals** (#709).
+  The CI gate honors an out-of-band approval only when it is bound to the head under
+  adjudication, and an older workflow that never names its head keeps the unbound legacy
+  behaviour. A head that was set but was not a full 40- or 64-character object id — a branch
+  name, an abbreviated sha, a typo in a hand-edited workflow — was read as that omitted head,
+  so an unbound `tamperward:allow:<rule>` label cleared every finding of the rule on every
+  push, a `<rule>@<any sha>` label cleared without its sha being compared, and `verify` (and
+  `receipt reconcile`) exited 0 on a MASKED_FAILURE for an unbound `verify` token; only
+  compact `tw1:` tokens stayed refused. A misconfigured head is now distinguished from an
+  omitted one: nothing clears under it in any token form, and `check --diff`, `verify` and
+  `receipt reconcile` say so once on stderr, naming the variable and the shape it needs.
+  Unset or empty keeps the documented compatibility path; a full object id binds exactly as
+  before. The shipped and generated workflows, which set the variable from
+  `github.event.pull_request.head.sha`, are unaffected.
+
 ## [2.39.7] — 2026-09-28
 
 ### Fixed

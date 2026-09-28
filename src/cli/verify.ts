@@ -75,7 +75,7 @@ import {
   type MaterializationFailureReason,
   type VerifyCannotVerifyReason,
 } from '../machine-output';
-import { oobFromEnv, oobHeadFromEnv, oobToken } from '../signoff';
+import { oobFromEnv, oobHeadFromEnv, oobHeadProblem, oobToken } from '../signoff';
 import {
   beginVerifying,
   endVerifying,
@@ -1708,8 +1708,15 @@ function runVerifyImpl(opts: VerifyOpts): number {
   // code alone is what the approval changes. Same token rules as the diff gate:
   // once the workflow names the head it is adjudicating, only a token bound to
   // that commit counts, so the approval dies with the next push.
-  const signedOff = verdict === 'MASKED_FAILURE' ? oobToken('verify', oobFromEnv(), oobHeadFromEnv()) : null;
+  const oob = oobFromEnv();
+  const oobHead = oobHeadFromEnv();
+  const signedOff = verdict === 'MASKED_FAILURE' ? oobToken('verify', oob, oobHead) : null;
   if (signedOff) code = 0;
+  // A `verify` approval offered under a head the gate cannot identify clears nothing
+  // (oobToken refuses every token under it); say so once, on stderr, so the label does
+  // not merely look lost (#709).
+  const headProblem = verdict === 'MASKED_FAILURE' && oob.length > 0 ? oobHeadProblem(oobHead) : null;
+  if (headProblem) process.stderr.write(`tamperward: ${headProblem}\n`);
 
   if (opts.json) {
     out(

@@ -237,31 +237,37 @@ export function applyLocalSignoffs(findings: Finding[], cwd: string, policy: Pol
  *  A token may carry `@<full-head-object-id>`. When the caller supplies the head it is
  *  running on (the shipped workflow does), an UNBOUND token no longer clears
  *  anything: the approval must name the commit it was granted for, so the next
- *  push re-blocks. Callers that pass no head keep the old behaviour, so
- *  workflows generated before this release are unaffected. */
+ *  push re-blocks. Callers that pass no head (undefined or empty) keep the old
+ *  behaviour, so workflows generated before this release are unaffected.
+ *
+ *  A head that was supplied but is NOT a full object id — a branch name, an
+ *  abbreviated sha, a typo in a hand-edited workflow — is a misconfigured head, not an
+ *  omitted one: nothing clears under it, in any token form. Reading it as "no head"
+ *  used to re-enable the unbound behaviour this binding exists to end (#709). */
 export function oobToken(want: string, oob: string[], head?: string): string | null {
+  const supplied = head !== undefined && head.trim() !== '';
+  const bound = supplied && FULL_OBJECT_ID.test(head.trim()) ? head.trim().toLowerCase() : null;
   for (const raw of oob) {
     const t = raw.trim();
     if (!t) continue;
     if (t.startsWith(COMPACT_OOB_PREFIX)) {
-      const expected = head === undefined ? null : compactOobToken(want, head);
+      const expected = bound === null ? null : compactOobToken(want, bound);
       if (expected !== null && t === expected) return t;
       continue;
     }
     const at = t.lastIndexOf('@');
     if (at === -1) {
-      if (!head && t === want) return t; // unbound: refused once a head is known
+      if (!supplied && t === want) return t; // unbound: honored only while no head was named
       continue;
     }
     const [rule, sha] = [t.slice(0, at), t.slice(at + 1)];
     if (rule !== want) continue;
     // Security approval is object-bound, not display-SHA-bound. Prefixes are
-    // convenient UI identifiers but do not uniquely name the object forever.
-    // Normalize case and require the complete object ID the authority supplied.
-    if (!head) return t;
-    const normalizedHead = head.trim().toLowerCase();
-    const normalizedSha = sha.trim().toLowerCase();
-    if (/^[0-9a-f]+$/.test(normalizedHead) && normalizedSha === normalizedHead) return t;
+    // convenient UI identifiers but do not uniquely name the object forever, so a
+    // bound token counts only against a head that IS a complete object id, and only
+    // when it names that id exactly (case folded).
+    if (!supplied) return t;
+    if (bound !== null && sha.trim().toLowerCase() === bound) return t;
   }
   return null;
 }
@@ -279,10 +285,23 @@ export function applyOobSignoffs(findings: Finding[], oob: string[], head?: stri
   return { findings: remaining, cleared };
 }
 
-/** The head SHA the CI gate is adjudicating, when the workflow supplies it. */
+/** The head the CI workflow says it is adjudicating, lower-cased. `undefined` ONLY when
+ *  `TAMPERWARD_OOB_HEAD` is unset or empty — an older workflow that never named its head,
+ *  the documented compatibility path under which an unbound legacy token still clears. A
+ *  value that is set but is not a full 40- or 64-character object id is returned as
+ *  supplied, never as `undefined`: a misconfigured head is not an omitted one, and
+ *  `oobToken` refuses every approval under it (#709); `oobHeadProblem` names it. */
 export function oobHeadFromEnv(env: NodeJS.ProcessEnv = process.env): string | undefined {
   const v = (env.TAMPERWARD_OOB_HEAD ?? '').trim().toLowerCase();
-  return /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(v) ? v : undefined;
+  return v === '' ? undefined : v;
+}
+
+/** Why the supplied head cannot bind an approval — one line for stderr, naming the
+ *  variable and the shape it needs — or null when the head is absent or a full object id. */
+export function oobHeadProblem(head: string | undefined): string | null {
+  if (head === undefined || head.trim() === '' || FULL_OBJECT_ID.test(head.trim())) return null;
+  const shown = head.length > 72 ? `${head.slice(0, 69)}…` : head;
+  return `TAMPERWARD_OOB_HEAD is set to ${JSON.stringify(shown)}, which is not the full 40- or 64-character object id of the head under adjudication; no out-of-band approval is honored against a head the gate cannot identify`;
 }
 
 /** Parse the out-of-band approval env the CI workflow sets (only after verifying a
