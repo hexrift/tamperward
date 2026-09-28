@@ -19,7 +19,7 @@ import { evaluate, hasBlocking, isSuppressed } from '../engine';
 import { loadPolicy, loadPolicyAt, PolicyError } from '../policy-load';
 import { defaultPolicy, isProtected } from '../policy';
 import { unjudgeableProtected } from '../disk';
-import { applyLocalSignoffs, applyOobSignoffs, oobFromEnv, oobHeadFromEnv } from '../signoff';
+import { applyLocalSignoffs, applyOobSignoffs, oobFromEnv, oobHeadFromEnv, oobHeadProblem } from '../signoff';
 import { Format, report } from './report';
 import { repoRoot } from '../repo-context';
 
@@ -124,11 +124,18 @@ function check(opts: CheckOpts): number {
 
   // Sign-off, per layer. LOCAL consults the (fingerprint-bound) ledger; CI honors ONLY an
   // out-of-band approval surfaced via env, never the committed ledger.
+  const oob = layer === 'ci' ? oobFromEnv() : [];
+  const oobHead = layer === 'ci' ? oobHeadFromEnv() : undefined;
   const { findings: remaining, cleared } =
     layer === 'local'
       ? applyLocalSignoffs(findings, cwd, policy)
-      : applyOobSignoffs(findings, oobFromEnv(), oobHeadFromEnv());
+      : applyOobSignoffs(findings, oob, oobHead);
   findings = remaining;
+  // An approval was offered under a head the gate cannot identify: nothing cleared
+  // (applyOobSignoffs refuses every token under it), and the misconfiguration is named
+  // once — a label that silently did nothing would read as a gate that lost it (#709).
+  const headProblem = oob.length > 0 ? oobHeadProblem(oobHead) : null;
+  if (headProblem) process.stderr.write(`tamperward: ${headProblem}\n`);
   if (cleared.length) {
     const how = layer === 'local' ? 'local human sign-off (ledger)' : 'out-of-band approval';
     process.stderr.write(`tamperward: ${cleared.length} blocking finding(s) cleared by ${how}: ${cleared.map((f) => f.rule + (f.file ? `(${f.file})` : '')).join(', ')}\n`);
