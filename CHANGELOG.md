@@ -17,8 +17,16 @@
   and never follows or waits; each reader goes through the guarded state reader: absent and
   malformed stay what they were, and anything else standing at the path is reported by name
   instead of parsed — `status` fails safe to `UNVERIFIED` with that reason, `runtime status`
-  reports the qualification as rejected, and `receipt export` and `runtime verify` stop with
-  one line. The store remains evidence, never authority.
+  reports the qualification as rejected, `runtime verify` reports that nothing was recorded
+  (its `recorded: false` document, naming the entry), and `receipt export` stops with one
+  line. The store remains evidence, never authority. The state directory itself,
+  `.git/tamperward/`, is now accepted only as a directory of its own: a link there carried
+  every record the gate keeps — the session marker and the effect trees, the audit and
+  observer logs, the verification store — into whatever directory it named and served every
+  read from there while each record still looked like a regular file, since a recursive
+  `mkdir` and a temp-file-and-rename both traverse it. Every path under it is now refused by
+  name: the hook fails closed, `verify` records nothing, `status` reports `UNVERIFIED` naming
+  the link, and the watcher and the run envelope refuse to start.
 
 ## [2.39.11] — 2026-09-28
 

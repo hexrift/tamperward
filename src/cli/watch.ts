@@ -22,7 +22,7 @@
 // authority; CI is the authority.
 
 import { lstatSync, mkdirSync, readdirSync, watch } from 'node:fs';
-import { appendRegular, inspectPath, readStateFile, StateFileError } from '../disk';
+import { appendRegular, inspectPath, readStateFile, stateDirectory, StateFileError } from '../disk';
 import { atomicReplaceFile } from '../safe-write';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -58,7 +58,9 @@ function snap(abs: string): Pick<FsEvent, 'mode' | 'size' | 'hash'> {
  *  not be created and the daemon silently recorded nothing. */
 export function defaultEventLog(cwd: string): string {
   if (process.env.TAMPERWARD_FSEVENTS) return process.env.TAMPERWARD_FSEVENTS;
-  return join(gitDir(cwd) ?? join(cwd, '.git'), 'tamperward', 'fsevents.jsonl');
+  // The state directory itself is accepted only as a directory of its own (#721):
+  // a link there is a StateFileError — the daemon refuses to start, the sweep fails closed.
+  return join(stateDirectory(gitDir(cwd) ?? join(cwd, '.git')), 'fsevents.jsonl');
 }
 
 export type WatcherBackend = 'initializing' | 'recursive' | 'fallback';

@@ -25,6 +25,7 @@
 
 import { createHash } from 'node:crypto';
 import { mkdirSync, rmSync } from 'node:fs';
+import { stateDirectory } from './disk';
 import { atomicReplaceFile } from './safe-write';
 import { dirname, join } from 'node:path';
 import { repoContext } from './repo-context';
@@ -146,15 +147,17 @@ export function receiptFromRecord(record: VerificationRecord): VerificationRecei
  *  to a caller-chosen path for transport. */
 export function receiptPath(cwd: string): string | null {
   const ctx = repoContext(cwd);
-  return ctx ? join(ctx.gitDir, 'tamperward', 'verification-receipt.json') : null;
+  // The state directory itself is accepted only as a directory of its own (#721).
+  return ctx ? join(stateDirectory(ctx.gitDir), 'verification-receipt.json') : null;
 }
 
 /** Persist the receipt beside the #600 record. Best-effort evidence: a write
  *  failure must never change a verify verdict. Returns whether it was written. */
 export function storeReceipt(cwd: string, receipt: VerificationReceipt): boolean {
-  const path = receiptPath(cwd);
-  if (!path) return false;
   try {
+    // Inside the try: a refused state directory (#721) is a receipt not stored.
+    const path = receiptPath(cwd);
+    if (!path) return false;
     mkdirSync(dirname(path), { recursive: true });
     // A temp file and a rename (#720): a link, a hard link or a FIFO at the path is
     // replaced by the receipt, never written through or waited on.
@@ -170,9 +173,9 @@ export function storeReceipt(cwd: string, receipt: VerificationReceipt): boolean
  *  never be transported as a claim for a state that is no longer verified (#601
  *  finding 3). Best-effort evidence: a delete failure never changes a verdict. */
 export function removeStoredReceipt(cwd: string): void {
-  const path = receiptPath(cwd);
-  if (!path) return;
   try {
+    const path = receiptPath(cwd);
+    if (!path) return;
     rmSync(path, { force: true });
   } catch {
     /* evidence only */

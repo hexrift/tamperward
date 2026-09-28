@@ -47,7 +47,7 @@ import { loadPolicy, loadPolicyAt } from './policy-load';
 import { repoContext, repoRoot } from './repo-context';
 import { claudeConfigDir, TW_VERSION } from './wiring';
 import { discoverDependencyEnvironment } from './dependency-env';
-import { readStateFile, StateFileError } from './disk';
+import { readStateFile, stateDirectory, StateFileError } from './disk';
 import { atomicReplaceFile } from './safe-write';
 import type { Policy } from './types';
 
@@ -356,9 +356,12 @@ export function computeBinding(
 /** `.git/tamperward/` for this repository, or null outside a repository. State
  *  lives under the git directory — a non-candidate authority — never in the
  *  tracked, candidate-writable tree. */
+/** The store's directory, accepted only as a directory of its own (#721): a link at
+ *  `.git/tamperward` itself is a `StateFileError` naming it, exactly like a link at
+ *  a record's path, so no writer or reader below traverses it. */
 function stateDir(cwd: string): string | null {
   const ctx = repoContext(cwd);
-  return ctx ? join(ctx.gitDir, 'tamperward') : null;
+  return ctx ? stateDirectory(ctx.gitDir) : null;
 }
 
 export function verificationRecordPath(cwd: string): string | null {
@@ -533,9 +536,11 @@ function pidAlive(pid: number): boolean {
 
 /** Mark that a verification is in progress. Best-effort; returns whether written. */
 export function beginVerifying(cwd: string): boolean {
-  const path = verifyingMarkerPath(cwd);
-  if (!path) return false;
   try {
+    // Inside the try: a refused state directory (#721) is a marker not written,
+    // never a verify that does not run.
+    const path = verifyingMarkerPath(cwd);
+    if (!path) return false;
     const marker: VerifyingMarker = {
       schema_version: VERIFICATION_STATE_SCHEMA_VERSION,
       pid: process.pid,
@@ -552,9 +557,9 @@ export function beginVerifying(cwd: string): boolean {
 
 /** Clear the in-progress marker. Best-effort. */
 export function endVerifying(cwd: string): void {
-  const path = verifyingMarkerPath(cwd);
-  if (!path) return;
   try {
+    const path = verifyingMarkerPath(cwd);
+    if (!path) return;
     rmSync(path, { force: true });
   } catch {
     /* nothing to clear */

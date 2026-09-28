@@ -54,7 +54,7 @@ import {
 import { prepareVerifierBackend, verifierBackendReport, verifierBackendSummary } from '../verifier-backend';
 import { defaultPolicy, isProtected } from '../policy';
 import { assertRev, diffRange, diffWorktreeWithUntracked, gitDir } from '../git/build';
-import { inspectRel } from '../disk';
+import { inspectRel, stateDirectory } from '../disk';
 import { contentHash } from '../effect';
 import { drainEvents, MAX_EVENT_SWEEP_BYTES, transientFindings } from '../detectors/fs-events';
 import { watcherTelemetry, type WatcherTelemetry } from './watch';
@@ -665,9 +665,10 @@ function observerExited(pid: number | null): boolean {
 
 function supervisedObserverLog(cwd: string): string {
   const gd = gitDir(cwd) ?? join(cwd, '.git');
+  // The state directory itself is accepted only as a directory of its own (#721):
+  // a link there is a StateFileError, and the envelope refuses to run.
   return join(
-    gd,
-    'tamperward',
+    stateDirectory(gd),
     `run-observer-${process.pid}-${Date.now()}-${randomBytes(4).toString('hex')}.jsonl`,
   );
 }

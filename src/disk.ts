@@ -216,6 +216,40 @@ export function readStateFile(abs: string): string | null {
   );
 }
 
+const STATE_DIR_REFUSED = '; the gate keeps its state only in a directory of its own under the git directory — replace what stands there with a directory, or remove it';
+
+/**
+ * `<gitDir>/tamperward`, the directory the gate keeps its state in, accepted only as
+ * a directory of its own (#721 review). Every reader and writer under it guards the
+ * FINAL component — a record that is a link, a FIFO, a file with two names — but a
+ * link at the directory itself carried all of them: a recursive mkdir and a
+ * temp-file-and-rename both traverse it, so the session marker, the effect trees,
+ * the audit and observer logs and the verification store landed in whatever
+ * directory the link named, outside the repository if the candidate chose so, and
+ * every read came from there while each record still looked like a regular file.
+ * Absent is returned as it is (a writer creates it; nothing is followed through an
+ * entry that is not there), a directory is returned, and a link wherever it points,
+ * or anything else, is a StateFileError naming it. Every path under the directory
+ * is derived from this, so the refusal reaches each consumer the way its final
+ * component's refusal does: the hook fails closed, verify records nothing, status
+ * reports UNVERIFIED naming the entry.
+ */
+export function stateDirectory(gitDir: string): string {
+  const dir = join(gitDir, 'tamperward');
+  const st = lstatSync(dir, { throwIfNoEntry: false });
+  if (st === undefined || st.isDirectory()) return dir;
+  if (st.isSymbolicLink()) {
+    let target = '';
+    try {
+      target = readlinkSync(dir);
+    } catch {
+      /* the link is refused whether or not its target can be read */
+    }
+    throw new StateFileError(`${dir} is a symbolic link to ${escapeControl(target)}${STATE_DIR_REFUSED}`);
+  }
+  throw new StateFileError(`${dir} is a ${st.isFile() ? 'regular file' : irregularName(st)}${STATE_DIR_REFUSED}`);
+}
+
 // Appending without following: O_NOFOLLOW makes the open fail on a link put in
 // place after the lstat below; O_NONBLOCK makes a FIFO put there fail the open
 // (ENXIO: no reader) or hand back a descriptor the fstat refuses, instead of

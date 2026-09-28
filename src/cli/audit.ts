@@ -10,7 +10,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import type { Finding } from '../types';
 import { repoContext } from '../repo-context';
-import { appendRegular } from '../disk';
+import { appendRegular, stateDirectory } from '../disk';
 
 export const AUDIT_SCHEMA_VERSION = 1 as const;
 export const AUDIT_LOG_ENV = 'TAMPERWARD_AUDIT_LOG';
@@ -78,22 +78,25 @@ function configuredAuditPath(cwd: string, env: NodeJS.ProcessEnv = process.env):
   if (!value) return null;
   if (value === 'auto') {
     const ctx = repoContext(cwd);
-    return ctx ? join(ctx.gitDir, 'tamperward', 'audit.jsonl') : null;
+    // The state directory itself is accepted only as a directory of its own (#721).
+    return ctx ? join(stateDirectory(ctx.gitDir), 'audit.jsonl') : null;
   }
   return isAbsolute(value) ? value : resolve(cwd, value);
 }
 
 export function defaultAuditPath(cwd: string): string | null {
   const ctx = repoContext(cwd);
-  return ctx ? join(ctx.gitDir, 'tamperward', 'audit.jsonl') : null;
+  return ctx ? join(stateDirectory(ctx.gitDir), 'audit.jsonl') : null;
 }
 
 export function recordAuditFindings(findings: readonly Finding[], context: AuditContext): void {
   if (findings.length === 0) return;
-  const path = configuredAuditPath(context.cwd);
-  if (!path) return;
 
   try {
+    // Inside the try: a refused state directory (#721) drops the event like any
+    // other write failure; the verdict never depends on this channel.
+    const path = configuredAuditPath(context.cwd);
+    if (!path) return;
     mkdirSync(dirname(path), { recursive: true });
     const timestamp = new Date().toISOString();
     const session = sessionHash(context.sessionId);

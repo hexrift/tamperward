@@ -25,7 +25,7 @@ import { join } from 'node:path';
 import { Policy } from './types';
 import { repoContext, repoRoot } from './repo-context';
 import { isProtected } from './policy';
-import { DiskEntry, inspectRel, readStateFile } from './disk';
+import { DiskEntry, inspectRel, readStateFile, stateDirectory } from './disk';
 import { ignoredTree } from './git/build';
 import { isRecord } from './narrow';
 import type { SnapshotCache } from './ptree-cache';
@@ -68,7 +68,9 @@ function statePath(cwd: string, sessionId: string | undefined, kind: 'ptree' | '
   if (!sessionId) return null;
   const gd = gitDir(cwd);
   if (!gd) return null;
-  const dir = join(gd, 'tamperward');
+  // The state directory itself is accepted only as a directory of its own (#721):
+  // a link there is a StateFileError, and the hook fails closed on it.
+  const dir = stateDirectory(gd);
   return join(dir, `${kind}-${sessionId.replace(UNSAFE, '')}.json`);
 }
 

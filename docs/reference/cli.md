@@ -250,7 +250,9 @@ The store is written through a temp file and a rename and read only as regular f
 a link, a hard link, a FIFO, a device or a directory standing at a record's path is never
 followed, written through or waited on — `verify` replaces a link, a hard link or a FIFO
 with the record itself (a directory fails the write, as any write failure does), and
-`status` reports `UNVERIFIED` naming the entry.
+`status` reports `UNVERIFIED` naming the entry. The directory itself, `.git/tamperward/`,
+is accepted only as a directory of its own: a link there is refused by name by every
+command that keeps state under it.
 Local `CURRENT` is **posture/evidence, not repository or CI merge authority**.
 
 | flag | meaning |

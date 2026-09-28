@@ -22,7 +22,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
-import { readStateFile, StateFileError } from '../disk';
+import { readStateFile, stateDirectory, StateFileError } from '../disk';
 import { atomicReplaceFile } from '../safe-write';
 import { join, dirname } from 'node:path';
 import { gitDir } from '../git/build';
@@ -96,7 +96,8 @@ const HONESTY_NOTE =
 /** The git-local qualification store (never committed; sits beside the audit ledger). */
 function storePath(cwd: string): string | null {
   const dir = gitDir(cwd);
-  return dir ? join(dir, 'tamperward', 'runtime-qualification.json') : null;
+  // The state directory itself is accepted only as a directory of its own (#721).
+  return dir ? join(stateDirectory(dir), 'runtime-qualification.json') : null;
 }
 
 interface QualificationStore {
@@ -638,15 +639,27 @@ export function runRuntime(sub: string | undefined, opts: RuntimeOpts): number {
     // succeeding. Emitting first would print a schema-valid stdout doc claiming `recorded: true`
     // even when nothing reached the store — a machine consumer parsing stdout would then retain
     // the OPPOSITE state from disk (stderr and a non-zero exit notwithstanding).
-    const wrote = writeRecord(cwd, target.name, report);
+    let wrote = false;
+    let refused: string | undefined;
+    try {
+      wrote = writeRecord(cwd, target.name, report);
+    } catch (e) {
+      // Something other than a regular file stands at the store's path, or something
+      // other than a directory at the state directory's (#720/#721): nothing is written
+      // through it, and the failure document below names it.
+      if (!(e instanceof StateFileError)) throw e;
+      refused = e.message;
+    }
     if (!wrote) {
       // Persisting the record is what `verify` is FOR (so `status` can render it later). A
       // read-only `.git`, a failed `mkdir`, or running outside a repository leaves nothing on
       // disk. Report it on stderr, emit an explicit `recorded: false` failure document (shaped
       // like `status`'s unrecorded document, never a success-shaped one), and exit non-zero.
-      const dest = storePath(cwd);
+      const dir = gitDir(cwd);
+      const dest = dir ? join(dir, 'tamperward', 'runtime-qualification.json') : null;
       const reason =
-        `could not persist the qualification to ${dest ?? 'the git-local store (no repository found)'}; ` +
+        `could not persist the qualification to ${dest ?? 'the git-local store (no repository found)'}` +
+        `${refused ? ` (${refused})` : ''}; ` +
         'nothing was recorded, so `tamperward runtime status` will report UNQUALIFIED';
       const failure: RuntimeQualificationReport = {
         ...report,
