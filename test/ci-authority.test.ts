@@ -71,10 +71,16 @@ describe('P1-6: a CI approval is bound to the commit it was granted for', () => 
     expect(applyOobSignoffs([finding()], ['test-deletion']).cleared).toHaveLength(1);
   });
 
-  it('a too-short sha is not accepted as a binding', () => {
+  it('a too-short sha is not accepted as a binding — and, supplied as the head, binds nothing (#709)', () => {
     expect(applyOobSignoffs([finding()], ['test-deletion@abc'], HEAD).cleared).toHaveLength(0);
-    expect(oobHeadFromEnv({ TAMPERWARD_OOB_HEAD: 'abc' })).toBeUndefined();
-    expect(oobHeadFromEnv({ TAMPERWARD_OOB_HEAD: HEAD.slice(0, 12) })).toBeUndefined();
+    // A head the workflow SET but did not spell as a full object id is a misconfigured
+    // head, not an omitted one: it is read back as supplied, and nothing clears under it.
+    for (const short of ['abc', HEAD.slice(0, 12)]) {
+      const seen = oobHeadFromEnv({ TAMPERWARD_OOB_HEAD: short });
+      expect(seen).toBe(short);
+      expect(applyOobSignoffs([finding()], ['test-deletion'], seen).cleared).toHaveLength(0);
+      expect(applyOobSignoffs([finding()], [`test-deletion@${short}`], seen).cleared).toHaveLength(0);
+    }
     expect(oobHeadFromEnv({ TAMPERWARD_OOB_HEAD: HEAD.toUpperCase() })).toBe(HEAD);
   });
 });
