@@ -98,7 +98,10 @@ cannot (see [the rules](./rules.md#two-findings-that-are-not-rules)) — and for
 protected path that is not a regular file the gate can read. A symbolic link is never
 followed (git records it as its target text), a FIFO, a socket or a device is never
 opened for content, and a file above 64 MiB is not read: a new or changed one at a
-protected path is blocked by name, not read through.
+protected path is blocked by name, not read through. The policy file is read the same
+way: `.tamperward.yml` at the repository root is loaded only as a regular file, and a
+link there (wherever it points), a FIFO, a device or a directory is a policy error —
+`check` exits 2 and the hooks deny, as for a policy that does not parse.
 
 ## The persistent hook service (opt-in, off by default)
 

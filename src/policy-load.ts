@@ -1,18 +1,22 @@
 // Load .tamperward.yml into a Policy, falling back to the baseline when absent. The
 // YAML file uses snake_case (signoff.required_for) per convention; this maps it onto
 // the camelCase Policy shape. parsePolicy is pure so it can be tested without disk I/O.
+// The working-tree file is read only as a REGULAR FILE at the repository root (see
+// loadPolicy); a link or a special file there is refused, never followed.
 
-import { readFileSync, existsSync } from 'node:fs';
 import { isAbsolute, join, posix } from 'node:path';
 import { yaml } from './lazy-deps';
 import { Policy, Severity } from './types';
-import { defaultPolicy, isNegatedGlob, mergeProtected, mergeRules, normalizeGlob, POLICY_FILE } from './policy';
+import { defaultPolicy, escapeControl, isNegatedGlob, mergeProtected, mergeRules, normalizeGlob, POLICY_FILE } from './policy';
 import { fileAt } from './git/build';
+import { DiskEntry, inspectPath, READ_CAP, textOf } from './disk';
 import { errorMessage } from './narrow';
 import { repoRoot } from './repo-context';
 
-/** A policy file that exists but cannot be understood. Never swallowed into the
- *  baseline: falling back silently would run a WEAKER gate than the author wrote. */
+/** A policy file that exists but cannot be understood — or that stands at the policy
+ *  path as something other than a regular file the gate can read. Never swallowed
+ *  into the baseline: falling back silently would run a WEAKER gate than the author
+ *  wrote. */
 export class PolicyError extends Error {}
 
 /** The file's contents once every value has been CHECKED, built field by field
@@ -256,15 +260,51 @@ function parseOrThrow(src: string, where: string): Policy {
   return parsePolicy(raw, where);
 }
 
+/** What stands at the policy path when it is not a regular file the gate can read,
+ *  in the words the effect layer uses for a protected path it cannot judge. */
+function notARegularFile(e: DiskEntry): string {
+  switch (e.kind) {
+    case 'symlink':
+      return `is a symbolic link to ${escapeControl(e.detail)}`;
+    case 'directory':
+      return 'is a directory';
+    case 'irregular':
+      return `is a ${e.detail}`;
+    case 'oversize':
+      return `is ${e.detail}, above the ${READ_CAP / (1024 * 1024)} MiB the gate reads`;
+    default:
+      return `cannot be read (${e.detail})`;
+  }
+}
+
 /** The policy governing the repository `cwd` lies in. The file is read at the
  *  REPOSITORY ROOT, whatever subdirectory the command ran from — a session started
  *  in `packages/x` used to look beside `packages/x`, find nothing, and be governed by
  *  the baseline instead of the root policy (#412). Outside any repository the file
- *  beside `cwd` is read, as before. */
+ *  beside `cwd` is read, as before.
+ *
+ *  Read as a REGULAR FILE, or not at all (#713). `existsSync` + `readFileSync` followed
+ *  whatever stood at the path: a FIFO blocked the read until a writer opened it, so
+ *  every local layer hung until the runtime's hook timeout cut the gate off; a
+ *  symbolic link was followed, so the local layers were governed by its target — not
+ *  the policy file, so an edit to it was an ordinary edit, and possibly outside the
+ *  repository — where the trusted-revision loader below refuses the same link; a broken
+ *  link read as "no policy" and the baseline governed silently. The path is now
+ *  inspected the way the effect layer reads every protected file (src/disk.ts: lstat,
+ *  an open that follows no link and never blocks, fstat after the open): absent is the
+ *  baseline, a regular file is parsed, and anything else — a link wherever it points,
+ *  a FIFO, socket, device or directory, a file past the read cap, an entry that cannot
+ *  be read — is a PolicyError naming what stands there, so `check` exits 2 and the
+ *  hooks deny at once with the reason. */
 export function loadPolicy(cwd: string = process.cwd()): Policy {
-  const path = join(repoRoot(cwd), POLICY_FILE);
-  if (!existsSync(path)) return defaultPolicy();
-  return parseOrThrow(readFileSync(path, 'utf8'), POLICY_FILE);
+  const entry = inspectPath(join(repoRoot(cwd), POLICY_FILE));
+  if (entry.kind === 'absent') return defaultPolicy();
+  if (entry.kind !== 'file') {
+    throw new PolicyError(
+      `${POLICY_FILE} ${notARegularFile(entry)}; the policy is read only as a regular file at the repository root — put one there (no symbolic link, FIFO, socket, device or directory) or remove it`,
+    );
+  }
+  return parseOrThrow(textOf(entry) ?? '', POLICY_FILE);
 }
 
 /**
