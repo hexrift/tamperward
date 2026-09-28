@@ -212,7 +212,7 @@ export function readStateFile(abs: string): string | null {
   if (e.kind === 'absent') return null;
   if (e.kind === 'file') return textOf(e) ?? '';
   throw new StateFileError(
-    `${abs} ${notARegularFile(e)}; the gate reads its session state only as a regular file — remove what stands there so the state can be re-established`,
+    `${abs} ${notARegularFile(e)}; the gate reads its state files only as regular files — remove what stands there so the state can be re-established`,
   );
 }
 

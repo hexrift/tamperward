@@ -24,7 +24,8 @@
 // schemas ship under.
 
 import { createHash } from 'node:crypto';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync } from 'node:fs';
+import { atomicReplaceFile } from './safe-write';
 import { dirname, join } from 'node:path';
 import { repoContext } from './repo-context';
 import {
@@ -155,7 +156,9 @@ export function storeReceipt(cwd: string, receipt: VerificationReceipt): boolean
   if (!path) return false;
   try {
     mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, JSON.stringify(receipt) + '\n');
+    // A temp file and a rename (#720): a link, a hard link or a FIFO at the path is
+    // replaced by the receipt, never written through or waited on.
+    atomicReplaceFile(path, JSON.stringify(receipt) + '\n', 0o666);
     return true;
   } catch {
     return false;

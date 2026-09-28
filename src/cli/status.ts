@@ -138,7 +138,12 @@ export function renderStatus(model: StatusModel, colour: boolean): string {
   if (v.state === 'STALE' && v.reason) rows.push(['Reason', v.reason]);
   else if (v.state === 'BROKEN') rows.push(['Reason', v.detail ?? v.reason ?? 'authority wiring is invalid']);
   else if (v.state === 'VERIFYING') rows.push(['Reason', v.reason ?? 'a verification is in progress']);
-  else if (v.state === 'UNVERIFIED') rows.push(['Next', 'run `tamperward verify` to establish a verified baseline']);
+  else if (v.state === 'UNVERIFIED' && v.detail) {
+    // Something other than a regular file stands at a record path (#720): name it,
+    // and say what to do about it — a verify alone would replace it unseen.
+    rows.push(['Reason', v.detail]);
+    rows.push(['Next', 'remove what stands at that path, then run `tamperward verify`']);
+  } else if (v.state === 'UNVERIFIED') rows.push(['Next', 'run `tamperward verify` to establish a verified baseline']);
 
   if (rows.length) {
     lines.push('');

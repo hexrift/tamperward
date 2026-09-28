@@ -21,7 +21,9 @@
 // binding can, and where none exists the capability is honestly PARTIAL/UNPROVEN.
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { readStateFile, StateFileError } from '../disk';
+import { atomicReplaceFile } from '../safe-write';
 import { join, dirname } from 'node:path';
 import { gitDir } from '../git/build';
 import { repoContext } from '../repo-context';
@@ -103,13 +105,19 @@ interface QualificationStore {
   records: Record<string, RuntimeQualificationReport>;
 }
 
+/** The store, or null when it is absent or not the shape this module writes. Read as a
+ *  regular file or not at all (#720): a link wherever it points, a FIFO, a device or a
+ *  directory at the store's path is a `StateFileError` naming it — never followed or
+ *  waited on — for the caller to report rather than an absent store. */
 function readStore(cwd: string): QualificationStore | null {
   const path = storePath(cwd);
-  if (!path || !existsSync(path)) return null;
+  if (!path) return null;
+  const raw = readStateFile(path);
+  if (raw === null) return null;
   try {
     // Deserialization boundary: assert the on-disk shape then validate it before use; a store
     // that fails the guard is treated as absent (re-verify), never trusted.
-    const parsed = JSON.parse(readFileSync(path, 'utf8')) as QualificationStore;
+    const parsed = JSON.parse(raw) as QualificationStore;
     if (parsed && typeof parsed === 'object' && parsed.records && typeof parsed.records === 'object') return parsed;
   } catch {
     return null;
@@ -280,7 +288,9 @@ function writeRecord(cwd: string, id: string, report: RuntimeQualificationReport
   store.updated_at = report.timestamp;
   try {
     mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, JSON.stringify(store, null, 2) + '\n', { mode: 0o600 });
+    // A temp file and a rename (#720): never written through a link or held by a FIFO. The
+    // read above already refused anything but a regular file at the path, by name.
+    atomicReplaceFile(path, JSON.stringify(store, null, 2) + '\n', 0o600);
     return true;
   } catch {
     return false;
@@ -570,7 +580,15 @@ export type StoredQualification =
   | { state: 'recorded'; report: RuntimeQualificationReport; stale: boolean; changed_inputs: string[] };
 
 export function storedQualification(adapter: RuntimeAdapter, cwd: string, opts: RuntimeOpts = {}): StoredQualification {
-  const raw = readStore(cwd)?.records[adapter.name];
+  let raw: unknown;
+  try {
+    raw = readStore(cwd)?.records[adapter.name];
+  } catch (e) {
+    // Something other than a regular file stands at the store's path (#720): not a
+    // qualification, reported as rejected by name and never rendered.
+    if (e instanceof StateFileError) return { state: 'rejected', reason: e.message };
+    throw e;
+  }
   if (raw === undefined) return { state: 'none' };
   const validated = validateStoredReport(raw);
   if ('reason' in validated) return { state: 'rejected', reason: validated.reason };
