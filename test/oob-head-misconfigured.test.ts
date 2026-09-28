@@ -26,7 +26,15 @@ const MALFORMED = ['refs/heads/feature', 'feature', 'abc', 'ABC', HEAD.slice(0, 
 const ABSENT: Array<string | undefined> = [undefined, '', '   '];
 const PROBLEM = /^TAMPERWARD_OOB_HEAD is set to ".+", which is not the full 40- or 64-character object id of the head under adjudication; no out-of-band approval is honored against a head the gate cannot identify$/;
 
-const finding = (): Finding => ({ rule: 'test-deletion', severity: 'block', message: 'm', evidence: 'e', file: 'test/a.test.js' });
+const finding = (): Finding => ({
+  rule: 'test-deletion',
+  severity: 'block',
+  file: 'test/a.test.js',
+  message: 'm',
+  evidence: 'e',
+  remediation: 'r',
+  signoff: { required: true, command: 'tamperward allow test-deletion --file test/a.test.js --reason "..."' },
+});
 
 describe('a set-but-malformed TAMPERWARD_OOB_HEAD binds nothing (#709)', () => {
   it.each(MALFORMED)('refuses every token form under the head %j', (head) => {
