@@ -1,5 +1,23 @@
 # Changelog
 
+## [2.39.13] — 2026-09-28
+
+### Fixed
+
+- **`stats` reads the audit log only as a regular file** (#722). `tamperward stats` checked
+  its log with `existsSync` and opened it with `openSync`, which take the path as the OS
+  resolves it: a link at `.git/tamperward/audit.jsonl` was followed and whatever it named was
+  summarised as the gate's own record — a path the writer has refused since 2.39.11, so
+  nothing the gate recorded can stand behind it — a dangling link read as "no events", a
+  FIFO held `stats` until a writer appeared, and a directory was refused by errno alone. The
+  log is now opened through the read-side counterpart of the guarded append (an `lstat`, an
+  open that follows no link and never waits, a check on the open descriptor) and streamed
+  from that descriptor: nothing at the path stays the empty summary (or `audit file not
+  found` for an explicit `--file`), and anything else standing there — a link wherever it
+  points, a FIFO, a directory, an entry that cannot be read — is one line naming it, exit 2.
+  A file with more than one name is read: a read has nothing to redirect through a hard
+  link. The channel stays measurement only; nothing about a verdict changes.
+
 ## [2.39.12] — 2026-09-28
 
 ### Fixed

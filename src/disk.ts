@@ -216,7 +216,67 @@ export function readStateFile(abs: string): string | null {
   );
 }
 
-const STATE_DIR_REFUSED = '; the gate keeps its state only in a directory of its own under the git directory — replace what stands there with a directory, or remove it';
+/**
+ * Open the REGULAR FILE at `abs` for reading, and nothing else (#722): the
+ * read-side counterpart of appendRegular, for a file the caller streams rather
+ * than reads whole (`stats` folds the audit log one line at a time, #518, so
+ * the capped whole-file read behind readStateFile is not the shape it needs).
+ * `existsSync` + `openSync` took the path as the OS resolved it: a link at the
+ * audit log was followed and whatever it named summarised as the gate's own
+ * record — a path the append side refuses, so nothing the gate recorded can
+ * stand behind it — a dangling link read as "no file", and a FIFO held the open
+ * until a writer appeared. The path is inspected with lstat, opened without
+ * following and without waiting, and checked again on the open descriptor.
+ * Returns that descriptor, which the caller closes, for a regular file; null
+ * when nothing stands at the path (the caller's absence behaviour is its own);
+ * and throws a StateFileError naming anything else: a link wherever it points,
+ * a dangling one included, a FIFO, socket, device or directory, an entry that
+ * cannot be inspected or opened, an entry that changed shape between the
+ * checks. A file with more than one name is opened: a read has nothing to
+ * redirect through a hard link. `refused` is the caller's suffix — what reads
+ * the file, and what to do about the entry.
+ */
+export function openRegular(abs: string, refused: string): number | null {
+  let st: Stats;
+  try {
+    st = lstatSync(abs);
+  } catch (e) {
+    const code = errCode(e);
+    // Absent is the one failure that is not one. Anything else — a parent that
+    // cannot be traversed, a permission — is not "no file", and is named as such.
+    if (code === 'ENOENT' || code === 'ENOTDIR') return null;
+    throw new StateFileError(`${abs} cannot be read (${errText(e)})${refused}`);
+  }
+  if (!st.isFile()) throw new StateFileError(`${abs} ${notARegularFile(classify(abs, st))}${refused}`);
+  let fd: number;
+  try {
+    fd = openSync(abs, O_READ);
+  } catch (e) {
+    const code = errCode(e);
+    // Removed between the lstat and the open: absent after all.
+    if (code === 'ENOENT') return null;
+    // ELOOP: a link put in place after the lstat. ENXIO: a socket, likewise.
+    // Anything else (a permission, say) is named as it is.
+    throw new StateFileError(
+      `${abs} ${code === 'ELOOP' || code === 'ENXIO' ? `changed shape while it was being opened (${errText(e)})` : `cannot be read (${errText(e)})`}${refused}`,
+    );
+  }
+  // The descriptor is what is read: a FIFO or a directory swapped in after the
+  // lstat opens at once (a read-only open with O_NONBLOCK waits for no writer)
+  // and is seen here, before a byte is read.
+  let now: Stats;
+  try {
+    now = fstatSync(fd);
+  } catch (e) {
+    closeSync(fd);
+    throw new StateFileError(`${abs} cannot be read (${errText(e)})${refused}`);
+  }
+  if (now.isFile()) return fd;
+  closeSync(fd);
+  throw new StateFileError(`${abs} is a ${now.isDirectory() ? 'directory' : irregularName(now)}${refused}`);
+}
+
+const STATE_DIR_REFUSED ='; the gate keeps its state only in a directory of its own under the git directory — replace what stands there with a directory, or remove it';
 
 /**
  * `<gitDir>/tamperward`, the directory the gate keeps its state in, accepted only as
