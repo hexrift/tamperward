@@ -14,17 +14,33 @@
 // is a PolicyError naming what stands there. `loadPolicyAt` (trusted revision) is
 // unchanged.
 
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterAll, afterEach, beforeAll, vi } from 'vitest';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { buildSync } from 'esbuild';
 import { loadPolicy, loadPolicyAt, PolicyError } from '../src/policy-load';
 import { defaultPolicy, isProtected } from '../src/policy';
 import { preToolUseVerdict, stopVerdict } from '../src/cli/hook';
 
-const CLI = join(__dirname, '..', 'dist', 'cli', 'index.js');
+vi.setConfig({ testTimeout: 30_000 });
+
+const ROOT = join(__dirname, '..');
 const posix = process.platform !== 'win32';
+
+// The CLI is bundled here, not read from dist/: CI's test job never builds dist/.
+let cliDir = '';
+let CLI = '';
+beforeAll(() => {
+  cliDir = mkdtempSync(join(tmpdir(), 'tw-pshape-cli-'));
+  symlinkSync(join(ROOT, 'node_modules'), join(cliDir, 'node_modules'), 'dir');
+  CLI = join(cliDir, 'index.js');
+  buildSync({ entryPoints: [join(ROOT, 'src/cli/index.ts')], bundle: true, platform: 'node', format: 'esm', packages: 'external', outfile: CLI, logLevel: 'silent' });
+}, 60_000);
+afterAll(() => {
+  if (cliDir) rmSync(cliDir, { recursive: true, force: true });
+});
 
 const dirs: string[] = [];
 afterEach(() => {
