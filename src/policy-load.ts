@@ -7,9 +7,9 @@
 import { isAbsolute, join, posix } from 'node:path';
 import { yaml } from './lazy-deps';
 import { Policy, Severity } from './types';
-import { defaultPolicy, escapeControl, isNegatedGlob, mergeProtected, mergeRules, normalizeGlob, POLICY_FILE } from './policy';
+import { defaultPolicy, isNegatedGlob, mergeProtected, mergeRules, normalizeGlob, POLICY_FILE } from './policy';
 import { fileAt } from './git/build';
-import { DiskEntry, inspectPath, READ_CAP, textOf } from './disk';
+import { inspectPath, notARegularFile, textOf } from './disk';
 import { errorMessage } from './narrow';
 import { repoRoot } from './repo-context';
 
@@ -258,23 +258,6 @@ function parseOrThrow(src: string, where: string): Policy {
     throw new PolicyError(`${where} is not valid YAML: ${errorMessage(e)}`);
   }
   return parsePolicy(raw, where);
-}
-
-/** What stands at the policy path when it is not a regular file the gate can read,
- *  in the words the effect layer uses for a protected path it cannot judge. */
-function notARegularFile(e: DiskEntry): string {
-  switch (e.kind) {
-    case 'symlink':
-      return `is a symbolic link to ${escapeControl(e.detail)}`;
-    case 'directory':
-      return 'is a directory';
-    case 'irregular':
-      return `is a ${e.detail}`;
-    case 'oversize':
-      return `is ${e.detail}, above the ${READ_CAP / (1024 * 1024)} MiB the gate reads`;
-    default:
-      return `cannot be read (${e.detail})`;
-  }
 }
 
 /** The policy governing the repository `cwd` lies in. The file is read at the

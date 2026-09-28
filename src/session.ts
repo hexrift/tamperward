@@ -11,14 +11,18 @@
 // never shows up in a diff, and does not need a policy exception.
 //
 // The marker is written to a temp file and renamed into place, so a parallel hook never
-// reads a half-written sha, and it is read only as a FULL 40-hex object name: anything
-// else is a torn or foreign file, treated as absent and re-established. A marker that
-// cannot be recorded is a turn the sweep cannot judge — `git diff HEAD` would make a
-// mid-turn commit invisible again — so the write failure is raised, and the hook denies
-// with the diagnostic rather than degrading (#417).
+// reads a half-written sha, and it is read only as a FULL 40-hex object name: any other
+// TEXT is a torn or foreign file, treated as absent and re-established. It is read as a
+// regular file, or not at all (#716, src/disk.ts readStateFile): a link, a FIFO or a
+// device standing in its place is not a missing marker but an entry that used to block
+// the read for good, and it fails the verdict closed. A marker that cannot be recorded
+// is a turn the sweep cannot judge — `git diff HEAD` would make a mid-turn commit
+// invisible again — so the write failure is raised, and the hook denies with the
+// diagnostic rather than degrading (#417).
 
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { readStateFile } from './disk';
 import { gitDir, headSha } from './git/build';
 
 const UNSAFE = /[^A-Za-z0-9_-]/g;
@@ -57,20 +61,17 @@ function baselinePath(cwd: string, sessionId: string): string | null {
  * is no session id, no repo, or no commit yet (an unborn branch) — the caller then falls
  * back to the working-tree view, which is all there is to compare. Throws
  * `BaselineWriteError` when the marker cannot be recorded: that turn has no trustworthy
- * baseline, and the hook denies it rather than judging against HEAD.
+ * baseline, and the hook denies it rather than judging against HEAD. Throws
+ * `StateFileError` when something other than a regular file stands at the marker's path
+ * (#716): re-establishing the marker at the current HEAD would forget a tamper committed
+ * mid-turn, so the hook denies until the entry is removed.
  */
 export function turnBaseline(cwd: string, sessionId?: string): string | null {
   if (!sessionId) return null;
   const p = baselinePath(cwd, sessionId);
   if (!p) return null;
-  try {
-    if (existsSync(p)) {
-      const v = readFileSync(p, 'utf8').trim();
-      if (SHA.test(v)) return v;
-    }
-  } catch {
-    /* an unreadable marker is absent, and is re-established below */
-  }
+  const v = readStateFile(p)?.trim();
+  if (v !== undefined && SHA.test(v)) return v;
   const head = headSha(cwd);
   if (!head) return null;
   try {

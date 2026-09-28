@@ -1,5 +1,26 @@
 # Changelog
 
+## [2.39.10] — 2026-09-28
+
+### Fixed
+
+- **The per-session state under `.git/tamperward/` is read only as regular files** (#716).
+  The turn-baseline marker, the effect ptree and turn tree, the observer cursor and the
+  watcher health record were read with `existsSync` and `readFileSync`, which follow whatever
+  stands at the path. A FIFO in any of their places blocked the read, so every later PreToolUse
+  and Stop of the session hung until the runtime's hook timeout cut the gate off; a link to a
+  device was a read that never ended; and `rm … && mkfifo …` on those paths is an ordinary
+  shell command at PreToolUse, because `.git/` is not a protected path. The readers' fallbacks —
+  re-establish the marker, take the tree for a first sight, restart the cursor — were written
+  for a file that is missing, and taking them for an entry put in the file's place would have
+  sanctioned whatever that entry hid. Each state file is now read through the same guarded
+  reader as the policy file (an `lstat`, an open that follows no link and never blocks, an
+  `fstat` after the open): absent keeps exactly the old behaviour, a regular file is read, and
+  anything else — a link wherever it points, a FIFO, socket, device or directory, an entry
+  that cannot be read — fails the verdict closed at once, naming the file. The watcher health
+  record is advisory telemetry, so there the observer is reported unavailable with the reason
+  instead; the event log itself was already bounded by a stat and a positioned read.
+
 ## [2.39.9] — 2026-09-28
 
 ### Fixed
