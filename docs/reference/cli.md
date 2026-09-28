@@ -515,6 +515,11 @@ tamperward stats --since 30d --json
 | `--json` | Emit the aggregate `stats` document. |
 | `--cwd <dir>` | Repository directory. |
 
+The log is read only as a regular file: a link wherever it points, a FIFO, a directory or
+any other entry standing at the path is refused by name with one line and exit 2, never
+followed, waited on or summarised. Nothing at the default path is the empty summary, and
+nothing at an explicit `--file` is `audit file not found`.
+
 A finding is an integrity signal, not proof of intent. See
 [Audit history & stats](../guide/audit.md).
 

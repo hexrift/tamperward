@@ -71,6 +71,12 @@ dropped: the hook never follows the link, never writes into a file that has anot
 name, and never waits for a reader, and the verdict it is about to return does not
 depend on the write.
 
+`stats` reads the audit log the same way, only as a regular file: a link wherever it
+points, a FIFO, a directory or any other entry standing at the path is refused by name
+with one line and exit 2, never followed, waited on or summarised. Nothing at the default
+path is the empty summary; a file with more than one name is read, since a read has
+nothing to redirect.
+
 Use `TAMPERWARD_AUDIT_LOG` for durable statistics.
 
 ## Read the statistics

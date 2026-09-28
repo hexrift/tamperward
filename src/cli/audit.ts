@@ -6,11 +6,11 @@
 // source snippets, absolute paths and environment values never enter the event.
 
 import { createHash, randomBytes } from 'node:crypto';
-import { closeSync, existsSync, mkdirSync, openSync, readSync } from 'node:fs';
+import { closeSync, mkdirSync, readSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import type { Finding } from '../types';
 import { repoContext } from '../repo-context';
-import { appendRegular, stateDirectory } from '../disk';
+import { appendRegular, openRegular, stateDirectory } from '../disk';
 
 export const AUDIT_SCHEMA_VERSION = 1 as const;
 export const AUDIT_LOG_ENV = 'TAMPERWARD_AUDIT_LOG';
@@ -225,18 +225,25 @@ export function parseAuditJsonl(raw: string): AuditEventV1[] {
   return events;
 }
 
+const STATS_READ_REFUSED = '; stats reads the audit log only as a regular file — remove what stands there so the log can be read';
+
 /**
  * Reads a JSONL file line by line with a fixed read buffer, so memory is
  * bounded by one line (at most `maxLineBytes`) plus the buffer, never by the
  * file. Blank lines are skipped and a trailing `\r` is dropped, matching
- * `parseAuditJsonl`. Line numbers are 1-based and count blank lines.
+ * `parseAuditJsonl`. Line numbers are 1-based and count blank lines. The file
+ * is opened only as a regular file (#722): false when nothing stands at the
+ * path, true once it has been read, and a StateFileError naming anything else
+ * standing there — a link wherever it points, a FIFO, a directory — thrown
+ * before a byte is read, never followed or waited on.
  */
 export function forEachAuditLine(
   file: string,
   onLine: (line: string, lineNumber: number) => void,
   maxLineBytes = MAX_AUDIT_LINE_BYTES,
-): void {
-  const fd = openSync(file, 'r');
+): boolean {
+  const fd = openRegular(file, STATS_READ_REFUSED);
+  if (fd === null) return false;
   try {
     const chunk = Buffer.allocUnsafe(64 * 1024);
     let pending: Buffer[] = [];
@@ -277,6 +284,7 @@ export function forEachAuditLine(
   } finally {
     closeSync(fd);
   }
+  return true;
 }
 
 export function parseSince(value: string, nowMs = Date.now()): number {
@@ -417,22 +425,21 @@ export function runStats(opts: StatsOpts = {}): number {
 
   const cutoff = opts.since ? parseSince(opts.since) : null;
   if (!file) throw new Error('stats needs --file outside a Git repository');
-  if (!existsSync(file)) {
-    if (explicitFile) throw new Error(`audit file not found: ${file}`);
-    const empty = summarizeAudit([]);
-    process.stdout.write(opts.json ? JSON.stringify(empty) + '\n' : renderAuditStats(empty));
-    return 0;
-  }
 
   // One pass over the file: each line is parsed, filtered by --since and folded
   // into the aggregator, so peak memory is one line plus the aggregate
-  // cardinality however large the audit log has grown.
+  // cardinality however large the audit log has grown. The file is read only as
+  // a regular file (#722): nothing at the path is the empty summary — or, for an
+  // explicit --file, not found — and anything else standing there is refused by
+  // name before a byte is read. `existsSync` followed a link and reported its
+  // target's absence as "no events", and `openSync` waited on a FIFO.
   const aggregator = createAuditAggregator();
-  forEachAuditLine(file, (line, lineNumber) => {
+  const read = forEachAuditLine(file, (line, lineNumber) => {
     const event = parseAuditLine(line, lineNumber);
     if (cutoff !== null && Date.parse(event.timestamp) < cutoff) return;
     aggregator.add(event);
   });
+  if (!read && explicitFile) throw new Error(`audit file not found: ${file}`);
   const summary = aggregator.finish();
   process.stdout.write(opts.json ? JSON.stringify(summary) + '\n' : renderAuditStats(summary));
   return 0;
