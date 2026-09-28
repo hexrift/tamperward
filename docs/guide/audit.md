@@ -65,6 +65,11 @@ The `stats --json` aggregate has its own
 best-effort rule-id trace and some warning records can contain filenames or diagnostic
 detail. Do **not** upload a deny log to the public GitHub audit store.
 
+Both logs are appended only as regular files. A link, a FIFO, a socket, a device or a
+directory standing at either path is refused and the line dropped: the hook never
+follows the link and never waits for a reader, and the verdict it is about to return
+does not depend on the write.
+
 Use `TAMPERWARD_AUDIT_LOG` for durable statistics.
 
 ## Read the statistics

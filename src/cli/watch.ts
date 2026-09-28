@@ -21,8 +21,9 @@
 // reach. The loop layer has always been the correction layer, not the
 // authority; CI is the authority.
 
-import { appendFileSync, lstatSync, mkdirSync, readdirSync, watch, writeFileSync } from 'node:fs';
-import { inspectPath, readStateFile, StateFileError } from '../disk';
+import { lstatSync, mkdirSync, readdirSync, watch } from 'node:fs';
+import { appendRegular, inspectPath, readStateFile, StateFileError } from '../disk';
+import { atomicReplaceFile } from '../safe-write';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { loadPolicy, loadPolicyAt } from '../policy-load';
@@ -320,9 +321,12 @@ export function startWatcher(
   };
   let healthWriteWarningEmitted = false;
 
+  // Written whole through a temp file and a rename (#718): the record replaces
+  // whatever stands at its path without following it, so a link planted there
+  // never carries the daemon's writes elsewhere and a FIFO never holds them.
   const persistHealth = (): void => {
     try {
-      writeFileSync(healthPath, JSON.stringify(health) + '\n', { mode: 0o600 });
+      atomicReplaceFile(healthPath, JSON.stringify(health) + '\n', 0o600);
       healthWriteWarningEmitted = false;
     } catch (e) {
       if (!healthWriteWarningEmitted) {
@@ -362,7 +366,9 @@ export function startWatcher(
         ...s,
       };
       try {
-        appendFileSync(log, JSON.stringify(ev) + '\n');
+        // Appended only to a regular file (#718): a link at the log is not followed
+        // and a FIFO is not waited on; either degrades the observer, naming it.
+        appendRegular(log, JSON.stringify(ev) + '\n');
         health.event_count++;
         health.last_append_at = new Date().toISOString();
         persistHealth();

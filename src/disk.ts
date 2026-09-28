@@ -18,7 +18,7 @@
 // as `hidden-drift`, fail closed, the way the effect layer already treated a
 // file it could not read.
 
-import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, readlinkSync, realpathSync, Stats } from 'node:fs';
+import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, readlinkSync, realpathSync, Stats, writeSync } from 'node:fs';
 import { join } from 'node:path';
 import { escapeControl, isProtected } from './policy';
 import { Change, Finding, Policy } from './types';
@@ -214,6 +214,63 @@ export function readStateFile(abs: string): string | null {
   throw new StateFileError(
     `${abs} ${notARegularFile(e)}; the gate reads its session state only as a regular file — remove what stands there so the state can be re-established`,
   );
+}
+
+// Appending without following: O_NOFOLLOW makes the open fail on a link put in
+// place after the lstat below; O_NONBLOCK makes a FIFO put there fail the open
+// (ENXIO: no reader) or hand back a descriptor the fstat refuses, instead of
+// waiting for a reader that never comes. Neither changes how a regular file is
+// appended to. Both are 0 where the platform lacks them (Windows), which leaves
+// the lstat as the guard there.
+const O_APPEND_REGULAR =
+  constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0);
+
+const APPEND_REFUSED = '; the gate appends its records only to a regular file — remove what stands there so the record can be kept';
+
+/**
+ * Append `text` to the REGULAR FILE at `abs`, creating it when nothing stands at
+ * the path, and to nothing else (#718). `appendFileSync` opened the path as the OS
+ * found it: a link was followed, so the gate's own lines landed wherever the
+ * candidate had pointed it — the turn-baseline marker included, which one deny
+ * turned into text the next call re-established at HEAD — and a FIFO held the
+ * open until a reader appeared, which in the hook was a deny that never returned.
+ * The path is inspected with lstat, opened without following and without waiting,
+ * and checked again on the open descriptor before a byte is written. A
+ * StateFileError names what was refused: a link wherever it points, a FIFO,
+ * socket, device or directory, an entry that changed shape between the checks.
+ * Any other write failure is raised as it is. The caller decides what a refused
+ * line means; for the telemetry channels it is a dropped line, exactly as any
+ * write failure already was — the verdict does not depend on it, and no longer
+ * waits on it.
+ */
+export function appendRegular(abs: string, text: string, mode = 0o666): void {
+  // Absent is the one lstat failure that is not a failure: the open below creates
+  // the file. Any other (a parent that is not a directory, a permission) is the
+  // ordinary write failure it always was, raised as the OS reports it.
+  const st = lstatSync(abs, { throwIfNoEntry: false });
+  if (st !== undefined && !st.isFile()) throw new StateFileError(`${abs} ${notARegularFile(classify(abs, st))}${APPEND_REFUSED}`);
+  let fd: number;
+  try {
+    fd = openSync(abs, O_APPEND_REGULAR, mode);
+  } catch (e) {
+    const code = errCode(e);
+    // ELOOP: a link put in place after the lstat. ENXIO: a FIFO no one reads, or a
+    // socket, likewise. EISDIR: a directory, likewise. Anything else is a write
+    // failure of the ordinary kind (a missing parent, a permission) and stays one.
+    if (code === 'ELOOP' || code === 'ENXIO' || code === 'EISDIR') {
+      throw new StateFileError(`${abs} changed shape while it was being opened (${errText(e)})${APPEND_REFUSED}`);
+    }
+    throw e;
+  }
+  try {
+    const now = fstatSync(fd);
+    if (!now.isFile()) throw new StateFileError(`${abs} is a ${irregularName(now)}${APPEND_REFUSED}`);
+    const buf = Buffer.from(text, 'utf8');
+    let off = 0;
+    while (off < buf.length) off += writeSync(fd, buf, off, buf.length - off);
+  } finally {
+    closeSync(fd);
+  }
 }
 
 function describe(e: DiskEntry, shown: string): string {

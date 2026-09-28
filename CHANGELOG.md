@@ -1,5 +1,26 @@
 # Changelog
 
+## [2.39.11] — 2026-09-28
+
+### Fixed
+
+- **The loop layer's own records are written only to regular files** (#718). The deny log
+  (`TAMPERWARD_DENYLOG`), the audit log (`TAMPERWARD_AUDIT_LOG`), and the watcher's event log
+  and health record were written with `appendFileSync` and `writeFileSync`, which open the
+  path as the OS finds it: a link is followed, and a FIFO holds the open until a reader
+  appears. In the hook both appends run before the deny is returned, so a FIFO at either path
+  held the deny itself until the runtime's hook timeout let the tool call through — a stall
+  that fires only when there is something to deny — and a link carried the gate's own lines
+  wherever it pointed: aimed at the turn-baseline marker, one deny left text the next call
+  re-established at HEAD, forgetting a mid-turn commit the way #716 refused to; aimed at the
+  policy or the hook wiring, it corrupted them. Both paths are same-uid writable, and `.git/`
+  is not a protected path. Every such append now goes through one primitive (an `lstat`, an
+  open that follows no link and never waits, an `fstat` after the open), and the watcher's
+  health record is replaced through a rename, which follows nothing. The channels stay what
+  they are documented to be — best effort: a refused entry drops the line exactly as any
+  write failure did, and the verdict neither changes nor waits on it; the watcher reports the
+  refusal as a degraded observer, naming what stands at the path.
+
 ## [2.39.10] — 2026-09-28
 
 ### Fixed
