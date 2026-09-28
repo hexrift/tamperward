@@ -17,7 +17,8 @@ agent produces here.
   carrying a session id.
 - **Releases are version-driven, so every behaviour change ships with its bump.** A PR
   that changes behaviour bumps `package.json` (patch for a bypass fix or a false-positive
-  fix, minor for new surface, major only as CONTRIBUTING "Versioning" defines) and dates
+  fix, minor for new surface, major only as CONTRIBUTING "Versioning" defines) to the next
+  step from `main`'s version — never skipping one another open PR owns — and dates
   its `CHANGELOG.md` entry under that version. Merging the bump is the release; never
   leave an `[Unreleased]` section behind. CI's `gate` fails a PR that changes the shipped
   surface without the bump and dated entry: `src/`, `schemas/`, `LICENSE`, `NOTICE`, or a

@@ -162,7 +162,12 @@ runtime dependency ranges, `engines`, `os`/`cpu`, `bin`, `main`/`exports`/`impor
 `type`, `files` and the install-time scripts, compared by content (#703) — must move
 `package.json`'s version forward and carry a dated
 `## [<version>] — YYYY-MM-DD` heading as the newest `CHANGELOG.md` entry, with
-`package-lock.json` in step; an `[Unreleased]` heading fails the check outright. A change
+`package-lock.json` in step; an `[Unreleased]` heading fails the check outright. The
+move must be the next step from the base's version (#711): its next patch, minor or
+major, or a prerelease of one of those; from a prerelease, a later prerelease of the same
+version or its release. The ladder has no gaps — when another open pull request owns the
+version in between, merge it first and bring `main` in, so the entry sits above it; there
+is no override for a skipped version. A change
 that genuinely ships no behaviour (an internal refactor, a comment) is recorded rather than
 waved through: a maintainer applies the label `release-none:<head-sha prefix>` (at least
 seven hex characters of the exact head; a later push needs a new label, exactly as the
@@ -193,7 +198,9 @@ guard runs on the `semver` devDependency `npm ci` installs, not an ad-hoc `npx` 
   `schemas/`, `LICENSE`, `NOTICE`, or a published `package.json` field such as a runtime
   dependency range. Bump and date a changelog entry, or ask a maintainer for the
   head-bound `release-none:<head-sha>` label when the change ships no behaviour — see
-  "Releasing". `devDependencies` and the test/build scripts are not shipped.
+  "Releasing". `devDependencies` and the test/build scripts are not shipped. The bump is
+  the next patch, minor or major of `main`'s version, never one that skips a version
+  another open PR owns — merge that PR first and bring `main` in.
 - Keep the diff to what the change needs. The detectors are the security boundary; a
   drive-by refactor in `src/detectors/` costs more review than it saves.
 - **No Claude session links, and no agent attribution, on any public surface** —

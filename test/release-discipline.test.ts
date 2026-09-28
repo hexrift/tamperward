@@ -14,7 +14,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore — untyped .mjs helper, imported for behaviour like the forward-guard tests
-import { decide, shippedChanges, manifestSurfaceChanges, overrideLabels, newestHeading, hasUnreleased, OVERRIDE_PREFIX, MIN_SHA_PREFIX, PUBLISHED_MANIFEST_FIELDS, INSTALL_SCRIPTS, SHIPPED_FILES, ORDERED_MANIFEST_FIELDS } from '../.github/scripts/release-discipline.mjs';
+import { decide, shippedChanges, manifestSurfaceChanges, overrideLabels, newestHeading, hasUnreleased, ladderStep, OVERRIDE_PREFIX, MIN_SHA_PREFIX, PUBLISHED_MANIFEST_FIELDS, INSTALL_SCRIPTS, SHIPPED_FILES, ORDERED_MANIFEST_FIELDS } from '../.github/scripts/release-discipline.mjs';
 
 const HEAD = '0123456789abcdef0123456789abcdef01234567';
 const OTHER = 'fedcba9876543210fedcba9876543210fedcba98';
@@ -266,6 +266,7 @@ describe('#693 release discipline — CLI against a throwaway repository', () =>
   let runtimeDepSha = '';
   let devDepSha = '';
   let licenseSha = '';
+  let skipSha = '';
 
   const g = (args: string[]): string => {
     const r = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', '-c', 'commit.gpgsign=false', ...args], { cwd: repo, encoding: 'utf8' });
@@ -314,6 +315,11 @@ describe('#693 release discipline — CLI against a throwaway repository', () =>
     devDepSha = commitAll('build(deps-dev): bump vitest without a bump');
     write('LICENSE', 'MIT, amended\n');
     licenseSha = commitAll('edit the license without a bump');
+    // #711: a bump that skips a version (1.0.1 → 1.0.3) with everything else in order.
+    write('package.json', pkg('1.0.3', { dependencies: { yaml: '^2.7.0' }, devDependencies: { vitest: '^6.0.0' } }));
+    write('package-lock.json', lock('1.0.3'));
+    write('CHANGELOG.md', changelog('1.0.3'));
+    skipSha = commitAll('release 1.0.3, skipping 1.0.2');
   });
   afterAll(() => {
     if (repo) rmSync(repo, { recursive: true, force: true });
@@ -373,6 +379,12 @@ describe('#693 release discipline — CLI against a throwaway repository', () =>
   it('the head-bound label clears a manifest-only change like any other', () => {
     expect(run(renameSchemaSha, runtimeDepSha, [`${OVERRIDE_PREFIX}${runtimeDepSha.slice(0, 12)}`]).status).toBe(0);
   });
+  it('RED (#711): a bump that skips a version fails as a ::error:: line naming the next patch', () => {
+    const r = run(licenseSha, skipSha);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain('::error::package.json moves from 1.0.1 to 1.0.3, which is not the next patch (1.0.2), minor (1.1.0) or major (2.0.0) of 1.0.1: the release ladder has no gaps.');
+  });
+
   it('rejects malformed shas and unreadable ranges instead of passing by accident', () => {
     expect(run('abc', 'def').status).toBe(1);
     expect(run(baseSha, OTHER).status).toBe(1);
@@ -381,5 +393,62 @@ describe('#693 release discipline — CLI against a throwaway repository', () =>
     const r = spawnSync(process.execPath, [SCRIPT, baseSha, noBumpSha], { cwd: repo, encoding: 'utf8', env: { ...process.env, PR_LABELS_JSON: '{"x":1}' } });
     expect(r.status).toBe(1);
     expect(r.stderr).toContain('PR_LABELS_JSON');
+  });
+});
+
+describe('#711 release discipline — the release ladder has no gaps', () => {
+  const step = (baseVersion: string, headVersion: string) =>
+    decide(bumped({ baseVersion, headVersion, changelog: changelog(headVersion), lockVersions: [headVersion, headVersion] }));
+
+  it('RED: a bump that skips a version fails, naming the three next versions and the two ways out', () => {
+    const msg = errorsOf(step('2.39.6', '2.39.8'));
+    expect(msg).toContain('moves from 2.39.6 to 2.39.8');
+    expect(msg).toContain('is not the next patch (2.39.7), minor (2.40.0) or major (3.0.0) of 2.39.6');
+    expect(msg).toContain('ladder has no gaps');
+    expect(msg).toMatch(/merge it first and bring main in/);
+    expect(msg).toMatch(/renumber/);
+  });
+
+  it('the next patch, minor and major of the base all pass', () => {
+    for (const head of ['2.39.7', '2.40.0', '3.0.0']) {
+      const r = step('2.39.6', head);
+      expect(r.ok, head).toBe(true);
+      expect(r.notes.join('\n')).toContain(`version moves 2.39.6 → ${head}`);
+    }
+  });
+
+  it('a skip by minor, by major, or a patch on a version that was never released, fails', () => {
+    for (const head of ['2.41.0', '2.40.1', '3.0.1', '3.1.0', '4.0.0']) {
+      expect(errorsOf(step('2.39.6', head)), head).toContain('ladder has no gaps');
+    }
+  });
+
+  it('a prerelease of a next version passes; a prerelease of a skipped one does not', () => {
+    expect(step('2.39.6', '2.40.0-rc.1').ok).toBe(true);
+    expect(step('2.39.6', '2.39.7-beta.0').ok).toBe(true);
+    expect(errorsOf(step('2.39.6', '2.39.8-rc.1'))).toContain('ladder has no gaps');
+  });
+
+  it('from a prerelease, a later prerelease of the same version or its release passes; another version fails', () => {
+    expect(step('2.40.0-rc.1', '2.40.0-rc.2').ok).toBe(true);
+    expect(step('2.40.0-rc.1', '2.40.0').ok).toBe(true);
+    for (const head of ['2.40.1', '2.41.0', '3.0.0']) {
+      const msg = errorsOf(step('2.40.0-rc.1', head));
+      expect(msg, head).toContain('neither a later prerelease of 2.40.0 nor its release');
+      expect(msg, head).toContain('ladder has no gaps');
+    }
+  });
+
+  it('ladderStep names the next patch, minor and major of a release, and the version a prerelease belongs to', () => {
+    expect(ladderStep('2.39.6', '2.39.7')).toEqual({ ok: true, next: { patch: '2.39.7', minor: '2.40.0', major: '3.0.0' }, prereleaseOf: null });
+    expect(ladderStep('2.39.6', '2.39.8').ok).toBe(false);
+    expect(ladderStep('2.40.0-rc.1', '2.40.0-rc.2')).toMatchObject({ ok: true, prereleaseOf: '2.40.0' });
+    expect(ladderStep('2.40.0-rc.1', '2.40.0-rc.1').ok).toBe(false); // not a move at all
+  });
+
+  it('a backwards move is reported as such, not as a skipped step', () => {
+    const msg = errorsOf(step('2.39.6', '2.39.5'));
+    expect(msg).toContain('not a forward move');
+    expect(msg).not.toContain('ladder has no gaps');
   });
 });
