@@ -20,12 +20,12 @@
 // — the loop layer's known trust boundary; CI remains the authority.
 
 import { createHash } from 'node:crypto';
-import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { lstatSync, mkdirSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Policy } from './types';
 import { repoContext, repoRoot } from './repo-context';
 import { isProtected } from './policy';
-import { DiskEntry, inspectRel } from './disk';
+import { DiskEntry, inspectRel, readStateFile } from './disk';
 import { ignoredTree } from './git/build';
 import { isRecord } from './narrow';
 import type { SnapshotCache } from './ptree-cache';
@@ -210,10 +210,16 @@ export function driftBetween(expected: PTree, current: PTree): Drift {
   return { changed, deleted, added };
 }
 
+/** null when no tree stands at `p` or its text is not a tree (a torn write): the
+ *  caller's first-sight path. Something other than a regular file at `p` throws
+ *  instead (#716, src/disk.ts readStateFile): a first sight would re-snapshot the
+ *  disk as it stands, sanctioning whatever the entry was put there to hide. */
 function loadTree(p: string | null): PTree | null {
-  if (!p || !existsSync(p)) return null;
+  if (!p) return null;
+  const text = readStateFile(p);
+  if (text === null) return null;
   try {
-    return ptreeFrom(JSON.parse(readFileSync(p, 'utf8')));
+    return ptreeFrom(JSON.parse(text));
   } catch {
     return null;
   }

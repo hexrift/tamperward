@@ -21,8 +21,8 @@
 // reach. The loop layer has always been the correction layer, not the
 // authority; CI is the authority.
 
-import { appendFileSync, lstatSync, mkdirSync, readFileSync, readdirSync, watch, writeFileSync } from 'node:fs';
-import { inspectPath } from '../disk';
+import { appendFileSync, lstatSync, mkdirSync, readdirSync, watch, writeFileSync } from 'node:fs';
+import { inspectPath, readStateFile, StateFileError } from '../disk';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { loadPolicy, loadPolicyAt } from '../policy-load';
@@ -89,12 +89,19 @@ export function watcherHealthPath(log: string): string {
   return `${log}.health.json`;
 }
 
+/** The persisted health record, or null when none is there or it is not a record.
+ *  Read as a regular file or not at all (#716, src/disk.ts readStateFile): a link,
+ *  a FIFO or a device standing at the record's path throws a StateFileError
+ *  instead of blocking the read — `watcherTelemetry` reports it as an
+ *  unavailable observer naming the entry. */
 export function readWatcherHealth(log: string): WatcherHealth | null {
+  const text = readStateFile(watcherHealthPath(log));
+  if (text === null) return null;
   try {
     // Same-UID writable evidence: every field that carries meaning is checked
     // before it is believed. The identity fields decide validity; the counters
     // and optional strings fall back to their zero/absent values.
-    const value: unknown = JSON.parse(readFileSync(watcherHealthPath(log), 'utf8'));
+    const value: unknown = JSON.parse(text);
     if (!isRecord(value)) return null;
     const { state, backend, pid, started_at } = value;
     if (value.version !== 1 || typeof pid !== 'number' || typeof started_at !== 'string') return null;
@@ -133,7 +140,16 @@ function pidAlive(pid: number): boolean {
  *  (candidate-accessible like the event log), but it prevents "no events" from
  *  being confused with "there was no live observer". */
 export function watcherTelemetry(log: string): WatcherTelemetry {
-  const health = readWatcherHealth(log);
+  let health: WatcherHealth | null;
+  try {
+    health = readWatcherHealth(log);
+  } catch (e) {
+    // Something other than a regular file stands at the record's path: the
+    // observer is unavailable and the reason names the entry (the record is
+    // advisory, like the event log; the sweep is not certified by it).
+    if (!(e instanceof StateFileError)) throw e;
+    return { state: 'unavailable', health: null, reason: e.message };
+  }
   if (!health) return { state: 'unavailable', health: null, reason: 'no health record' };
   if (health.state === 'stopped')
     return { state: 'unavailable', health, reason: 'observer stopped' };

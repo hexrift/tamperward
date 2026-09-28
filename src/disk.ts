@@ -170,6 +170,52 @@ export function textOf(e: DiskEntry): string | null {
   return e.content == null ? null : e.content.toString('utf8');
 }
 
+/** What stands at a path when it is not a regular file the gate can read, as the
+ *  tail of a sentence that starts with the path: the words the policy loader and
+ *  the state readers share with `unjudgeableFinding` below. */
+export function notARegularFile(e: DiskEntry): string {
+  switch (e.kind) {
+    case 'symlink':
+      return `is a symbolic link to ${escapeControl(e.detail)}`;
+    case 'directory':
+      return 'is a directory';
+    case 'irregular':
+      return `is a ${e.detail}`;
+    case 'oversize':
+      return `is ${e.detail}, above the ${READ_CAP / (1024 * 1024)} MiB the gate reads`;
+    default:
+      return `cannot be read (${e.detail})`;
+  }
+}
+
+/** A state file the gate keeps for itself stands at its path as something other
+ *  than a regular file, or cannot be read. Raised, never absorbed: the readers'
+ *  fallbacks (re-establish the marker, take the tree for a first sight, restart
+ *  the cursor) exist for a file that is MISSING, and taking them for an entry
+ *  someone put in the file's place would sanction whatever that entry hides. */
+export class StateFileError extends Error {}
+
+/**
+ * A state file the gate keeps for itself — the turn-baseline marker, the effect
+ * trees, the observer cursor and health record under `.git/tamperward/` — read as
+ * a REGULAR FILE, or not at all (#716). `existsSync` + `readFileSync` followed
+ * whatever stood at the path: a FIFO blocked the read until a writer opened it, so
+ * every later PreToolUse and Stop of the session hung until the runtime's hook
+ * timeout cut the gate off, and a link to a device was a read that never ended —
+ * one allowed shell command away, since `.git/` is not a protected path. null when
+ * nothing stands at the path (the caller's absence behaviour is unchanged), the
+ * text of a regular file, and a StateFileError for anything else: a link wherever
+ * it points, a FIFO, socket, device or directory, an entry that cannot be read.
+ */
+export function readStateFile(abs: string): string | null {
+  const e = inspectPath(abs);
+  if (e.kind === 'absent') return null;
+  if (e.kind === 'file') return textOf(e) ?? '';
+  throw new StateFileError(
+    `${abs} ${notARegularFile(e)}; the gate reads its session state only as a regular file — remove what stands there so the state can be re-established`,
+  );
+}
+
 function describe(e: DiskEntry, shown: string): string {
   switch (e.kind) {
     case 'symlink':

@@ -32,7 +32,7 @@ import {
 import { defaultEventLog, watcherTelemetry } from './watch';
 import { drainEvents, MAX_EVENT_READ_BYTES, MAX_EVENT_SWEEP_BYTES, transientFindings, type EventDrainIssue } from '../detectors/fs-events';
 import { isProtected } from '../policy';
-import { inspectRel, unjudgeableFinding, unjudgeableProtected } from '../disk';
+import { inspectRel, readStateFile, unjudgeableFinding, unjudgeableProtected } from '../disk';
 import { Change, FileChange, Finding, Policy } from '../types';
 import { isRecord } from '../narrow';
 import type { SnapshotCache } from '../ptree-cache';
@@ -576,8 +576,12 @@ function turnTransientBlocks(cwd: string, sessionId: string | undefined, policy:
   const cp = cursorPath(cwd, sessionId);
   if (!existsSync(log)) return none;
   let offset = 0;
-  if (cp && existsSync(cp)) {
-    const n = Number(readFileSync(cp, 'utf8'));
+  // The cursor is read as a regular file or not at all (#716): absent restarts at 0
+  // as before, unparseable text restarts at 0 as before, anything else standing at
+  // its path throws and the sweep fails closed rather than blocking on the read.
+  const cursorText = cp ? readStateFile(cp) : null;
+  if (cursorText !== null) {
+    const n = Number(cursorText);
     offset = Number.isFinite(n) ? n : 0;
   }
 
