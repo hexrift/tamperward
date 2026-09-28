@@ -246,6 +246,13 @@ rather than a stale `CURRENT`.
 State is persisted under `.git/tamperward/` — a **non-candidate authority**, never
 the tracked, candidate-writable tree — and bound to hashes rather than mutable path
 names. A malformed or missing record fails safe to `UNVERIFIED`, never `CURRENT`.
+The store is written through a temp file and a rename and read only as regular files:
+a link, a hard link, a FIFO, a device or a directory standing at a record's path is never
+followed, written through or waited on — `verify` replaces a link, a hard link or a FIFO
+with the record itself (a directory fails the write, as any write failure does), and
+`status` reports `UNVERIFIED` naming the entry. The directory itself, `.git/tamperward/`,
+is accepted only as a directory of its own: a link there is refused by name by every
+command that keeps state under it.
 Local `CURRENT` is **posture/evidence, not repository or CI merge authority**.
 
 | flag | meaning |
@@ -466,7 +473,9 @@ Round 4.1 eligibility claim.
 A qualification is bound to the inputs that make it interpretable: runtime name + exact
 version, TamperWard version/commit, adapter capability hash, hook-config hash, execution mode,
 platform, model, tested capability set, timestamp and a deterministic evidence id. The record
-is stored git-locally (`.git/tamperward/runtime-qualification.json`, uncommitted). If any
+is stored git-locally (`.git/tamperward/runtime-qualification.json`, uncommitted; written
+through a rename and read only as a regular file — anything else standing at that path is
+reported as a rejected qualification, never rendered). If any
 load-bearing input changes — a new runtime version, an edited hook config, a changed adapter,
 a different platform or execution mode — `runtime status` reports the previous qualification as
 **STALE** and points at `tamperward runtime verify`.

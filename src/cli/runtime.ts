@@ -21,7 +21,9 @@
 // binding can, and where none exists the capability is honestly PARTIAL/UNPROVEN.
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { readStateFile, stateDirectory, StateFileError } from '../disk';
+import { atomicReplaceFile } from '../safe-write';
 import { join, dirname } from 'node:path';
 import { gitDir } from '../git/build';
 import { repoContext } from '../repo-context';
@@ -94,7 +96,8 @@ const HONESTY_NOTE =
 /** The git-local qualification store (never committed; sits beside the audit ledger). */
 function storePath(cwd: string): string | null {
   const dir = gitDir(cwd);
-  return dir ? join(dir, 'tamperward', 'runtime-qualification.json') : null;
+  // The state directory itself is accepted only as a directory of its own (#721).
+  return dir ? join(stateDirectory(dir), 'runtime-qualification.json') : null;
 }
 
 interface QualificationStore {
@@ -103,13 +106,19 @@ interface QualificationStore {
   records: Record<string, RuntimeQualificationReport>;
 }
 
+/** The store, or null when it is absent or not the shape this module writes. Read as a
+ *  regular file or not at all (#720): a link wherever it points, a FIFO, a device or a
+ *  directory at the store's path is a `StateFileError` naming it — never followed or
+ *  waited on — for the caller to report rather than an absent store. */
 function readStore(cwd: string): QualificationStore | null {
   const path = storePath(cwd);
-  if (!path || !existsSync(path)) return null;
+  if (!path) return null;
+  const raw = readStateFile(path);
+  if (raw === null) return null;
   try {
     // Deserialization boundary: assert the on-disk shape then validate it before use; a store
     // that fails the guard is treated as absent (re-verify), never trusted.
-    const parsed = JSON.parse(readFileSync(path, 'utf8')) as QualificationStore;
+    const parsed = JSON.parse(raw) as QualificationStore;
     if (parsed && typeof parsed === 'object' && parsed.records && typeof parsed.records === 'object') return parsed;
   } catch {
     return null;
@@ -280,7 +289,9 @@ function writeRecord(cwd: string, id: string, report: RuntimeQualificationReport
   store.updated_at = report.timestamp;
   try {
     mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, JSON.stringify(store, null, 2) + '\n', { mode: 0o600 });
+    // A temp file and a rename (#720): never written through a link or held by a FIFO. The
+    // read above already refused anything but a regular file at the path, by name.
+    atomicReplaceFile(path, JSON.stringify(store, null, 2) + '\n', 0o600);
     return true;
   } catch {
     return false;
@@ -570,7 +581,15 @@ export type StoredQualification =
   | { state: 'recorded'; report: RuntimeQualificationReport; stale: boolean; changed_inputs: string[] };
 
 export function storedQualification(adapter: RuntimeAdapter, cwd: string, opts: RuntimeOpts = {}): StoredQualification {
-  const raw = readStore(cwd)?.records[adapter.name];
+  let raw: unknown;
+  try {
+    raw = readStore(cwd)?.records[adapter.name];
+  } catch (e) {
+    // Something other than a regular file stands at the store's path (#720): not a
+    // qualification, reported as rejected by name and never rendered.
+    if (e instanceof StateFileError) return { state: 'rejected', reason: e.message };
+    throw e;
+  }
   if (raw === undefined) return { state: 'none' };
   const validated = validateStoredReport(raw);
   if ('reason' in validated) return { state: 'rejected', reason: validated.reason };
@@ -620,15 +639,27 @@ export function runRuntime(sub: string | undefined, opts: RuntimeOpts): number {
     // succeeding. Emitting first would print a schema-valid stdout doc claiming `recorded: true`
     // even when nothing reached the store — a machine consumer parsing stdout would then retain
     // the OPPOSITE state from disk (stderr and a non-zero exit notwithstanding).
-    const wrote = writeRecord(cwd, target.name, report);
+    let wrote = false;
+    let refused: string | undefined;
+    try {
+      wrote = writeRecord(cwd, target.name, report);
+    } catch (e) {
+      // Something other than a regular file stands at the store's path, or something
+      // other than a directory at the state directory's (#720/#721): nothing is written
+      // through it, and the failure document below names it.
+      if (!(e instanceof StateFileError)) throw e;
+      refused = e.message;
+    }
     if (!wrote) {
       // Persisting the record is what `verify` is FOR (so `status` can render it later). A
       // read-only `.git`, a failed `mkdir`, or running outside a repository leaves nothing on
       // disk. Report it on stderr, emit an explicit `recorded: false` failure document (shaped
       // like `status`'s unrecorded document, never a success-shaped one), and exit non-zero.
-      const dest = storePath(cwd);
+      const dir = gitDir(cwd);
+      const dest = dir ? join(dir, 'tamperward', 'runtime-qualification.json') : null;
       const reason =
-        `could not persist the qualification to ${dest ?? 'the git-local store (no repository found)'}; ` +
+        `could not persist the qualification to ${dest ?? 'the git-local store (no repository found)'}` +
+        `${refused ? ` (${refused})` : ''}; ` +
         'nothing was recorded, so `tamperward runtime status` will report UNQUALIFIED';
       const failure: RuntimeQualificationReport = {
         ...report,

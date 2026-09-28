@@ -1,5 +1,33 @@
 # Changelog
 
+## [2.39.12] — 2026-09-28
+
+### Fixed
+
+- **The verification store under `.git/tamperward/` is written through a rename and read only
+  as regular files** (#720). The VERIFIED record, the in-progress marker, the transportable
+  receipt and the runtime qualification store were written with `writeFileSync` and read with
+  `readFileSync`, which open the path as the OS finds it: a link planted at a record's path
+  carried `verify`'s own record into whatever the link named — a dotfile outside the
+  repository, or the hook wiring inside it — a hard link put it into that file's inode, and a
+  FIFO held `verify` before it ran anything and held `status`, `receipt export` and the runtime
+  commands on their read. `.git/` is not a protected path, and `verify` is run by the operator
+  and by the agent itself. Each writer now goes through the same temp-file-and-rename the
+  `init`/`onboard` writers use, which replaces a link, a hard link or a FIFO with the record
+  and never follows or waits; each reader goes through the guarded state reader: absent and
+  malformed stay what they were, and anything else standing at the path is reported by name
+  instead of parsed — `status` fails safe to `UNVERIFIED` with that reason, `runtime status`
+  reports the qualification as rejected, `runtime verify` reports that nothing was recorded
+  (its `recorded: false` document, naming the entry), and `receipt export` stops with one
+  line. The store remains evidence, never authority. The state directory itself,
+  `.git/tamperward/`, is now accepted only as a directory of its own: a link there carried
+  every record the gate keeps — the session marker and the effect trees, the audit and
+  observer logs, the verification store — into whatever directory it named and served every
+  read from there while each record still looked like a regular file, since a recursive
+  `mkdir` and a temp-file-and-rename both traverse it. Every path under it is now refused by
+  name: the hook fails closed, `verify` records nothing, `status` reports `UNVERIFIED` naming
+  the link, and the watcher and the run envelope refuse to start.
+
 ## [2.39.11] — 2026-09-28
 
 ### Fixed

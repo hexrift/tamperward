@@ -23,10 +23,20 @@
 // The stored record is EVIDENCE/posture, never repository or CI merge authority
 // (#600 non-goals): a malformed or missing record fails safe to UNVERIFIED, and
 // authority wiring that cannot be evaluated fails safe to BROKEN — never CURRENT.
+//
+// The store is written through a temp file and a rename, and read only as regular
+// files (#720). `writeFileSync` opened the record's path as the OS found it, so a
+// link planted there carried verify's own record — the in-progress marker, the
+// VERIFIED record — into whatever the link named, a hard link put it into that
+// file's inode, and a FIFO held verify (and every reader: status, receipt export)
+// until a peer appeared. `.git/` is not a protected path; verify is run by the
+// operator and by the agent itself. The rename replaces a link or a FIFO with the
+// record and never follows; a reader that meets such an entry reports it by name
+// instead of parsing it, and `status` fails safe to UNVERIFIED with that reason.
 
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { assertRev } from './git/build';
 import { trustedGitEnv } from './git/trusted';
@@ -37,6 +47,8 @@ import { loadPolicy, loadPolicyAt } from './policy-load';
 import { repoContext, repoRoot } from './repo-context';
 import { claudeConfigDir, TW_VERSION } from './wiring';
 import { discoverDependencyEnvironment } from './dependency-env';
+import { readStateFile, stateDirectory, StateFileError } from './disk';
+import { atomicReplaceFile } from './safe-write';
 import type { Policy } from './types';
 
 /** Independent of the machine-output `schema_version`: the on-disk record format
@@ -144,7 +156,8 @@ export interface VerificationEvaluation {
   reason?: string;
   /** For STALE: the first load-bearing input that changed. */
   changed_input?: BindingInput;
-  /** Machine-actionable detail for BROKEN. */
+  /** Machine-actionable detail for BROKEN, and for an UNVERIFIED whose store holds
+   *  something other than a regular file at a record path (#720): the entry, named. */
   detail?: string;
   /** Present whenever a record exists. */
   verified_at?: string;
@@ -343,9 +356,12 @@ export function computeBinding(
 /** `.git/tamperward/` for this repository, or null outside a repository. State
  *  lives under the git directory — a non-candidate authority — never in the
  *  tracked, candidate-writable tree. */
+/** The store's directory, accepted only as a directory of its own (#721): a link at
+ *  `.git/tamperward` itself is a `StateFileError` naming it, exactly like a link at
+ *  a record's path, so no writer or reader below traverses it. */
 function stateDir(cwd: string): string | null {
   const ctx = repoContext(cwd);
-  return ctx ? join(ctx.gitDir, 'tamperward') : null;
+  return ctx ? stateDirectory(ctx.gitDir) : null;
 }
 
 export function verificationRecordPath(cwd: string): string | null {
@@ -385,7 +401,9 @@ export function recordVerification(
     binding,
   };
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, JSON.stringify(record) + '\n');
+  // A temp file and a rename (#720): whatever stands at the path — a link, a hard
+  // link, a FIFO — is replaced by the record, never written through or waited on.
+  atomicReplaceFile(path, JSON.stringify(record) + '\n', 0o666);
   return true;
 }
 
@@ -409,7 +427,16 @@ export function recordVerification(
  * Returns whether a record was removed.
  */
 export function invalidateVerificationRecordIfCurrent(cwd: string): boolean {
-  const record = readVerificationRecord(cwd);
+  let record: VerificationRecord | null;
+  try {
+    record = readVerificationRecord(cwd);
+  } catch (e) {
+    // Something other than a regular file stands at the record's path (#720): not
+    // a record, so nothing to invalidate — and never removed from here, so the
+    // entry stays visible to `status`, which names it.
+    if (e instanceof StateFileError) return false;
+    throw e;
+  }
   if (!record) return false;
   let live: VerificationBinding;
   try {
@@ -475,17 +502,17 @@ export function parseVerificationRecord(value: unknown): VerificationRecord | nu
   };
 }
 
-/** The stored record, or null when there is none or it fails to validate. Any
- *  read/parse fault fails safe to null (→ UNVERIFIED), never to CURRENT. */
+/** The stored record, or null when there is none or it fails to validate: a
+ *  missing or malformed record fails safe to null (→ UNVERIFIED), never to
+ *  CURRENT. Read as a regular file or not at all (#720): a link wherever it
+ *  points, a FIFO, a device or a directory at the record's path is a
+ *  `StateFileError` naming it — never followed or waited on — for the caller to
+ *  report rather than a missing record. */
 export function readVerificationRecord(cwd: string): VerificationRecord | null {
   const path = verificationRecordPath(cwd);
   if (!path) return null;
-  let raw: string;
-  try {
-    raw = readFileSync(path, 'utf8');
-  } catch {
-    return null;
-  }
+  const raw = readStateFile(path);
+  if (raw === null) return null;
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
@@ -509,16 +536,19 @@ function pidAlive(pid: number): boolean {
 
 /** Mark that a verification is in progress. Best-effort; returns whether written. */
 export function beginVerifying(cwd: string): boolean {
-  const path = verifyingMarkerPath(cwd);
-  if (!path) return false;
   try {
+    // Inside the try: a refused state directory (#721) is a marker not written,
+    // never a verify that does not run.
+    const path = verifyingMarkerPath(cwd);
+    if (!path) return false;
     const marker: VerifyingMarker = {
       schema_version: VERIFICATION_STATE_SCHEMA_VERSION,
       pid: process.pid,
       started_at: new Date().toISOString(),
     };
     mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, JSON.stringify(marker) + '\n');
+    // A temp file and a rename (#720): never written through a link or held by a FIFO.
+    atomicReplaceFile(path, JSON.stringify(marker) + '\n', 0o666);
     return true;
   } catch {
     return false;
@@ -527,9 +557,9 @@ export function beginVerifying(cwd: string): boolean {
 
 /** Clear the in-progress marker. Best-effort. */
 export function endVerifying(cwd: string): void {
-  const path = verifyingMarkerPath(cwd);
-  if (!path) return;
   try {
+    const path = verifyingMarkerPath(cwd);
+    if (!path) return;
     rmSync(path, { force: true });
   } catch {
     /* nothing to clear */
@@ -538,13 +568,17 @@ export function endVerifying(cwd: string): void {
 
 /** The in-progress marker, but only when a live process still holds it. A stale
  *  marker (the verify process is gone, or the file is malformed) is ignored so
- *  status never sticks at VERIFYING after a crash. */
+ *  status never sticks at VERIFYING after a crash. Read as a regular file or not
+ *  at all (#720): anything else at the marker's path is a `StateFileError`
+ *  naming it, never followed or waited on. */
 export function readVerifyingMarker(cwd: string): VerifyingMarker | null {
   const path = verifyingMarkerPath(cwd);
   if (!path) return null;
+  const raw = readStateFile(path);
+  if (raw === null) return null;
   let parsed: unknown;
   try {
-    parsed = JSON.parse(readFileSync(path, 'utf8'));
+    parsed = JSON.parse(raw);
   } catch {
     return null;
   }
@@ -672,10 +706,25 @@ export function stableDigest(value: unknown): string {
  *   CURRENT     every load-bearing input still matches.
  */
 export function evaluateVerificationState(cwd: string): VerificationEvaluation {
-  if (readVerifyingMarker(cwd)) {
+  let marker: VerifyingMarker | null;
+  let record: VerificationRecord | null;
+  try {
+    marker = readVerifyingMarker(cwd);
+    record = marker ? null : readVerificationRecord(cwd);
+  } catch (e) {
+    // Something other than a regular file stands at the marker's or the record's
+    // path (#720). Not "no record" and never CURRENT: the fail-safe state, with
+    // the entry named so it can be removed.
+    if (!(e instanceof StateFileError)) throw e;
+    return {
+      state: 'UNVERIFIED',
+      reason: 'the verification store cannot be read: something other than a regular file stands at a record path',
+      detail: e.message,
+    };
+  }
+  if (marker) {
     return { state: 'VERIFYING', reason: 'a verification is in progress' };
   }
-  const record = readVerificationRecord(cwd);
   if (!record) {
     return {
       state: 'UNVERIFIED',

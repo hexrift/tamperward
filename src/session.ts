@@ -15,14 +15,15 @@
 // TEXT is a torn or foreign file, treated as absent and re-established. It is read as a
 // regular file, or not at all (#716, src/disk.ts readStateFile): a link, a FIFO or a
 // device standing in its place is not a missing marker but an entry that used to block
-// the read for good, and it fails the verdict closed. A marker that cannot be recorded
+// the read for good, and it fails the verdict closed; so does a link standing where the
+// state directory itself should be (#721). A marker that cannot be recorded
 // is a turn the sweep cannot judge — `git diff HEAD` would make a mid-turn commit
 // invisible again — so the write failure is raised, and the hook denies with the
 // diagnostic rather than degrading (#417).
 
 import { mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { readStateFile } from './disk';
+import { readStateFile, stateDirectory, StateFileError } from './disk';
 import { gitDir, headSha } from './git/build';
 
 const UNSAFE = /[^A-Za-z0-9_-]/g;
@@ -53,7 +54,16 @@ function writeBaseline(p: string, sha: string): void {
 function baselinePath(cwd: string, sessionId: string): string | null {
   const gd = gitDir(cwd);
   if (!gd) return null;
-  return join(gd, 'tamperward', `session-${sessionId.replace(UNSAFE, '')}`);
+  const name = `session-${sessionId.replace(UNSAFE, '')}`;
+  // The state directory itself is accepted only as a directory of its own (#721): a
+  // link there would carry the marker wherever it named. Raised as the write failure
+  // it is (#417): the turn has no trustworthy baseline, and the hook denies naming it.
+  try {
+    return join(stateDirectory(gd), name);
+  } catch (e) {
+    if (e instanceof StateFileError) throw new BaselineWriteError(join(gd, 'tamperward', name), e);
+    throw e;
+  }
 }
 
 /**
