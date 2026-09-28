@@ -6,10 +6,11 @@
 // source snippets, absolute paths and environment values never enter the event.
 
 import { createHash, randomBytes } from 'node:crypto';
-import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, openSync, readSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import type { Finding } from '../types';
 import { repoContext } from '../repo-context';
+import { appendRegular } from '../disk';
 
 export const AUDIT_SCHEMA_VERSION = 1 as const;
 export const AUDIT_LOG_ENV = 'TAMPERWARD_AUDIT_LOG';
@@ -111,7 +112,10 @@ export function recordAuditFindings(findings: readonly Finding[], context: Audit
       };
       return JSON.stringify(event);
     });
-    appendFileSync(path, lines.join('\n') + '\n');
+    // Appended only to a regular file (#718): a link at the path is not followed and a
+    // FIFO is not waited on. This runs before the verdict is returned, so an append
+    // that blocked held the deny until the runtime's hook timeout let the call through.
+    appendRegular(path, lines.join('\n') + '\n');
   } catch {
     // Measurement only. Audit failure must never change the enforcement verdict.
   }

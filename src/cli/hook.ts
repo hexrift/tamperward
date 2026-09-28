@@ -9,7 +9,7 @@
 // So a block MUST be exit 0 + JSON, never exit 2. The reason carries only the correction
 // message — no command line, no env. Deny holds even under bypassPermissions.
 
-import { readFileSync, appendFileSync, writeFileSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { changesFromClaudeHook, ClaudeHookInput, synthFileChange } from '../adapters/claude/changes';
 import { formatDenial } from '../adapters/claude/deny';
@@ -32,7 +32,7 @@ import {
 import { defaultEventLog, watcherTelemetry } from './watch';
 import { drainEvents, MAX_EVENT_READ_BYTES, MAX_EVENT_SWEEP_BYTES, transientFindings, type EventDrainIssue } from '../detectors/fs-events';
 import { isProtected } from '../policy';
-import { inspectRel, readStateFile, unjudgeableFinding, unjudgeableProtected } from '../disk';
+import { appendRegular, inspectRel, readStateFile, unjudgeableFinding, unjudgeableProtected } from '../disk';
 import { Change, FileChange, Finding, Policy } from '../types';
 import { isRecord } from '../narrow';
 import type { SnapshotCache } from '../ptree-cache';
@@ -106,11 +106,16 @@ export function parseInput(raw: string): ClaudeHookInput {
   };
 }
 
+/** The compact deny trace, best effort: a line that cannot be recorded is dropped and
+ *  the verdict is unchanged. Appended only to a regular file (#718): a link at the path
+ *  is not followed and a FIFO is not waited on — this runs BEFORE the deny is returned,
+ *  so an append that blocked held the deny itself until the runtime's hook timeout let
+ *  the tool call through, and a link carried the gate's own lines wherever it pointed. */
 function recordDenylog(blocks: Finding[]): void {
   const log = process.env.TAMPERWARD_DENYLOG;
   if (!log) return;
   try {
-    appendFileSync(log, blocks.map((b) => b.rule).join(',') + '\n');
+    appendRegular(log, blocks.map((b) => b.rule).join(',') + '\n');
   } catch {
     /* best effort */
   }
@@ -629,7 +634,7 @@ function recordWarns(cwd: string, sessionId: string | undefined, warns: Finding[
   const log = process.env.TAMPERWARD_DENYLOG;
   if (!log) return;
   try {
-    appendFileSync(log, warns.map((w) => `warn:${w.rule}:${w.file ?? ''}`).join('\n') + '\n');
+    appendRegular(log, warns.map((w) => `warn:${w.rule}:${w.file ?? ''}`).join('\n') + '\n');
   } catch {
     /* best effort */
   }
@@ -646,7 +651,7 @@ function recordObserverHealth(
   if (!log) return;
   const detail = (reason ?? '').replace(/[\r\n]+/g, ' ').trim();
   try {
-    appendFileSync(
+    appendRegular(
       log,
       `warn:transient-observer:${state}${detail ? ':' + detail : ''}\n`,
     );
