@@ -1,5 +1,28 @@
 # Changelog
 
+## [2.39.9] — 2026-09-28
+
+### Fixed
+
+- **The working-tree policy is read only as a regular file at the repository root** (#713).
+  `loadPolicy` read `.tamperward.yml` with `existsSync` and `readFileSync`, and both follow
+  whatever stands at the path. A FIFO there blocked the read until a writer opened the pipe,
+  so `check`, `doctor`, `verify`, `status` and both hooks hung until something outside cut
+  them off — at the runtime, the hook timeout, which is a gate that never answered; the
+  read ran before the effect-drift check, so the finding that would have named the removed
+  policy file was never reached. A symbolic link there was followed, so the local layers
+  were governed by whatever the link pointed at: not the policy file, so an edit to the
+  target was judged as an ordinary edit, and possibly a file outside the repository — while
+  the CI layer, reading the same link at the trusted revision, refused it. A broken link
+  read as "no policy", and the baseline governed silently in place of everything the author
+  had written. The path is now inspected the way the effect layer reads every protected file
+  (an `lstat`, an open that follows no link and never blocks, an `fstat` after the open):
+  absent is the baseline and a regular file is parsed, exactly as before; a link wherever it
+  points, a FIFO, socket, device or directory, a file past the 64 MiB read cap or an entry
+  that cannot be read is a policy error naming what stands there, so `check` exits 2 and the
+  hooks deny at once with the reason. The trusted-revision loader (`check --diff`, the CI
+  layer) is unchanged; `init` and `onboard` already refused a non-regular policy file.
+
 ## [2.39.8] — 2026-09-28
 
 ### Fixed
