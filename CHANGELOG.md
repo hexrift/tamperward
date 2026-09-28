@@ -1,5 +1,21 @@
 # Changelog
 
+## [2.39.7] — 2026-09-28
+
+### Fixed
+
+- **A base tree git cannot list is reported as BROKEN, not as a changed protected surface**
+  (#707). The `surface` input of the verification binding is the protected file set at the
+  trusted base, listed with `git ls-tree -r`; a listing that failed came back as the empty
+  surface, so when the base commit resolved but a tree object under it could not be read,
+  `tamperward status` reported STALE, "protected verification surface changed since
+  verification" — a load-bearing change that never happened — with git's error shown nowhere,
+  and `receipt reconcile` carried the same failure as a `surface` divergence. `computeBinding`
+  now throws on the failed listing, naming the base and git's error, so `status` reports BROKEN
+  with that detail, the record is left in place by the BROKEN rule, and reconcile reports the
+  binding error it is. No verdict changes: `verify` lists the same base tree itself and never
+  recorded an empty surface.
+
 ## [2.39.6] — 2026-09-27
 
 ### Fixed
