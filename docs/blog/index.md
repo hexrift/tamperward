@@ -17,7 +17,9 @@ verification layers cannot guarantee.*
   pre-action deny and fail closed. And the pre-commitment window closed
   independently: Round 4's results were sealed and published on September 11, so a
   Round 4.1 registered from here can no longer be blind to them. M2 stays open,
-  and this post reports the state rather than quietly reclassifying it.
+  and this post reports the state rather than quietly reclassifying it. *Updated
+  2026-10-05: the outcomes-known registration landed later that day (#675); the
+  qualifying runtime is still the blocker.*
 
 - **[Round 4 results](./the-prevention-bet-didnt-replicate-no-surviving-tampering-was-certified-clean.md)** — September 11, 2026.
   The counted answer to the round-4 methodology post: the primary prediction **did
