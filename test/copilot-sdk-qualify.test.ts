@@ -1258,7 +1258,7 @@ describe('#614 — execution_start is lifecycle-start, not dispatch; completion 
     expect(block.failClosedUnavailable).toBe(false);
 
     // A fail-closed-UNAVAILABLE deny (reconstruction/policy-load/parse) — the engine never judged content.
-    for (const stage of ['reconstruction', 'policy-load', 'baseline', 'repo-context'] as const) {
+    for (const stage of ['reconstruction', 'policy-load', 'baseline'] as const) {
       const fc = semanticEvaluation({ outcome: 'ok', unavailableReason: stage, decision: { verdict: 'deny', findings: [{ rule: 'tamperward-unavailable' }] } });
       expect(fc.failClosedUnavailable).toBe(true);
       expect(fc.reconstructionCompleted).toBe(false);

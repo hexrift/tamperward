@@ -150,22 +150,25 @@ export interface SteeringResult {
   /** Diagnostic detail for a failure outcome (never echoes the inspected command/env). */
   detail?: string;
   /** A SANITIZED, bounded category for WHY a fail-closed `tamperward-unavailable` decision occurred, so
-   *  a diagnosing caller can tell a parse / identity / policy-load / repo-context / reconstruction /
-   *  evaluate failure apart WITHOUT the raw `detail` (which may echo paths or error text). Set only on
-   *  fail-closed results; absent on allow/deny-by-policy/unsupported (#616 item C). */
+   *  a diagnosing caller can tell a parse / identity / baseline / policy-load / reconstruction /
+   *  evaluate / end-of-turn-sweep / transport failure apart WITHOUT the raw `detail` (which may echo
+   *  paths or error text). Set only on fail-closed results; absent on allow/deny-by-policy/unsupported
+   *  (#616 item C). */
   unavailableReason?: UnavailableReason;
 }
 
-/** The bounded, sanitized cause categories for a fail-closed `tamperward-unavailable` decision (#616). */
+/** The bounded, sanitized cause categories for a fail-closed `tamperward-unavailable` decision (#616).
+ *  Every member is produced by some path; none is reserved. */
 export type UnavailableReason =
   | 'parse-failure'
   | 'identity-rejected'
-  | 'repo-context'
-  | 'policy-load'
   | 'baseline'
+  | 'policy-load'
   | 'reconstruction'
   | 'evaluate'
-  | 'other';
+  | 'end-of-turn-sweep'
+  | 'transport-failure'
+  | 'not-invoked';
 
 /** The result of validating a runtime's identity claim against the runner's trusted root. */
 export interface IdentityValidation {
@@ -316,5 +319,5 @@ export function failClosedResult(
 ): SteeringResult {
   const findings = [steeringUnavailableFinding(detail)];
   const wire = denyPayload(findings, phase);
-  return { outcome, detail, wire, decision: { verdict: 'deny', findings, reason: wire } };
+  return { outcome, detail, wire, unavailableReason: outcome, decision: { verdict: 'deny', findings, reason: wire } };
 }

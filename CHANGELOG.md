@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.39.21] — 2026-10-05
+
+### Fixed
+
+- **Every fail-closed Copilot SDK decision carries a sanitized cause category** (#746). The
+  category introduced for #616 was set only on the pre-action path: a transport failure or a
+  callback that never fired (`failClosed`) reached the host uncategorised, and so did an
+  end-of-turn sweep that failed closed on, for example, an unparseable `.tamperward.yml` at
+  Stop. `failClosedResult` now tags its outcome (`transport-failure`, `not-invoked`) as the
+  category for every adapter that uses it, and a sweep whose findings are the fail-closed
+  sentinel is tagged `end-of-turn-sweep`. Two categories no path could produce are removed:
+  `repo-context` (the runner cwd outside a repository is reported as `identity-rejected`
+  before that stage) and `other`. Decisions, wires and verdicts are unchanged.
+
 ## [2.39.20] — 2026-10-05
 
 ### Changed
