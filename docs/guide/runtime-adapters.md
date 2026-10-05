@@ -11,9 +11,12 @@ Phase 1 of [#482](https://github.com/hexrift/tamperward/issues/482) names that s
 in-loop runtime can implement it without a rewrite, and so the semantics a runtime does
 and does **not** provide are recorded explicitly rather than assumed.
 
-This page documents the contract. It ships **no** second runtime: Claude Code is the
-first (and, in this release, only) implementation. Anything a partial adapter cannot do
-is stated as an explicit gap, never silently degraded.
+This page documents the contract. Claude Code is its reference implementation and the only
+runtime with in-loop steering. Experimental Codex, GitHub Copilot CLI and Copilot
+SDK-hosted adapters implement the same contract with an empty `preDeny`; none has passed a
+pinned live qualification, and `tamperward runtime verify` reports what each has and has not
+proven. Anything a partial adapter cannot do is stated as an explicit gap, never silently
+degraded.
 
 ## The three phases: decision vs. observation
 
