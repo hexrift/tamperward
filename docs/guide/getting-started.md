@@ -305,6 +305,7 @@ parsing: what follows it is handed to the wrapped command byte for byte.
 | `watch` | `--dir <dir>` · `--log <file>` · `--base <rev>` — a daemon; `--base` freezes policy to a trusted revision and it runs until signalled |
 | `hook-service` | `start [--dir <repo>]` (foreground; runs until signalled) · `stop [--dir <repo>]` · `status [--dir <repo>]` (with `--dir`, a listener bound to another repository is reported and left alone) — the opt-in persistent hook service; hooks consult it only under `TAMPERWARD_HOOK_SERVICE=1` and fall back to in-process evaluation otherwise ([enforcement](./enforcement.md#the-persistent-hook-service-opt-in-off-by-default)) |
 | `hook claude` / `sweep claude` | none — the Claude Code payload arrives on stdin |
+| `hook codex` / `sweep codex` · `hook copilot` / `sweep copilot` | none — the runtime's hook payload arrives on stdin; experimental, run the Codex or Copilot CLI adapter ([runtime adapters](./runtime-adapters.md)) |
 
 Exit codes are part of the public surface:
 
@@ -319,6 +320,7 @@ Exit codes are part of the public surface:
 | `research run` / `research summarize` | every requested pair recorded (or already was); summary printed | — | cannot start or set a trajectory up (bad manifest, unknown adapter, root/unsupported platform, unclonable repository, invalid ledger) — the agent's own exit is data, never the research exit | — |
 | `stats` | audit events validated and summary printed | — | explicit file missing, malformed/unknown event, bad `--since`, or no default store can be resolved | — |
 | `hook claude` / `sweep claude` | always — a deny is JSON on stdout at exit 0 | — | only for an unsupported agent name | — |
+| `hook codex` / `sweep codex` · `hook copilot` / `sweep copilot` | always — a deny is the runtime's own JSON envelope on stdout at exit 0; every failure state fails closed inside it | — | only for an unsupported agent name | — |
 | `hook-service` | started, stopped (or nothing to stop), or status printed | `--dir` names a repository other than the one the live listener serves (nothing is stopped) | unsupported platform (Windows), a runtime directory another uid owns, a `--dir` that cannot be resolved, or a service already listening | — |
 | `allow` | sign-off recorded | — | no rule or `--reason`, not a git repo, or no current blocking finding to sign off | — |
 | `init` | wired, or already wired | — | an item needs attention | — |

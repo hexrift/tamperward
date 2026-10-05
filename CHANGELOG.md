@@ -1,5 +1,28 @@
 # Changelog
 
+## [2.41.0] — 2026-10-05
+
+### Added
+
+- **`init` and `onboard` write the Codex and Copilot CLI hook wiring, and the hook commands
+  exist to run it** (#749, step 2). When the repository shows a Codex marker (`AGENTS.md`, or
+  a `.codex/` directory holding more than the wiring itself) init appends the `PreToolUse` and
+  `Stop` `[hooks]` tables to `.codex/config.toml`; when it shows a Copilot marker it writes
+  `.github/hooks/tamperward.json` with `preToolUse` and `agentStop` command hooks. Both carry
+  the same hardened, pinned `npx` form as the Claude wiring, an experimental note in the file,
+  and a warning in the init output naming `tamperward runtime verify`. Init re-pins the
+  entries it wrote and refuses to rewrite a hand-written hooks block or file. `tamperward hook
+  codex|copilot` and `sweep codex|copilot` run the matching adapter over the hook payload and
+  write its native envelope at exit 0; every failure state fails closed inside that envelope.
+  Codex detection no longer counts `.codex/config.toml` alone as evidence of Codex use, so the
+  file init writes cannot make the next run see a runtime that is not there (#526).
+
+### Changed
+
+- `hook-tampering` reads a raised `tamperward@<pin>` in the Codex `[hooks]` tables or the
+  Copilot `hooks` member as the re-run of init it is, not a weakening; a lowered or non-plain
+  pin is named as one. Nothing is promoted: `preDeny` stays empty for both runtimes.
+
 ## [2.40.0] — 2026-10-05
 
 ### Added

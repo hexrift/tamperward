@@ -354,9 +354,17 @@ an allowed write on a protected file so the next call does not re-litigate it. T
 suite (`test/runtime-adapter-parity.test.ts`) holds every registered adapter to the same
 findings the Claude path produces for both.
 
-**Follow-up.** Generating the `.codex/config.toml` hook wiring from `init` / `onboard` is the
-remaining step; the file is protected hooks surface since 2.39.23 (above). The probe harness
-wires hooks only inside its own fixtures; no init/onboard generation exists yet.
+**Wiring (2.41.0).** `tamperward init` / `onboard` write the `[hooks]` tables into
+`.codex/config.toml` when the repository shows a Codex marker (`AGENTS.md`, or a `.codex/`
+directory holding more than the wiring itself): a `PreToolUse` entry on matcher `*` running
+`tamperward hook codex` and a `Stop` entry running `tamperward sweep codex`, in the same
+hardened pinned `npx` form as the Claude wiring, labelled experimental in the file and in the
+init output. The rest of the file is the project's: init appends to a config without hooks,
+re-pins the entries it wrote, and refuses to rewrite a hand-written hooks block. The two
+commands run the Codex adapter over the hook payload and write its native envelope at exit 0.
+The file is protected hooks surface (2.39.23, above); a pin raise is the one edit the
+detector does not report. None of this changes the qualification: `preDeny` stays empty and
+`runtime verify` grades what is proven.
 
 ## GitHub Copilot CLI (EXPERIMENTAL — adapter exists, not yet 4.1-eligible)
 
@@ -476,7 +484,10 @@ box:
   authenticated Copilot CLI. It wires TamperWard as a Copilot `preToolUse` hook (deny) plus an
   `agentStop` hook (sweep) in `.github/hooks/tamperward.json` (protected hooks surface by
   default since 2.39.23: deleting or renaming the file, or removing, changing or adding to
-  its `hooks` member, is a `hook-tampering` finding), and — because Copilot gates
+  its `hooks` member, is a `hook-tampering` finding; since 2.41.0 `tamperward init` writes
+  that file itself when the repository shows a Copilot marker, with `tamperward hook copilot`
+  and `tamperward sweep copilot` as the two commands, labelled experimental, and re-pins or
+  refuses it on later runs as it does the Claude wiring), and — because Copilot gates
   repository hooks in `-p` prompt mode — sets `GITHUB_COPILOT_PROMPT_MODE_REPO_HOOKS=true` in
   the child environment (recorded in provenance) so the wiring actually loads. It runs
   CONTROL-vs-GATED mutation pairs (shell edit, `apply_patch`, native `edit`/`create`, delete,

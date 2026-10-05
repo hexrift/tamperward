@@ -32,7 +32,7 @@ import { isAbsolute, resolve } from 'node:path';
 import { yaml } from '../lazy-deps';
 import { isProtected } from '../policy';
 import { DetectorContext, Policy } from '../types';
-import { PLAIN_SEMVER, TW_VERSION, canonicalPath, claudeConfigDir, compareVersions, homeDir, isClaudeSettings } from '../wiring';
+import { PLAIN_SEMVER, TW_VERSION, canonicalPath, claudeConfigDir, compareVersions, homeDir, isClaudeSettings, pinNotBelow, runtimeGatePins, withoutRuntimeGatePins } from '../wiring';
 import { containsProtected, trackedFiles } from './repo';
 
 // ── shell hook scripts ─────────────────────────────────────────────────────────
@@ -1005,12 +1005,24 @@ export function codexHooksTables(toml: string): string {
   return out.join('\n');
 }
 
+/** The one edit to runtime wiring that needs no sign-off: the gate's pin raised, as a re-run
+ *  of `init` from a newer build raises it, with nothing else changed. A lowered pin is named. */
+function runtimeGatePinRaise(was: string, now: string): 'same' | 'raised' | 'lowered' | 'changed' {
+  if (now === was) return 'same';
+  if (withoutRuntimeGatePins(now) !== withoutRuntimeGatePins(was)) return 'changed';
+  const before = runtimeGatePins(was);
+  const after = runtimeGatePins(now);
+  return after.every((pin, i) => pinNotBelow(pin, before[i])) ? 'raised' : 'lowered';
+}
+
 /** Reasons the after-config's `[hooks]` tables are not the before-config's. */
 export function codexHooksWeakening(before: string, after: string): string[] {
   const was = codexHooksTables(before);
   if (!was) return [];
   const now = codexHooksTables(after);
-  if (now === was) return [];
+  const change = runtimeGatePinRaise(was, now);
+  if (change === 'same' || change === 'raised') return [];
+  if (change === 'lowered') return ['the tamperward pin in the [hooks] tables was lowered or is no longer a plain version — the gate only ever raises its pin'];
   if (GATE.test(was) && !GATE.test(now)) return ['the tamperward hook entries were removed from the [hooks] tables — Codex no longer runs the gate'];
   return ['the [hooks] tables changed — the PreToolUse and Stop wiring Codex reads is no longer what it was'];
 }
@@ -1034,7 +1046,9 @@ export function copilotHooksWeakening(before: string, after: string): string[] {
   if (was === null || was.hooks === null) return [];
   const now = hooksMember(after);
   if (now === null) return ['the file no longer parses as JSON — the Copilot CLI loads no hook from it'];
-  if (now.hooks === was.hooks) return [];
+  const change = runtimeGatePinRaise(was.hooks, now.hooks ?? '');
+  if (change === 'same' || change === 'raised') return [];
+  if (change === 'lowered') return ['the tamperward pin in "hooks" was lowered or is no longer a plain version — the gate only ever raises its pin'];
   if (GATE.test(was.hooks) && !GATE.test(now.hooks ?? '')) return ['the tamperward hook entries were removed from "hooks" — the Copilot CLI no longer runs the gate'];
   return ['the "hooks" entries changed — the preToolUse and agentStop wiring the Copilot CLI reads is no longer what it was'];
 }

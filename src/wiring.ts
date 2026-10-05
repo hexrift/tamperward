@@ -231,3 +231,66 @@ export function runtimeWiringOf(path: string): RuntimeWiring | null {
 export function resolvesToRuntimeWiring(path: string): RuntimeWiring | null {
   return runtimeWiringOf(path) ?? (isAbsolute(path) ? runtimeWiringOf(canonicalPath(path)) : null);
 }
+
+/** The hook commands `init` writes for the experimental runtimes, in the same hardened
+ *  `npx` form as the Claude wiring: pinned to this build, fail-closed when the authority
+ *  cannot start. `hook codex` / `sweep codex` and `hook copilot` / `sweep copilot` run the
+ *  matching RuntimeAdapter (src/cli/runtime-hook.ts). */
+export const CODEX_HOOK_CMD = `${NPX_AUTHORITY} tamperward@${TW_VERSION} hook codex${AUTHORITY_FAIL_CLOSED}`;
+export const CODEX_SWEEP_CMD = `${NPX_AUTHORITY} tamperward@${TW_VERSION} sweep codex${AUTHORITY_FAIL_CLOSED}`;
+export const COPILOT_HOOK_CMD = `${NPX_AUTHORITY} tamperward@${TW_VERSION} hook copilot${AUTHORITY_FAIL_CLOSED}`;
+export const COPILOT_SWEEP_CMD = `${NPX_AUTHORITY} tamperward@${TW_VERSION} sweep copilot${AUTHORITY_FAIL_CLOSED}`;
+
+/** A `tamperward@<pin> hook|sweep codex|copilot` invocation anywhere in a command, with its pin. */
+export const RUNTIME_GATE_RE = /\btamperward@(\S+) (hook|sweep) (codex|copilot)\b/g;
+
+const RUNTIME_WIRING_NOTE =
+  'tamperward: experimental hook wiring. This runtime has not passed a pinned live qualification; ' +
+  'run `tamperward runtime verify` to see what is proven. Editing these entries is editing the gate.';
+
+/** The `[hooks]` tables `init` appends to `.codex/config.toml`: Codex reads project hooks from
+ *  them (codex-rs/hooks). A matcher of `*` covers every tool; the Stop table has no matcher. */
+export function codexWiringTables(): string {
+  const q = (cmd: string): string => JSON.stringify(cmd);
+  return [
+    `# ${RUNTIME_WIRING_NOTE}`,
+    '[hooks]',
+    '[[hooks.PreToolUse]]',
+    'matcher = "*"',
+    '[[hooks.PreToolUse.hooks]]',
+    'type = "command"',
+    `command = ${q(CODEX_HOOK_CMD)}`,
+    '[[hooks.Stop]]',
+    '[[hooks.Stop.hooks]]',
+    'type = "command"',
+    `command = ${q(CODEX_SWEEP_CMD)}`,
+    '',
+  ].join('\n');
+}
+
+/** The document `init` writes to `.github/hooks/tamperward.json`: the Copilot CLI loads
+ *  workspace hooks from `.github/hooks/*.json` as `{ version, hooks: { preToolUse, agentStop } }`.
+ *  The 60-second timeout covers a cold `npx` start; a timed-out command hook fails OPEN on the
+ *  CLI (recorded in the adapter's unsupported list), so it is not set short. */
+export function copilotWiringDocument(): { version: 1; hooks: { preToolUse: unknown[]; agentStop: unknown[] } } {
+  return {
+    version: 1,
+    hooks: {
+      preToolUse: [{ type: 'command', command: COPILOT_HOOK_CMD, timeout: 60 }],
+      agentStop: [{ type: 'command', command: COPILOT_SWEEP_CMD, timeout: 60 }],
+    },
+  };
+}
+
+export const COPILOT_WIRING_NOTE = RUNTIME_WIRING_NOTE;
+
+/** The pins of every runtime gate invocation in `text`, in order. */
+export function runtimeGatePins(text: string): string[] {
+  return [...text.matchAll(RUNTIME_GATE_RE)].map((m) => m[1]);
+}
+
+/** `text` with every runtime gate pin replaced by a placeholder, so two spellings that differ
+ *  only in the pin compare equal. */
+export function withoutRuntimeGatePins(text: string): string {
+  return text.replace(RUNTIME_GATE_RE, 'tamperward@<pin> $2 $3');
+}
