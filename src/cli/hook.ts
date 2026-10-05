@@ -45,7 +45,7 @@ export interface HookResult {
   /** The structured blocking findings behind `stdout`, exposed so a programmatic caller can bind a
    *  block to its target WITHOUT re-parsing the rendered denial text. The shipped hook path (emit)
    *  reads only `stdout`/`exitCode`, so this is additive and does not change hook output; empty on an
-   *  allow. Consumed by the (unwired) Copilot SDK end-of-turn sweep for structural finding→target
+   *  allow. Consumed by the Copilot SDK adapter's end-of-turn sweep for structural finding→target
    *  binding (#616). */
   findings?: readonly Finding[];
 }

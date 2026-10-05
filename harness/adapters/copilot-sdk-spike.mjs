@@ -634,9 +634,9 @@ export function finalizeQualification(result, { artifactPath, writeFile } = {}) 
 }
 
 /** Compile the neutral adapter (TypeScript) to a temporary ESM module and import it. Live-only: the
- *  adapter is intentionally unshipped (absent from dist/cli/index.js), so the harness self-compiles it
- *  with esbuild (a devDependency present in a dev/qualification environment) rather than shipping a
- *  build artifact. Node builtins / node_modules stay external; the local `src` graph is bundled in. */
+ *  CLI bundle (dist/cli/index.js) exports nothing, so the harness self-compiles the adapter from src
+ *  with esbuild (a devDependency present in a dev/qualification environment) and hashes the exact
+ *  bytes it runs. Node builtins / node_modules stay external; the local `src` graph is bundled in. */
 export async function loadAdapter() {
   const esbuild = await import('esbuild');
   const entry = join(ROOT, 'src/adapters/copilot-sdk/adapter.ts');

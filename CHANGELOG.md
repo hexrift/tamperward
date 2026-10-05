@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.39.20] — 2026-10-05
+
+### Changed
+
+- **Stale notes on the Copilot SDK adapter corrected** (#745). A source comment called the SDK
+  adapter's end-of-turn sweep "unwired", and the runtime guide and the qualification harness said
+  the adapter was "unshipped (absent from `dist/`)". The adapter is registered and bundled into the
+  CLI; what is true is that the CLI bundle exports nothing, which is why the harness compiles the
+  adapter from `src` to import it and hash the exact bytes it runs. The Copilot probe's transport
+  comment now matches its own `transportExpectation` (empty and malformed output are documented
+  fail-open). No behaviour changes.
+
 ## [2.39.19] — 2026-10-05
 
 ### Fixed
