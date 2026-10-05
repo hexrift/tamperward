@@ -401,7 +401,7 @@ export function resolvedPackageRoot(spec, requireFn) {
     if (existsSync(p)) {
       try {
         const pkg = JSON.parse(readFileSync(p, 'utf8'));
-        if (pkg && pkg.name === spec) return dir;
+        if (pkg && typeof pkg.name === 'string' && pkg.name.toLowerCase() === spec.toLowerCase()) return dir;
       } catch {
         /* keep walking */
       }
