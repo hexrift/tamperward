@@ -44,6 +44,7 @@ import {
   UntrustedIdentity,
   failClosedResult,
   steeringUnavailableFinding,
+  unknownToolFinding,
 } from '../contract';
 import { changesFromCopilot } from '../copilot/changes';
 import { sdkFileEditChanges } from './changes';
@@ -111,7 +112,8 @@ export class CopilotSdkHostedAdapter implements RuntimeAdapter {
    *     `onAgentStop` `{decision:"block",reason}` shape.
    *  5. `pre-action` + shell → the SAME `evaluate` engine over the reconstructed command.
    *  6. `pre-action` + file-edit → `unsupported` (content not surfaced; sweep is authority).
-   *  7. `pre-action` + read/mcp/other → no Change → allow.
+   *  7. `pre-action` + an unmodelled permission kind → an `unknown-tool` deny.
+   *  8. `pre-action` + read/mcp/other → no Change → allow.
    */
   decide(raw: string, phase: SteeringPhase, defaultCwd?: string): SteeringResult {
     if (phase === 'post-action') {
@@ -143,6 +145,13 @@ export class CopilotSdkHostedAdapter implements RuntimeAdapter {
       const swept = stopFromRaw(stopInput, defaultCwd, idv.trustedRoot);
       const findings = swept.findings ? [...swept.findings] : [];
       return { outcome: 'ok', wire: swept.stdout, decision: { verdict: swept.stdout ? 'deny' : 'allow', findings, reason: swept.stdout || undefined } };
+    }
+
+    if (parsed.operation.kind === 'unknown') {
+      const detail = `unrecognized Copilot SDK permission request ${parsed.operation.name}; refusing to evaluate it as a no-op`;
+      const findings = [unknownToolFinding('Copilot SDK', parsed.operation.name)];
+      const wire = this.denyPayload(findings, 'pre-action');
+      return { outcome: 'ok', wire, detail, decision: { verdict: 'deny', findings, reason: wire } };
     }
 
     // Track WHICH pre-action step is running, so a throw fails closed with a SANITIZED bounded cause

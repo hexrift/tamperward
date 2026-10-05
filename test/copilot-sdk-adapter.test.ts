@@ -75,11 +75,46 @@ describe('copilotSdkOperationKind — SDK permission kinds → neutral operation
     expect(copilotSdkOperationKind('write')).toBe('file-edit');
     expect(copilotSdkOperationKind('read')).toBe('file-read');
     expect(copilotSdkOperationKind('mcp')).toBe('mcp');
-    expect(copilotSdkOperationKind('custom-tool')).toBe('other');
     expect(copilotSdkOperationKind('url')).toBe('other');
     expect(copilotSdkOperationKind('memory')).toBe('other');
     expect(copilotSdkOperationKind('hook')).toBe('other');
     expect(copilotSdkOperationKind(undefined)).toBe('other');
+  });
+
+  it.each(['custom-tool', 'shelll', 'apply_patch', 'future-kind'])('classifies the unmodelled SDK kind %s as unknown, never as a no-op', (kind) => {
+    expect(copilotSdkOperationKind(kind)).toBe('unknown');
+  });
+});
+
+describe('CopilotSdkHostedAdapter.decide — unmodelled permission kinds fail closed', () => {
+  it.each([
+    [{ kind: 'shelll', toolName: 'bash', fullCommandText: 'rm src/a.spec.ts' }, 'bash'],
+    [{ kind: 'custom-tool', toolName: 'rewrite_spec' }, 'rewrite_spec'],
+    [{ kind: 'future-kind' }, 'future-kind'],
+  ])('denies %j with unknown-tool instead of approving it', (fields, named) => {
+    const cwd = repoFixture();
+    try {
+      const r = copilotSdkAdapter.decide(req(cwd, fields), 'pre-action', cwd);
+      expect(r.outcome).toBe('ok');
+      expect(r.decision?.verdict).toBe('deny');
+      expect(r.decision?.findings.map((f) => f.rule)).toEqual(['unknown-tool']);
+      expect(r.decision?.findings[0].evidence).toContain(named);
+      expect(r.decision?.findings[0].evidence).toContain('Copilot SDK');
+      expect(r.wire).toContain('unknown-tool');
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it.each(['url', 'memory', 'hook'])('still allows the documented non-repository kind %s', (kind) => {
+    const cwd = repoFixture();
+    try {
+      const r = copilotSdkAdapter.decide(req(cwd, { kind, toolName: kind }), 'pre-action', cwd);
+      expect(r.decision?.verdict).toBe('allow');
+      expect(r.wire).toBe('');
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
   });
 });
 
