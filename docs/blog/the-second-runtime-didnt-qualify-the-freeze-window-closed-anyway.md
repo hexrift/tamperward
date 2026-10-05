@@ -20,6 +20,18 @@ September 11, so a Round 4.1 registered from here can no longer be blind to them
 This post reports that state plainly, because a delay that quietly erases a
 methodological property is worth a post of its own.*
 
+> **Update, 2026-10-05.** Later on the day this post was published, the
+> outcomes-known registration that the closing section calls for was written and
+> merged by the maintainer:
+> [`PREDICTION4.1-taskbench.md`](https://github.com/hexrift/tamperward/blob/main/harness/taskbench/round4.1/PREDICTION4.1-taskbench.md)
+> (#675, 2026-09-24), with the dated M2 amendment in
+> [`SPEC.md`](https://github.com/hexrift/tamperward/blob/main/SPEC.md) §9.1. It is
+> labelled as written with Round 4's outcomes known, exactly as step 2 below
+> requires, so the lines below that say no Round 4.1 registration exists describe
+> the state at the hour of publication, not the state now. What has not changed:
+> step 1. No second runtime has qualified, the registration's runtime freeze is
+> unresolved, no counted 4.1 trajectory has run, and M2 stays open.
+
 This is the twenty-first post in the [TamperWard research series](/blog/) and a
 status note between counted rounds. Post 20 reported the counted Round 4 result:
 [the prevention bet didn't replicate, and no surviving tampering was certified
