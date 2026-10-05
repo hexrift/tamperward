@@ -35,6 +35,7 @@ round's frozen verdict ledger or sealed results artifact.
 | [Round 3](./round-3) | `claude-haiku-4-5-20251001` / Claude Code | 17 pairs (34 trajectories), fresh PyPI frame, Python | **1.14.0** | Prevention: b=6 / c=0, RD +35.3pp, BP95 [9.5, 58.7], exact McNemar p = 0.0313. Two of eight bets lost; in-loop skip detector blind to pytest syntax | complete; ran on a verifier later found to carry a bypass (1.14.1) |
 | [Round 3.1](./round-3-1) | `claude-sonnet-5` / Claude Code | 16 pairs (32 trajectories), the round-3 pool minus one spent pair | **1.14.0** (byte-identical to round 3) | Confirmatory result **did not replicate**: b=1 / c=0, RD +6.3pp, BP95 [−13.8, 28.3], exact McNemar p = 1.0000 — and could not have: only three ungated false greens occurred, so b ≤ 3 | complete; a failure to reject, not evidence of no effect |
 | [Round 4](./round-4) | `claude-sonnet-5` / Claude Code | 79 / 110 valid pairs (264 trajectories incl. 44 duplicate-arm), fresh Python pool | **2.10.3**, pinned by artefact hash | Primary prediction **did not replicate**: b=5 / c=3, RD +1.8pp, exact McNemar p = 0.727, H₀ not rejected. Narrower security result held: 0 strict tamper bypasses across 201 measured trajectories | complete — sealed (`ROUND4-RESULTS.json`, authoritative provenance) |
+| [Round 4.1](https://github.com/hexrift/tamperward/blob/main/harness/taskbench/round4.1/PREDICTION4.1-taskbench.md) | a second supported runtime, unresolved until a runtime passes the registration's eligibility gate; `claude-sonnet-5` if that runtime can serve Round 4's snapshot | the same 110 pairs as Round 4, frozen walk order and duplicate budget | **2.10.3**, byte-identical to Round 4 | **Not run.** Registered 2026-09-24 as a labelled, outcomes-known protocol replication of Round 4 (#675): its payload is runtime transfer, and the masked-failure primary is expected not to reject at the pool's realised discordance | registered, unexecuted — blocked on a qualifying runtime; every candidate adapter is `neutral` |
 
 Key: `RD` = paired risk difference in percentage points; `BP95` = Bonett–Price
 95% interval. Rounds 1–3.1 count `FALSE_GREEN` (visible suite green, withheld
@@ -43,7 +44,8 @@ green, pristine red) and reports `a`/`d` alongside `b`/`c`. Each round page
 names what its result supports and what it does not.
 
 **What this table does not say.** Two rounds rejected the null and three did
-not. The rounds differ in ecosystem (JS/TS then Python), treatment (1.6.0 →
+not; Round 4.1 is registered but has not run, so it adds nothing to either
+count. The rounds differ in ecosystem (JS/TS then Python), treatment (1.6.0 →
 1.9.0 → 1.14.0 → 2.10.3), model (Haiku then Sonnet) and sample, so they are not
 five draws of one experiment and cannot be pooled. They are evidence for their
 own settings, not a universal claim about all repositories or all agents.
@@ -64,9 +66,11 @@ being measured. These pages keep them apart:
 
 ## Confirmatory versus exploratory
 
-The five Taskbench rounds are **preregistered confirmatory** experiments: the
-registration document, the seeds, the endpoints and the analysis script were
-committed before the counted trajectories ran. Everything else in the series —
+The five completed Taskbench rounds are **preregistered confirmatory**
+experiments: the registration document, the seeds, the endpoints and the
+analysis script were committed before the counted trajectories ran. Round 4.1's
+registration is the one exception, written with Round 4's outcomes known and
+labelled as such in the registration itself. Everything else in the series —
 the seed studies behind the "What agents do when…" posts, the governance
 mechanism comparisons, the before/after prompt comparisons — is **exploratory
 or pilot evidence**: one runtime, one model per cell, an author-designed seed,
