@@ -434,7 +434,7 @@ function uncoveredDrift(
  * or blocked (uncoveredDrift), never absorbed.
  * Returns blocking findings, or null when the current call may proceed.
  */
-function effectDriftBlocks(cwd: string, sessionId: string | undefined, policy: Policy): Finding[] | null {
+export function effectDriftBlocks(cwd: string, sessionId: string | undefined, policy: Policy): Finding[] | null {
   if (!sessionId || !isGitRepo(cwd)) return null;
   const expected = loadPtree(cwd, sessionId);
   const current = snapshotProtected(cwd, policy, expected ?? undefined, snapshotCache ?? undefined);
@@ -480,7 +480,7 @@ function effectDriftBlocks(cwd: string, sessionId: string | undefined, policy: P
 /** After ALLOWING an Edit/Write on a protected file, record the content the tool is
  *  about to write as the new sanctioned state, so the next call's drift check does
  *  not re-litigate an edit this hook already passed. */
-function sanctionPredictedWrites(cwd: string, sessionId: string | undefined, policy: Policy, changes: ReturnType<typeof changesFromClaudeHook>): void {
+export function sanctionPredictedWrites(cwd: string, sessionId: string | undefined, policy: Policy, changes: readonly Change[]): void {
   if (!sessionId) return;
   const tree = loadPtree(cwd, sessionId);
   if (!tree) return;

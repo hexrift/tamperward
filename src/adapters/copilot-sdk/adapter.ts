@@ -28,7 +28,7 @@
 import { Finding } from '../../types';
 import { evaluate } from '../../engine';
 import { loadPolicy } from '../../policy-load';
-import { stopFromRaw } from '../../cli/hook';
+import { effectDriftBlocks, sanctionPredictedWrites, stopFromRaw } from '../../cli/hook';
 import { turnBaseline } from '../../session';
 import { repoContext, repoRoot, validateClaimAgainstRoot } from '../../repo-context';
 import {
@@ -176,6 +176,15 @@ export class CopilotSdkHostedAdapter implements RuntimeAdapter {
       stage = 'policy-load';
       const policy = loadPolicy(root);
 
+      // The same effect-layer step the canonical path runs next: drift of the protected tree since
+      // its last sanctioned state is denied before the operation is judged.
+      stage = 'evaluate';
+      const drift = effectDriftBlocks(root, parsed.identity.sessionId, policy);
+      if (drift) {
+        const wire = this.denyPayload(drift, 'pre-action');
+        return { outcome: 'ok', wire, decision: { verdict: 'deny', findings: drift, reason: wire } };
+      }
+
       // file-edit: reconstruct the proposed change from the write's surfaced content (diff /
       // newFileContents) and content-judge it. A write with NO usable content is unsupported for
       // this measured configuration (allow-through; the sweep is authority) — not a blanket deny.
@@ -186,6 +195,7 @@ export class CopilotSdkHostedAdapter implements RuntimeAdapter {
         if (changes === null) return { outcome: 'unsupported', detail: FILE_EDIT_NO_CONTENT_DETAIL };
         stage = 'evaluate';
         const findings = evaluate(changes, policy, undefined, 'tool-call', { cwd: root }).filter((f) => f.severity === 'block');
+        if (findings.length === 0) sanctionPredictedWrites(root, parsed.identity.sessionId, policy, changes);
         const wire = this.denyPayload(findings, 'pre-action');
         return { outcome: 'ok', wire, decision: { verdict: findings.length ? 'deny' : 'allow', findings, reason: wire || undefined } };
       }
@@ -194,6 +204,7 @@ export class CopilotSdkHostedAdapter implements RuntimeAdapter {
       const changes = changesFromCopilot(parsed.operation, root, sessionCwd);
       stage = 'evaluate';
       const findings = evaluate(changes, policy, undefined, 'tool-call', { cwd: root }).filter((f) => f.severity === 'block');
+      if (findings.length === 0) sanctionPredictedWrites(root, parsed.identity.sessionId, policy, changes);
       const wire = this.denyPayload(findings, 'pre-action');
       return { outcome: 'ok', wire, decision: { verdict: findings.length ? 'deny' : 'allow', findings, reason: wire || undefined } };
     } catch (e) {
