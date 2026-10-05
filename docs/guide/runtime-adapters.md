@@ -346,15 +346,17 @@ The Codex pre-action path pins the Stop-sweep baseline at **turn start** (`turnB
 every pre-action call, exactly as the canonical `preToolUseVerdict` does — because with
 `preDeny` empty the end-of-turn git sweep is Codex's only real enforcement, and a baseline
 first set at Stop time would let a mutation the turn *committed* mid-turn slip past the
-sweep. Full parity with the other two canonical pre-action steps — `effectDriftBlocks`
-(hidden out-of-band drift) and `sanctionPredictedWrites` (so an allowed pre-action edit is
-not re-flagged by the Stop sweep) — is a **PR 2** follow-up; those matter only once Codex is
-wired live with the effect observer.
+sweep. The other two canonical pre-action steps run as well (2.39.24), on the Codex, Copilot
+CLI and Copilot SDK paths alike: `effectDriftBlocks` denies a protected-tree drift since the
+last sanctioned state before the operation is judged (a tracked file gutted out of band is the
+rule's own finding; a gitignored one is `hidden-drift`), and `sanctionPredictedWrites` records
+an allowed write on a protected file so the next call does not re-litigate it. The parity
+suite (`test/runtime-adapter-parity.test.ts`) holds every registered adapter to the same
+findings the Claude path produces for both.
 
-**PR 2 follow-up.** Generating the `.codex/config.toml` hook wiring from `init` / `onboard`, and protecting
-that control surface (the same way the Claude hook wiring is protected), is the next PR,
-along with the `effectDriftBlocks` / `sanctionPredictedWrites` parity noted above. This PR
-wires hooks only inside the probe harness; it adds no init/onboard generation.
+**Follow-up.** Generating the `.codex/config.toml` hook wiring from `init` / `onboard` is the
+remaining step; the file is protected hooks surface since 2.39.23 (above). The probe harness
+wires hooks only inside its own fixtures; no init/onboard generation exists yet.
 
 ## GitHub Copilot CLI (EXPERIMENTAL — adapter exists, not yet 4.1-eligible)
 

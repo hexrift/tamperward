@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.39.24] — 2026-10-05
+
+### Fixed
+
+- **Every adapter's pre-action path runs the canonical effect layer** (#750). The Codex,
+  Copilot CLI and Copilot SDK adapters pinned the turn baseline but skipped the two steps the
+  Claude path runs next: `effectDriftBlocks`, which denies a drift of the protected tree since
+  its last sanctioned state before the operation is judged, and `sanctionPredictedWrites`, which
+  records an allowed write on a protected file so the next call does not re-litigate it. A
+  protected spec gutted out of band between two tool calls was allowed through on those three
+  adapters and denied on Claude. All four now deny it with the same findings (a tracked file by
+  the rule it breaks, a gitignored one as `hidden-drift`), the deny repeats until the file is
+  restored, and an allowed write the tool then applies is not re-flagged. The two functions are
+  exported from the hook module; no adapter-specific logic was added.
+
 ## [2.39.23] — 2026-10-05
 
 ### Fixed

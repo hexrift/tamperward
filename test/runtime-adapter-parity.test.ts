@@ -329,3 +329,57 @@ describe('cross-adapter parity — the end-of-turn sweep is the final authority 
     });
   });
 });
+
+describe('cross-adapter parity — the effect layer runs on every pre-action path', () => {
+  const turnStart = (adapter: RuntimeAdapter, cwd: string): SteeringResult =>
+    decideIn(adapter, cwd, { name: 'turn start', operation: { kind: 'shell', command: 'cat src/a.spec.ts' } });
+
+  it('a protected file gutted out of band is denied at the next pre-action call with the findings the reference adapter produces', () => {
+    const results = RUNTIME_ADAPTERS.map((adapter) =>
+      withRepo((cwd) => {
+        expect(turnStart(adapter, cwd).decision?.verdict, adapter.name).toBe('allow');
+        writeFileSync(join(cwd, 'src', 'a.spec.ts'), `it('one', () => {});\n`);
+        const r = turnStart(adapter, cwd);
+        expect(r.outcome, adapter.name).toBe('ok');
+        expect(r.decision?.verdict, adapter.name).toBe('deny');
+        expect(r.wire, adapter.name).toBe(adapter.denyPayload(r.decision?.findings as Finding[], 'pre-action'));
+        expect(turnStart(adapter, cwd).decision?.verdict, `${adapter.name}: the deny repeats until restored`).toBe('deny');
+        return r.decision?.findings;
+      }),
+    );
+    for (const [i, findings] of results.entries()) {
+      expect(findings?.map((f) => f.rule), ADAPTER_NAMES[i]).toContain('test-deletion');
+      expect(findings, ADAPTER_NAMES[i]).toEqual(results[0]);
+    }
+  });
+
+  it('a gitignored protected file rewritten out of band is hidden-drift on every adapter', () => {
+    for (const adapter of RUNTIME_ADAPTERS) {
+      withRepo((cwd) => {
+        writeFileSync(join(cwd, '.gitignore'), 'src/local.spec.ts\n');
+        writeFileSync(join(cwd, 'src', 'local.spec.ts'), `it('local', () => {});\n`);
+        expect(turnStart(adapter, cwd).decision?.verdict, adapter.name).toBe('allow');
+        writeFileSync(join(cwd, 'src', 'local.spec.ts'), `it.skip('local', () => {});\n`);
+        const r = turnStart(adapter, cwd);
+        expect(r.decision?.verdict, adapter.name).toBe('deny');
+        expect(r.decision?.findings.map((f) => f.rule), adapter.name).toEqual(['hidden-drift']);
+        expect(r.decision?.findings[0]?.file, adapter.name).toBe('src/local.spec.ts');
+      });
+    }
+  });
+
+  it('an allowed protected write is sanctioned, so the call after the tool applies it is not re-flagged', () => {
+    const grown = `it('one', () => {}); it('two', () => {});\nit('three', () => {});\n`;
+    for (const adapter of RUNTIME_ADAPTERS) {
+      withRepo((cwd) => {
+        expect(turnStart(adapter, cwd).decision?.verdict, adapter.name).toBe('allow');
+        const write = decideIn(adapter, cwd, { name: 'grow', operation: { kind: 'write', path: 'src/a.spec.ts', content: grown } });
+        expect(write.outcome, adapter.name).toBe('ok');
+        expect(write.decision?.verdict, adapter.name).toBe('allow');
+        writeFileSync(join(cwd, 'src', 'a.spec.ts'), grown);
+        expect(turnStart(adapter, cwd).decision?.verdict, adapter.name).toBe('allow');
+        expect(adapter.decide(native(adapter).endOfTurn(cwd), 'end-of-turn', cwd).decision?.verdict, adapter.name).toBe('allow');
+      });
+    }
+  });
+});
