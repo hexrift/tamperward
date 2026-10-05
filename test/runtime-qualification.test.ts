@@ -311,6 +311,16 @@ describe('capability derivation is honest (#599)', () => {
     expect(timeout.evidence.detail.toLowerCase()).toContain('fails open');
   });
 
+  it.each(['transport:empty', 'transport:malformed'] as const)(
+    'grades the documented Copilot fail-open %s as FAIL-OPEN, never as a contract fail-closed PARTIAL',
+    (id) => {
+      const assessed = assessCapabilities(copilotAdapter.capabilities).find((x) => x.id === id)!;
+      expect(assessed.state).toBe('FAIL-OPEN');
+      expect(assessed.evidence.source).toBe('adapter-unsupported');
+      expect(copilotAdapter.capabilities.unsupported).toContain(assessed.evidence.detail);
+    },
+  );
+
   it('an adapter that says its fail-closed transport is unproven reports UNPROVEN, not PARTIAL', () => {
     const a = assessCapabilities(codexAdapter.capabilities);
     expect(stateOf(a, 'transport:timeout')).toBe('UNPROVEN');
