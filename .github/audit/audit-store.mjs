@@ -37,7 +37,9 @@ import {
 import { dirname, join } from 'node:path';
 
 export const STORE_LAYOUT = 'audit-store-v2';
-export const STATE_SCHEMA = 'audit-store-state-v1';
+export const STATE_SCHEMA = 'audit-store-state-v2';
+export const DURATION_FIELDS = ['hook_latency_ms', 'verify_wall_clock_ms', 'bare_suite_wall_clock_ms'];
+const MS_KEY_PATTERN = /^(?:0|[1-9]\d*)$/;
 
 /** Hard limits. Exceeding one is an exit-2 refusal with the limit in the message. */
 export const LIMITS = Object.freeze({
@@ -214,6 +216,8 @@ export function emptyState() {
     last: null,
     by_rule: {},
     by_surface: {},
+    durations: { hook_latency_ms: {}, verify_wall_clock_ms: {}, bare_suite_wall_clock_ms: {} },
+    oob_signoffs: 0,
     legacy_events: 0,
     legacy_bytes: 0,
   };
@@ -239,7 +243,19 @@ export function parseState(raw) {
   if (!isObject(state) || state.schema !== STATE_SCHEMA) return null;
   const expected = Object.keys(emptyState());
   if (Object.keys(state).length !== expected.length || expected.some((key) => !(key in state))) return null;
-  for (const key of ['events', 'blocked', 'warnings', 'sessions', 'legacy_events', 'legacy_bytes']) if (!isCount(state[key])) return null;
+  for (const key of ['events', 'blocked', 'warnings', 'sessions', 'oob_signoffs', 'legacy_events', 'legacy_bytes']) if (!isCount(state[key])) return null;
+  if (state.oob_signoffs > state.events) return null;
+  if (!isObject(state.durations) || Object.keys(state.durations).length !== DURATION_FIELDS.length) return null;
+  for (const field of DURATION_FIELDS) {
+    const counts = state.durations[field];
+    if (!isObject(counts)) return null;
+    let samples = 0;
+    for (const [ms, count] of Object.entries(counts)) {
+      if (!MS_KEY_PATTERN.test(ms) || !isCount(count) || count < 1) return null;
+      samples += count;
+    }
+    if (samples > state.events) return null;
+  }
   if (!validBound(state.first) || !validBound(state.last)) return null;
   if ((state.first === null) !== (state.events === 0) || (state.last === null) !== (state.events === 0)) return null;
   if (state.blocked + state.warnings !== state.events) return null;
@@ -274,6 +290,13 @@ export function foldEvent(state, event, newSession) {
   state.by_rule[event.rule] = bucket;
   state.by_surface[event.surface] = (state.by_surface[event.surface] ?? 0) + 1;
   if (newSession) state.sessions++;
+  for (const field of DURATION_FIELDS) {
+    const ms = event[field];
+    if (typeof ms !== 'number') continue;
+    const counts = state.durations[field];
+    counts[String(ms)] = (counts[String(ms)] ?? 0) + 1;
+  }
+  if (event.oob_signoff === true) state.oob_signoffs++;
   const bound = { ms: Date.parse(event.timestamp), id: event.id };
   if (state.first === null || before(bound, { ms: Date.parse(state.first.timestamp), id: state.first.id })) {
     state.first = { timestamp: event.timestamp, id: event.id };
@@ -297,8 +320,28 @@ export function summaryFromState(state) {
       .sort((a, b) => b.events - a.events || a.rule.localeCompare(b.rule)),
     by_surface: Object.entries(state.by_surface).map(([surface, events]) => ({ surface, events }))
       .sort((a, b) => b.events - a.events || a.surface.localeCompare(b.surface)),
+    latency: Object.fromEntries(DURATION_FIELDS.map((field) => [field, percentiles(state.durations[field])])),
+    oob_signoffs: state.oob_signoffs,
     interpretation: 'finding-is-not-proof-of-intent',
   };
+}
+
+/** Nearest-rank p50 / p95 / max over `{ "<ms>": count }`, or null when nothing was measured —
+ *  the same arithmetic as the CLI's `stats`, so the derived summary equals a local one. */
+function percentiles(counts) {
+  const values = Object.keys(counts).map(Number).sort((a, b) => a - b);
+  if (values.length === 0) return null;
+  const samples = values.reduce((sum, v) => sum + counts[String(v)], 0);
+  const at = (q) => {
+    const rank = Math.max(1, Math.ceil(q * samples));
+    let seen = 0;
+    for (const v of values) {
+      seen += counts[String(v)];
+      if (seen >= rank) return v;
+    }
+    return values[values.length - 1];
+  };
+  return { samples, p50: at(0.5), p95: at(0.95), max: values[values.length - 1] };
 }
 
 export function renderSummary(summary) {

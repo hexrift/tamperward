@@ -49,6 +49,14 @@ The v1 event is intentionally small:
 }
 ```
 
+Four optional measures may ride on an event (2.40.0), the instrument SPEC §9.1 M3 asks
+for: `hook_latency_ms` (whole milliseconds from the hook reading its input to the deny
+being written; the PreToolUse and Stop hooks record it on every deny they log),
+`verify_wall_clock_ms` and `bare_suite_wall_clock_ms` (a `verify` run and the same suite
+without TamperWard, for a producer that measures both), and `oob_signoff` (whether an
+out-of-band sign-off was needed to clear the finding). Absent means unmeasured; no
+in-tree producer writes the last three yet.
+
 The writer is allowlist-only. It does **not** serialise prompts, tool command bodies,
 source/evidence text, filenames, absolute paths, environment values, credentials, or
 the raw Claude session id. The session identifier is one-way hashed before it leaves
@@ -98,8 +106,11 @@ npx tamperward stats --file ./events.jsonl
 ```
 
 The text view reports event, block, warning and hashed-session counts, followed by
-counts by rule and enforcement surface. `--json` emits the same deterministic
-aggregate as one JSON document. The file is read in one pass, one line at a time,
+counts by rule and enforcement surface, then a `Measures` block when any event carried
+one: nearest-rank p50, p95 and max of `hook_latency_ms`, `verify_wall_clock_ms` and
+`bare_suite_wall_clock_ms` over the events that carry them, with the sample count, and
+the number of out-of-band sign-offs. `--json` emits the same deterministic aggregate as
+one JSON document (`latency` is null per measure when nothing was measured). The file is read in one pass, one line at a time,
 so an audit log of any length costs memory only for the aggregate; a line longer
 than 16 KiB is not an audit-v1 event and stops the command at exit 2.
 

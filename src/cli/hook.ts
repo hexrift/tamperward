@@ -179,7 +179,7 @@ export function denyWire(reason: string, kind: 'PreToolUse' | 'Stop'): string {
 function verdict(
   blocks: Finding[],
   kind: 'PreToolUse' | 'Stop',
-  audit?: { cwd: string; sessionId?: string },
+  audit?: { cwd: string; sessionId?: string; startedAt?: number },
 ): HookResult {
   if (blocks.length === 0) return { exitCode: 0, stdout: '' };
   recordDenylog(blocks);
@@ -188,6 +188,7 @@ function verdict(
       cwd: audit.cwd,
       surface: kind === 'PreToolUse' ? 'pretooluse' : 'stop',
       sessionId: audit.sessionId,
+      ...(audit.startedAt !== undefined ? { metrics: { hook_latency_ms: performance.now() - audit.startedAt } } : {}),
     });
   }
   const reason = formatDenial(blocks);
@@ -512,6 +513,7 @@ export function sanctionPredictedWrites(cwd: string, sessionId: string | undefin
  *  the runtime in the repository it names, so it has no separate anchor, and every existing
  *  caller passing no `trustedRoot` behaves byte-identically. */
 export function preToolUseVerdict(input: ClaudeHookInput, defaultCwd?: string, trustedRoot?: string): HookResult {
+  const startedAt = performance.now();
   const sessionCwd = input.cwd ?? defaultCwd ?? process.cwd();
   try {
     // The session's cwd names the repository; the verdict is computed at its ROOT.
@@ -526,11 +528,11 @@ export function preToolUseVerdict(input: ClaudeHookInput, defaultCwd?: string, t
     turnBaseline(cwd, input.session_id);
     const policy = loadPolicy(cwd);
     const driftBlocks = effectDriftBlocks(cwd, input.session_id, policy);
-    if (driftBlocks) return verdict(driftBlocks, 'PreToolUse', { cwd, sessionId: input.session_id });
+    if (driftBlocks) return verdict(driftBlocks, 'PreToolUse', { cwd, sessionId: input.session_id, startedAt });
     const changes = changesFromClaudeHook(input, cwd, sessionCwd);
     const blocks = evaluate(changes, policy, undefined, 'tool-call', { cwd }).filter((f) => f.severity === 'block');
     if (blocks.length === 0) sanctionPredictedWrites(cwd, input.session_id, policy, changes);
-    return verdict(blocks, 'PreToolUse', { cwd, sessionId: input.session_id });
+    return verdict(blocks, 'PreToolUse', { cwd, sessionId: input.session_id, startedAt });
   } catch (e) {
     return failClosed('PreToolUse', errText(e), { cwd: sessionCwd, sessionId: input.session_id });
   }
@@ -662,6 +664,7 @@ function recordObserverHealth(
 
 export function stopVerdict(input: ClaudeHookInput, defaultCwd?: string, trustedRoot?: string): HookResult {
   if (input.stop_hook_active) return { exitCode: 0, stdout: '' };
+  const startedAt = performance.now();
   const sessionCwd = input.cwd ?? defaultCwd ?? process.cwd();
   // The runtime-supplied cwd is a CLAIM validated against the runner's independently
   // derived trusted root when one is supplied; a cross-repo/invalid claim fails closed
@@ -721,7 +724,7 @@ export function stopVerdict(input: ClaudeHookInput, defaultCwd?: string, trusted
     advanceTurnBaseline(cwd, input.session_id);
     commitCursor();
   }
-  return verdict(blocks, 'Stop', { cwd, sessionId: input.session_id });
+  return verdict(blocks, 'Stop', { cwd, sessionId: input.session_id, startedAt });
 }
 
 function emit(r: HookResult): number {
