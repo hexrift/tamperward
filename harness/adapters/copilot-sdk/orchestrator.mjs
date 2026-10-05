@@ -452,7 +452,7 @@ export function semanticEvaluation(res) {
   const failClosedUnavailable =
     verdict === 'deny' && findings.length > 0 && findings.every((f) => f && f.rule === 'tamperward-unavailable');
   // Derive STAGE PROGRESS directly and truthfully from the adapter's tagged fail-closed stage (#621
-  // review points 3+4). The adapter runs, in order: repo-context → baseline → policy-load →
+  // review points 3+4). The adapter runs, in order: baseline → policy-load →
   // reconstruction → evaluate, and tags `unavailableReason` with the stage that threw (identity is
   // rejected even earlier, tagged `identity-rejected`). So:
   //   - no unavailable reason (a clean allow/deny) → reconstruction AND evaluate completed;
