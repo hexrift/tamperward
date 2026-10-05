@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.39.22] — 2026-10-05
+
+### Fixed
+
+- **Retained Copilot SDK evidence is bound to the frozen permission-gate signatures** (#747).
+  The catalogue's returned-reject observation cited a `permission.completed` event the
+  2026-09-20 capture never recorded, and the lineage check accepted a `proven` observation on a
+  bare `denied` completion code — the bare-code authority #616 rejected. The lineage check now
+  requires the capture row's path, code and message hash to match a source-frozen signature,
+  and the two observation details name the signature they rest on. No observation changes
+  result; the record can still never promote (its capability hash is null).
+
 ## [2.39.21] — 2026-10-05
 
 ### Fixed

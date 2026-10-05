@@ -146,14 +146,14 @@ export const RETAINED_EVIDENCE: readonly RetainedRuntimeEvidence[] = deepFreeze(
         result: 'proven',
         capture_path: 'returned-reject',
         detail:
-          'returned-reject path (permission.completed result.kind denied): a rejected permission decision blocked shell tool dispatch — protected state not mutated (shell-pre-deny observation, boundary seq 2 < completion seq 3)',
+          'returned-reject path (frozen permission-gate signature: denied / 96ed60fc6898cdfa): a rejected permission decision blocked shell tool dispatch — protected state not mutated (shell-pre-deny observation, boundary seq 2 < completion seq 3)',
       },
       {
         id: 'hook-not-invoked',
         result: 'proven',
         capture_path: 'callback-failure',
         detail:
-          'callback-failure path: a broken permission callback (sync-throw, reject and adapter-throw, independently) failed CLOSED — the tool did not dispatch and protected state stayed intact',
+          'callback-failure path (frozen permission-gate signature: denied / ebf2100b9c49ae12): a broken permission callback (sync-throw, reject and adapter-throw, independently) failed CLOSED — the tool did not dispatch and protected state stayed intact',
       },
       {
         id: 'transport:timeout',
