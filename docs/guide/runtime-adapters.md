@@ -320,7 +320,7 @@ Before it may print `Eligible for Round 4.1`, the probe enforces a **provenance 
 `CODEX_VERSION_EXPECTED` (the running Codex version token must match it **exactly** — `0.9.1`
 never qualifies a running `0.9.10`), `CODEX_MODEL` (passed
 operatively to `codex exec` as `--model`, so the pinned model is the one that runs), and
-`CODEX_HOME` must be set, and the **canonical SHA-256 of the gated `.codex/hooks.json`** — the
+`CODEX_HOME` must be set, and the **canonical SHA-256 of the gated `.codex/config.toml`** — the
 wiring every qualifying gated run is bound to — must be captured, alongside the Codex binary
 SHA-256, OS/arch, `exec` args, approval/sandbox mode, and adapter/probe/driver hashes. Any
 missing pin caps the result at PARTIAL. With no
@@ -334,6 +334,10 @@ qualification: the real-Codex E2E (c) is not run in CI (no Codex binary there). 
 experimental and `neutral`, `preDeny` stays empty, and no Round 4.1 is registered until a FULL
 `probe:codex-runtime` verdict on a pinned build says otherwise.
 
+A recorded `runtime verify --runtime codex` qualification is bound to the hash of
+`.codex/config.toml`, where Codex reads project hooks; editing or removing that file marks
+the record `STALE` in `runtime status` and `onboard`.
+
 The Codex pre-action path pins the Stop-sweep baseline at **turn start** (`turnBaseline`) on
 every pre-action call, exactly as the canonical `preToolUseVerdict` does — because with
 `preDeny` empty the end-of-turn git sweep is Codex's only real enforcement, and a baseline
@@ -343,7 +347,7 @@ sweep. Full parity with the other two canonical pre-action steps — `effectDrif
 not re-flagged by the Stop sweep) — is a **PR 2** follow-up; those matter only once Codex is
 wired live with the effect observer.
 
-**PR 2 follow-up.** Generating `.codex/hooks.json` from `init` / `onboard`, and protecting
+**PR 2 follow-up.** Generating the `.codex/config.toml` hook wiring from `init` / `onboard`, and protecting
 that control surface (the same way the Claude hook wiring is protected), is the next PR,
 along with the `effectDriftBlocks` / `sanctionPredictedWrites` parity noted above. This PR
 wires hooks only inside the probe harness; it adds no init/onboard generation.

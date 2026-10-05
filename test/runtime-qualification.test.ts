@@ -705,6 +705,25 @@ describe('runtime CLI end-to-end (#599)', () => {
     expect(doc.changed_inputs.join('\n')).toMatch(/hook_config_hash/);
   });
 
+  it.each([
+    ['an edited', (cwd: string) => writeFileSync(join(cwd, '.codex', 'config.toml'), '[features]\ncodex_hooks = false\n')],
+    ['a removed', (cwd: string) => rmSync(join(cwd, '.codex', 'config.toml'))],
+  ])('%s .codex/config.toml flips a recorded Codex qualification STALE', (_label, change) => {
+    const cwd = initRepo();
+    mkdirSync(join(cwd, '.codex'), { recursive: true });
+    writeFileSync(
+      join(cwd, '.codex', 'config.toml'),
+      '[features]\ncodex_hooks = true\n\n[[hooks.PreToolUse]]\nmatcher = "*"\n[[hooks.PreToolUse.hooks]]\ntype = "command"\ncommand = "tamperward hook codex"\n',
+    );
+    run(cwd, ['runtime', 'verify', '--runtime', 'codex', '--json'], { TAMPERWARD_RUNTIME_VERSION: '1.0.0' });
+    const fresh = JSON.parse(run(cwd, ['runtime', 'status', '--runtime', 'codex', '--json'], { TAMPERWARD_RUNTIME_VERSION: '1.0.0' }));
+    expect(fresh.stale).toBe(false);
+    change(cwd);
+    const doc = JSON.parse(run(cwd, ['runtime', 'status', '--runtime', 'codex', '--json'], { TAMPERWARD_RUNTIME_VERSION: '1.0.0' }));
+    expect(doc.stale).toBe(true);
+    expect(doc.changed_inputs.join('\n')).toMatch(/hook_config_hash/);
+  });
+
   it('finding 2: a .claude/settings.local.json override flips the qualification STALE', () => {
     const cwd = initRepo();
     mkdirSync(join(cwd, '.claude'), { recursive: true });
