@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.39.16] — 2026-10-05
+
+### Fixed
+
+- **`runtime verify` grades Copilot CLI empty and malformed hook output as FAIL-OPEN** (#729).
+  Copilot documents that a command `preToolUse` hook exiting 0 with empty or malformed stdout
+  fails open — no decision is read and the default permission lets the tool proceed — but the
+  Copilot adapter declared only the timeout and HTTP fail-open cases, so `transport:empty` and
+  `transport:malformed` fell through to the contract row and were reported as `PARTIAL`
+  fail-closed in `runtime verify`, `runtime status` and `onboard`. The adapter now declares the
+  documented semantic and both rows grade `FAIL-OPEN`, citing it. Nothing is promoted.
+
 ## [2.39.15] — 2026-10-05
 
 ### Fixed
