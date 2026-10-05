@@ -41,8 +41,8 @@ Capabilities are declared **per operation**, not per layer. The operation kinds 
 shell | file-edit | file-read | mcp | other
 ```
 
-`unknown` is deliberately not in this declarable list. It is the Codex and Copilot
-classification outcome for an unmapped non-empty tool name; the adapter denies it with the
+`unknown` is deliberately not in this declarable list. It is the Codex, Copilot and Copilot
+SDK classification outcome for an unmapped non-empty tool name; the adapter denies it with the
 `unknown-tool` finding before reconstruction, so it cannot be treated as a no-op.
 
 A runtime's `RuntimeCapabilities` records, for each phase, which operation kinds it
@@ -546,7 +546,10 @@ each SDK `PermissionRequest` and hands it to `decide`, which opens no second ver
 **shell** proposal reconstructs its `fullCommandText` through the shared `changesFromCopilot` and
 runs the same `evaluate` engine; the `end-of-turn` sweep delegates to the canonical `stopFromRaw`
 (its `{decision:"block",reason}` wire is already the SDK `onAgentStop` shape); identity is validated
-against the runner's independently derived trusted root. A pre-action deny is the SDK
+against the runner's independently derived trusted root. `read` and `mcp` requests and the
+non-repository kinds `url`, `memory` and `hook` reconstruct to no change; any other permission
+kind — `custom-tool` included, since the host registers no custom tools — fails closed with
+`unknown-tool` before reconstruction. A pre-action deny is the SDK
 `PermissionRequestResult` reject variant — `{kind:"reject", feedback}`, discriminated on `kind`
 (approval is `{kind:"approve-once"}` and kin) — which is distinct from the agentStop
 `{decision:"block"}` shape and from the CLI hook's flat `{permissionDecision:"deny"}`.

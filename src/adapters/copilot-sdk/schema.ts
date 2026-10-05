@@ -27,9 +27,6 @@
 import { OperationKind, ProposedOperation, SteeringEvent, SteeringPhase, UntrustedIdentity } from '../contract';
 import { isRecord } from '../../narrow';
 
-/** SDK permission `kind` → neutral operation kind. `custom-tool` / `url` / `memory` / `hook`
- *  carry no repository mutation this adapter reconstructs, so they map to `other` (no Change,
- *  hence a pre-action allow), exactly as the CLI adapter models read-only / unknown tools. */
 export function copilotSdkOperationKind(kind: string | undefined): OperationKind {
   switch ((kind ?? '').toLowerCase()) {
     case 'shell':
@@ -40,8 +37,13 @@ export function copilotSdkOperationKind(kind: string | undefined): OperationKind
       return 'file-read';
     case 'mcp':
       return 'mcp';
-    default:
+    case '':
+    case 'url':
+    case 'memory':
+    case 'hook':
       return 'other';
+    default:
+      return 'unknown';
   }
 }
 
@@ -103,11 +105,17 @@ function argsFor(req: SdkRequest): Record<string, unknown> {
   return {};
 }
 
+function operationFrom(req: SdkRequest): ProposedOperation {
+  const kind = copilotSdkOperationKind(req.kind);
+  const name = kind === 'unknown' ? req.toolName || req.kind || '' : req.toolName ?? '';
+  return { kind, name, args: argsFor(req) };
+}
+
 function eventFrom(req: SdkRequest, phase: SteeringPhase): SteeringEvent {
   const operation: ProposedOperation =
     phase === 'end-of-turn'
       ? { kind: 'other', name: 'stop', args: {} }
-      : { kind: copilotSdkOperationKind(req.kind), name: req.toolName ?? '', args: argsFor(req) };
+      : operationFrom(req);
   const identity: UntrustedIdentity = { claimedCwd: req.cwd, sessionId: req.sessionId };
   return { phase, operation, identity };
 }
