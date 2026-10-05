@@ -336,7 +336,11 @@ experimental and `neutral`, `preDeny` stays empty, and no Round 4.1 is registere
 
 A recorded `runtime verify --runtime codex` qualification is bound to the hash of
 `.codex/config.toml`, where Codex reads project hooks; editing or removing that file marks
-the record `STALE` in `runtime status` and `onboard`.
+the record `STALE` in `runtime status` and `onboard`. The file is also protected hooks
+surface by default (2.39.23): deleting or renaming it, or removing, changing or adding to
+the entries in its `[hooks]` tables, is a `hook-tampering` finding, so an agent cannot
+drop its own interception before a protected edit without the gate seeing it. Edits
+outside the hook tables are the project's own.
 
 The Codex pre-action path pins the Stop-sweep baseline at **turn start** (`turnBaseline`) on
 every pre-action call, exactly as the canonical `preToolUseVerdict` does — because with
@@ -468,7 +472,9 @@ box:
 - **(c) Real Copilot E2E** (`npm run probe:copilot-runtime`,
   `harness/adapters/copilot-probe.mjs`, **not** run in CI) — the real gate on a pinned,
   authenticated Copilot CLI. It wires TamperWard as a Copilot `preToolUse` hook (deny) plus an
-  `agentStop` hook (sweep) in `.github/hooks/tamperward.json`, and — because Copilot gates
+  `agentStop` hook (sweep) in `.github/hooks/tamperward.json` (protected hooks surface by
+  default since 2.39.23: deleting or renaming the file, or removing, changing or adding to
+  its `hooks` member, is a `hook-tampering` finding), and — because Copilot gates
   repository hooks in `-p` prompt mode — sets `GITHUB_COPILOT_PROMPT_MODE_REPO_HOOKS=true` in
   the child environment (recorded in provenance) so the wiring actually loads. It runs
   CONTROL-vs-GATED mutation pairs (shell edit, `apply_patch`, native `edit`/`create`, delete,

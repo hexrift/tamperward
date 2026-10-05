@@ -212,3 +212,22 @@ export function resolvesToClaudeSettings(path: string, env: NodeJS.ProcessEnv = 
   if (isClaudeSettings(path, env)) return true;
   return isAbsolute(path) && isClaudeSettings(canonicalPath(path), env);
 }
+
+/** The project hook wiring of the experimental runtimes, at any depth: `.codex/config.toml`
+ *  is where Codex reads project hooks and `.github/hooks/tamperward.json` is where the
+ *  Copilot CLI reads repository hooks. Backslashes are separators. */
+export type RuntimeWiring = 'codex' | 'copilot';
+export const CODEX_HOOK_CONFIG = /(?:^|\/)\.codex\/config\.toml$/;
+export const COPILOT_HOOK_CONFIG = /(?:^|\/)\.github\/hooks\/tamperward\.json$/;
+export function runtimeWiringOf(path: string): RuntimeWiring | null {
+  const p = path.replace(/\\/g, '/');
+  if (CODEX_HOOK_CONFIG.test(p)) return 'codex';
+  if (COPILOT_HOOK_CONFIG.test(p)) return 'copilot';
+  return null;
+}
+
+/** Which runtime's hook wiring a path names — as spelled, or once its symlinks are
+ *  resolved (an absolute path only: a relative one is read against the repo). */
+export function resolvesToRuntimeWiring(path: string): RuntimeWiring | null {
+  return runtimeWiringOf(path) ?? (isAbsolute(path) ? runtimeWiringOf(canonicalPath(path)) : null);
+}
