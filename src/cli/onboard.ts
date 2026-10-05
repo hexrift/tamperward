@@ -412,7 +412,7 @@ export async function runOnboard(opts: OnboardOpts, io: OnboardIo = {}): Promise
         if (!adapter) {
           status(
             'QUALIFY',
-            `${runtime.label}: no shipped qualification adapter; neutral layers remain the live protection. See #602 before treating this runtime as in-loop qualified.`,
+            `${runtime.label}: no shipped qualification adapter; neutral layers remain the live protection.`,
             'warn',
           );
           return;

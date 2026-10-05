@@ -83,11 +83,11 @@ describe('detectRuntimes', () => {
     expect(detectRuntimes(repo({ '.claude/settings.json': 'file' }))).toEqual([]); // empty file
   });
 
-  it('detects Cursor and marks it neutral-only with adapter tracking', () => {
+  it('detects Cursor and marks it neutral-only, stating that no in-loop adapter ships for it', () => {
     const found = detectRuntimes(repo({ '.cursor': 'dir' }));
     expect(found.map((r) => r.id)).toEqual(['cursor']);
     expect(found[0].steering).toBe('neutral');
-    expect(found[0].adapterTracking).toBe('#482');
+    expect(found[0].note).toMatch(/no in-loop adapter ships/);
   });
 
   it('detects Copilot from its instructions file, not a bare .github', () => {
@@ -150,13 +150,13 @@ describe('detectionHeadline', () => {
 });
 
 describe('neutralOnlyCaveat', () => {
-  it('warns, for a neutral-only runtime, that in-loop is Claude-only and names the tracking issue', () => {
+  it('warns, for a neutral-only runtime, that in-loop is Claude-only without pointing at an issue', () => {
     const caveat = neutralOnlyCaveat(detectRuntimes(repo({ '.cursor': 'dir' })));
     expect(caveat).not.toBeNull();
     expect(caveat).toContain('Claude Code only');
     expect(caveat).toContain('Cursor');
     expect(caveat).toContain('pre-commit and CI');
-    expect(caveat).toContain('#482');
+    expect(caveat).not.toMatch(/#\d+/);
     expect(caveat).toContain('inert unless Claude Code');
   });
 
@@ -187,10 +187,18 @@ describe('KNOWN_RUNTIMES invariants', () => {
     expect(KNOWN_RUNTIMES.filter((r) => r.steering === 'in-loop').map((r) => r.id)).toEqual(['claude-code']);
   });
 
-  it('tracks a native adapter issue for every neutral runtime', () => {
+  it('describes every neutral runtime without pointing the operator at an issue number', () => {
     for (const r of KNOWN_RUNTIMES.filter((r) => r.steering === 'neutral')) {
-      expect(r.adapterTracking).toBeTruthy();
+      expect(r.note).toMatch(/pre-commit \+ CI/);
+      expect(r.note).not.toMatch(/#\d+/);
+      expect(r).not.toHaveProperty('adapterTracking');
     }
+  });
+
+  it.each(['codex', 'copilot'])('says the %s adapter is experimental and points at runtime verify', (id) => {
+    const r = KNOWN_RUNTIMES.find((k) => k.id === id)!;
+    expect(r.note).toMatch(/experimental/);
+    expect(r.note).toContain('tamperward runtime verify');
   });
 
   it('never uses a file `init` writes as a Claude marker — else onboarding self-detects (#526)', () => {
