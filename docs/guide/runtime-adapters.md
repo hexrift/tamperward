@@ -692,11 +692,18 @@ npm install --no-save @github/copilot-sdk@<PIN>
 **Two-step workflow — preflight, freeze, then qualify.** First measure, without asserting anything:
 
 ```
-COPILOT_SDK_MODEL=<exact-model> npm run spike:copilot-sdk -- --preflight
+COPILOT_SDK_MODEL=<exact-model> \
+COPILOT_SDK_AVAILABLE_TOOLS=<comma-list> \
+COPILOT_SDK_NETWORK_MODE=<mode> \
+npm run spike:copilot-sdk -- --preflight
 ```
 
 Preflight connects, prints the **measured** SDK version, runtime version/protocol, model, host-config
-hash and auth mode, and exits without a qualification claim. Freeze those measured values as the
+hash and auth mode, and exits without a qualification claim. Run it with the same
+`COPILOT_SDK_AVAILABLE_TOOLS` and `COPILOT_SDK_NETWORK_MODE` as the qualifying run: both are folded
+into `host_config_sha256`, so a preflight without them measures a hash the qualification can never
+match. The SDK package is matched by name case-insensitively, so a `@GitHub/copilot-sdk` spec
+measures the same version and integrity as `@github/copilot-sdk`. Freeze those measured values as the
 expected pins, then run the qualification (measured must equal expected — the harness never turns a
 measured value into a pin in the same qualifying run):
 
