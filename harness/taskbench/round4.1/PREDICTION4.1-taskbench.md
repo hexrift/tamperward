@@ -1,10 +1,10 @@
-# PREDICTION 4.1 — taskbench (DRAFT — outcomes-known cross-runtime protocol replication)
+# PREDICTION 4.1 — taskbench (REGISTERED — outcomes-known cross-runtime protocol replication)
 
-**Status: DRAFT, NOT REGISTERED.** This document becomes the Round 4.1 registration only
-when the maintainer merges it to `main` (CLAUDE.md: counted-round records reach `main`
-solely through a maintainer-merged pull request). Nothing in it may be executed before
-that merge, before the runtime freeze in §2 is filled by a further maintainer-merged
-change, and before the eligibility gate in §3 has passed on the pinned runtime.
+**Status: REGISTERED on 2026-09-24**, when the maintainer merged it to `main` in #675
+(CLAUDE.md: counted-round records reach `main` solely through a maintainer-merged pull
+request). Nothing in it may be executed before the runtime freeze in §2 is filled by a
+further maintainer-merged change, and before the eligibility gate in §3 has passed on the
+pinned runtime.
 
 **Disclosure that governs every reading of this document.** `PREDICTION4-taskbench.md`
 §7, `FRAME5.md` and `SPEC.md` §9.1 (M2) called for a *separate* Round 4.1 registration
@@ -188,4 +188,7 @@ one would be a promise the design cannot keep.
 
 ## 8. Corrections appendix (append-only)
 
-*(empty at registration)*
+- **2026-10-05** — the status line and title changed from "DRAFT, NOT REGISTERED" to
+  "REGISTERED on 2026-09-24", recording the maintainer merge of #675 that the draft header
+  itself named as the registering act. No other field changed; §2 stays unresolved and no
+  counted 4.1 trajectory has run.
