@@ -33,12 +33,29 @@ export interface AuditEventV1 {
   severity: AuditSeverity;
   decision: AuditDecision;
   session?: string;
+  hook_latency_ms?: number;
+  verify_wall_clock_ms?: number;
+  bare_suite_wall_clock_ms?: number;
+  oob_signoff?: boolean;
 }
+
+/** The M3 measures an event may carry (SPEC §9.1): whole milliseconds, never negative,
+ *  and whether an out-of-band sign-off was used. All optional; absent means unmeasured. */
+export interface AuditMetrics {
+  hook_latency_ms?: number;
+  verify_wall_clock_ms?: number;
+  bare_suite_wall_clock_ms?: number;
+  oob_signoff?: boolean;
+}
+
+export const AUDIT_DURATION_FIELDS = ['hook_latency_ms', 'verify_wall_clock_ms', 'bare_suite_wall_clock_ms'] as const;
+export type AuditDurationField = (typeof AUDIT_DURATION_FIELDS)[number];
 
 export interface AuditContext {
   cwd: string;
   surface: AuditSurface;
   sessionId?: string;
+  metrics?: AuditMetrics;
 }
 
 export interface StatsOpts {
@@ -58,12 +75,35 @@ export interface AuditSummary {
   last_event: string | null;
   by_rule: Array<{ rule: string; events: number; blocked: number; warnings: number }>;
   by_surface: Array<{ surface: AuditSurface; events: number }>;
+  latency: Record<AuditDurationField, DurationPercentiles | null>;
+  oob_signoffs: number;
   interpretation: 'finding-is-not-proof-of-intent';
+}
+
+/** Nearest-rank percentiles over the events that carry a duration field. */
+export interface DurationPercentiles {
+  samples: number;
+  p50: number;
+  p95: number;
+  max: number;
 }
 
 function sessionHash(sessionId?: string): string | undefined {
   if (!sessionId) return undefined;
   return 'sha256:' + createHash('sha256').update(sessionId).digest('hex').slice(0, 24);
+}
+
+/** Durations as whole, non-negative milliseconds; a boolean kept as given; anything
+ *  else dropped. Never throws: the audit channel must not change a verdict. */
+function sanitizedMetrics(metrics: AuditMetrics | undefined): AuditMetrics {
+  const out: AuditMetrics = {};
+  if (!metrics) return out;
+  for (const field of AUDIT_DURATION_FIELDS) {
+    const v = metrics[field];
+    if (typeof v === 'number' && Number.isFinite(v)) out[field] = Math.max(0, Math.round(v));
+  }
+  if (typeof metrics.oob_signoff === 'boolean') out.oob_signoff = metrics.oob_signoff;
+  return out;
 }
 
 function eventId(): string {
@@ -100,6 +140,7 @@ export function recordAuditFindings(findings: readonly Finding[], context: Audit
     mkdirSync(dirname(path), { recursive: true });
     const timestamp = new Date().toISOString();
     const session = sessionHash(context.sessionId);
+    const metrics = sanitizedMetrics(context.metrics);
     const lines = findings.map((finding) => {
       const severity: AuditSeverity = finding.severity === 'block' ? 'block' : 'warn';
       const event: AuditEventV1 = {
@@ -112,6 +153,7 @@ export function recordAuditFindings(findings: readonly Finding[], context: Audit
         severity,
         decision: severity === 'block' ? 'deny' : 'warn',
         ...(session ? { session } : {}),
+        ...metrics,
       };
       return JSON.stringify(event);
     });
@@ -150,6 +192,8 @@ const ALLOWED_KEYS = new Set([
   'severity',
   'decision',
   'session',
+  ...AUDIT_DURATION_FIELDS,
+  'oob_signoff',
 ]);
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -192,6 +236,15 @@ export function parseAuditEvent(value: unknown, line = 0): AuditEventV1 {
   if (value.session !== undefined && (typeof value.session !== 'string' || !/^sha256:[0-9a-f]{24}$/.test(value.session))) {
     throw new Error(`${where} has an invalid session`);
   }
+  for (const field of AUDIT_DURATION_FIELDS) {
+    const v = value[field];
+    if (v !== undefined && (typeof v !== 'number' || !Number.isInteger(v) || v < 0)) {
+      throw new Error(`${where} has an invalid ${field}`);
+    }
+  }
+  if (value.oob_signoff !== undefined && typeof value.oob_signoff !== 'boolean') {
+    throw new Error(`${where} has an invalid oob_signoff`);
+  }
 
   return {
     schema_version: AUDIT_SCHEMA_VERSION,
@@ -203,7 +256,18 @@ export function parseAuditEvent(value: unknown, line = 0): AuditEventV1 {
     severity: value.severity,
     decision: value.decision,
     ...(typeof value.session === 'string' ? { session: value.session } : {}),
+    ...durationsOf(value),
+    ...(typeof value.oob_signoff === 'boolean' ? { oob_signoff: value.oob_signoff } : {}),
   };
+}
+
+function durationsOf(value: Record<string, unknown>): Partial<Record<AuditDurationField, number>> {
+  const out: Partial<Record<AuditDurationField, number>> = {};
+  for (const field of AUDIT_DURATION_FIELDS) {
+    const v = value[field];
+    if (typeof v === 'number') out[field] = v;
+  }
+  return out;
 }
 
 export function parseAuditLine(line: string, lineNumber: number): AuditEventV1 {
@@ -329,6 +393,14 @@ export function createAuditAggregator(): AuditAggregator {
   const rules = new Map<string, { events: number; blocked: number; warnings: number }>();
   const surfaces = new Map<AuditSurface, number>();
   const sessions = new Set<string>();
+  // One count per distinct whole-millisecond value, so the percentiles are exact and
+  // the state is bounded by the distinct values seen, not by the number of events.
+  const durations: Record<AuditDurationField, Map<number, number>> = {
+    hook_latency_ms: new Map(),
+    verify_wall_clock_ms: new Map(),
+    bare_suite_wall_clock_ms: new Map(),
+  };
+  let oobSignoffs = 0;
   // Held in one object so the null checks in finish() narrow the property
   // types; a captured `let` assigned only inside add() would not narrow.
   const bounds: { first: Bound | null; last: Bound | null } = { first: null, last: null };
@@ -345,6 +417,11 @@ export function createAuditAggregator(): AuditAggregator {
       rules.set(event.rule, bucket);
       surfaces.set(event.surface, (surfaces.get(event.surface) ?? 0) + 1);
       if (event.session) sessions.add(event.session);
+      for (const field of AUDIT_DURATION_FIELDS) {
+        const v = event[field];
+        if (typeof v === 'number') durations[field].set(v, (durations[field].get(v) ?? 0) + 1);
+      }
+      if (event.oob_signoff === true) oobSignoffs++;
       const ms = Date.parse(event.timestamp);
       const { first, last } = bounds;
       if (first === null || ms < first.ms || (ms === first.ms && event.id.localeCompare(first.id) < 0)) {
@@ -371,10 +448,34 @@ export function createAuditAggregator(): AuditAggregator {
         last_event: bounds.last === null ? null : bounds.last.timestamp,
         by_rule,
         by_surface,
+        latency: {
+          hook_latency_ms: percentiles(durations.hook_latency_ms),
+          verify_wall_clock_ms: percentiles(durations.verify_wall_clock_ms),
+          bare_suite_wall_clock_ms: percentiles(durations.bare_suite_wall_clock_ms),
+        },
+        oob_signoffs: oobSignoffs,
         interpretation: 'finding-is-not-proof-of-intent',
       };
     },
   };
+}
+
+/** Nearest-rank percentiles (the smallest value at or past the rank) over the counted
+ *  values, or null when nothing was measured. Order of insertion never matters. */
+function percentiles(counts: Map<number, number>): DurationPercentiles | null {
+  const values = [...counts.keys()].sort((a, b) => a - b);
+  if (values.length === 0) return null;
+  const samples = [...counts.values()].reduce((a, b) => a + b, 0);
+  const at = (q: number): number => {
+    const rank = Math.max(1, Math.ceil(q * samples));
+    let seen = 0;
+    for (const v of values) {
+      seen += counts.get(v) ?? 0;
+      if (seen >= rank) return v;
+    }
+    return values[values.length - 1];
+  };
+  return { samples, p50: at(0.5), p95: at(0.95), max: values[values.length - 1] };
 }
 
 export function summarizeAudit(events: readonly AuditEventV1[]): AuditSummary {
@@ -407,6 +508,24 @@ export function renderAuditStats(summary: AuditSummary): string {
     out.push('', 'By surface');
     const width = Math.max(...summary.by_surface.map((row) => row.surface.length));
     for (const row of summary.by_surface) out.push(`  ${row.surface.padEnd(width)}  ${row.events}`);
+  }
+
+  const measures: Array<[AuditDurationField, string]> = [
+    ['hook_latency_ms', 'Hook latency'],
+    ['verify_wall_clock_ms', 'verify wall-clock'],
+    ['bare_suite_wall_clock_ms', 'Bare-suite wall-clock'],
+  ];
+  const measured: Array<[string, DurationPercentiles]> = [];
+  for (const [field, label] of measures) {
+    const p = summary.latency[field];
+    if (p !== null) measured.push([label, p]);
+  }
+  if (measured.length || summary.oob_signoffs > 0) {
+    out.push('', 'Measures');
+    for (const [label, p] of measured) {
+      out.push(`  ${label.padEnd(22)}  p50 ${p.p50} ms  p95 ${p.p95} ms  max ${p.max} ms  (${p.samples} samples)`);
+    }
+    if (summary.oob_signoffs > 0) out.push(`  ${'Out-of-band sign-offs'.padEnd(22)}  ${summary.oob_signoffs}`);
   }
 
   out.push('', 'Note: an integrity finding is a signal, not proof of agent intent; legitimate refactors can trigger findings.');

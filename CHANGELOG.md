@@ -1,5 +1,23 @@
 # Changelog
 
+## [2.40.0] — 2026-10-05
+
+### Added
+
+- **The audit event carries the M3 instrument fields** (#751, step 1). Four optional, additive
+  fields on `audit-v1`: `hook_latency_ms`, `verify_wall_clock_ms`, `bare_suite_wall_clock_ms`
+  (whole, non-negative milliseconds) and `oob_signoff` (boolean). The PreToolUse and Stop
+  hooks record their own latency on every deny they log; the other three are accepted,
+  validated and summarised but have no in-tree producer yet. `tamperward stats` reports
+  nearest-rank p50 / p95 / max and the sample count per measure where present, and the
+  number of out-of-band sign-offs, in the text view and as `latency` / `oob_signoffs` on
+  `stats-v1`. Both schemas ship under this release's tag; a v1 reader that ignores unknown
+  fields is unaffected, and `parseAuditEvent` still rejects every other unknown field. The
+  durable evidence store folds the same measures (its derived `summaries/state.json` is
+  `audit-store-state-v2`; an older state is rebuilt from the partitions on the next publish),
+  and the dependency-free publisher validator accepts the integer, boolean, `minimum` and
+  `description` keywords the fields use.
+
 ## [2.39.24] — 2026-10-05
 
 ### Fixed

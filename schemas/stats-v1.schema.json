@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/hexrift/tamperward/v2.38.0/schemas/stats-v1.schema.json",
+  "$id": "https://raw.githubusercontent.com/hexrift/tamperward/v2.40.0/schemas/stats-v1.schema.json",
   "title": "TamperWard audit stats v1",
   "type": "object",
   "additionalProperties": false,
@@ -14,6 +14,8 @@
     "last_event",
     "by_rule",
     "by_surface",
+    "latency",
+    "oob_signoffs",
     "interpretation"
   ],
   "properties": {
@@ -112,6 +114,128 @@
         }
       }
     },
+    "latency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "hook_latency_ms",
+        "verify_wall_clock_ms",
+        "bare_suite_wall_clock_ms"
+      ],
+      "properties": {
+        "hook_latency_ms": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "samples",
+                "p50",
+                "p95",
+                "max"
+              ],
+              "properties": {
+                "samples": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "p50": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "p95": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "max": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          ]
+        },
+        "verify_wall_clock_ms": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "samples",
+                "p50",
+                "p95",
+                "max"
+              ],
+              "properties": {
+                "samples": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "p50": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "p95": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "max": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          ]
+        },
+        "bare_suite_wall_clock_ms": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "samples",
+                "p50",
+                "p95",
+                "max"
+              ],
+              "properties": {
+                "samples": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "p50": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "p95": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "max": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          ]
+        }
+      },
+      "description": "Nearest-rank percentiles over the events that carry each duration; null when none did."
+    },
+    "oob_signoffs": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Events that recorded an out-of-band sign-off."
+    },
     "interpretation": {
       "const": "finding-is-not-proof-of-intent"
     }
@@ -127,6 +251,47 @@
       "last_event": null,
       "by_rule": [],
       "by_surface": [],
+      "latency": {
+        "hook_latency_ms": null,
+        "verify_wall_clock_ms": null,
+        "bare_suite_wall_clock_ms": null
+      },
+      "oob_signoffs": 0,
+      "interpretation": "finding-is-not-proof-of-intent"
+    },
+    {
+      "schema_version": 1,
+      "events": 2,
+      "blocked": 2,
+      "warnings": 0,
+      "sessions": 1,
+      "first_event": "2026-09-23T14:00:00.000Z",
+      "last_event": "2026-09-23T14:05:00.000Z",
+      "by_rule": [
+        {
+          "rule": "test-deletion",
+          "events": 2,
+          "blocked": 2,
+          "warnings": 0
+        }
+      ],
+      "by_surface": [
+        {
+          "surface": "pretooluse",
+          "events": 2
+        }
+      ],
+      "latency": {
+        "hook_latency_ms": {
+          "samples": 2,
+          "p50": 40,
+          "p95": 55,
+          "max": 55
+        },
+        "verify_wall_clock_ms": null,
+        "bare_suite_wall_clock_ms": null
+      },
+      "oob_signoffs": 1,
       "interpretation": "finding-is-not-proof-of-intent"
     }
   ]

@@ -21,7 +21,10 @@ const CONSTRAINTS = new Set([
   'const',
   'enum',
   'pattern',
+  'minimum',
+  'description',
 ]);
+const TYPES = new Set(['object', 'string', 'integer', 'boolean']);
 
 function isObject(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -53,8 +56,14 @@ export function assertSupportedSchema(schema, path = 'schema', root = true) {
       throw new Error(`audit-verify: ${path}.${keyword} must be a string`);
     }
   }
-  if ('type' in schema && schema.type !== 'object' && schema.type !== 'string') {
+  if ('type' in schema && !TYPES.has(schema.type)) {
     throw new Error(`audit-verify: unsupported type "${String(schema.type)}" at ${path}; update audit-verify.mjs`);
+  }
+  if ('minimum' in schema && (typeof schema.minimum !== 'number' || !Number.isFinite(schema.minimum))) {
+    throw new Error(`audit-verify: ${path}.minimum must be a finite number`);
+  }
+  if ('description' in schema && typeof schema.description !== 'string') {
+    throw new Error(`audit-verify: ${path}.description must be a string`);
   }
   if ('additionalProperties' in schema && typeof schema.additionalProperties !== 'boolean') {
     throw new Error(`audit-verify: unsupported additionalProperties value at ${path}; update audit-verify.mjs`);
@@ -109,6 +118,11 @@ function validationErrors(schema, value, path) {
 
   if (schema.type === 'object' && !objectValue) errors.push(`${path} must be a JSON object`);
   if (schema.type === 'string' && typeof value !== 'string') errors.push(`${path} must be a string`);
+  if (schema.type === 'integer' && !Number.isInteger(value)) errors.push(`${path} must be an integer`);
+  if (schema.type === 'boolean' && typeof value !== 'boolean') errors.push(`${path} must be a boolean`);
+  if ('minimum' in schema && (typeof value !== 'number' || value < schema.minimum)) {
+    errors.push(`${path} must be at least ${schema.minimum}`);
+  }
   if ('const' in schema && !sameValue(value, schema.const)) errors.push(`${path} must equal ${JSON.stringify(schema.const)}`);
   if (schema.enum && !schema.enum.some((candidate) => sameValue(value, candidate))) {
     errors.push(`${path} is not one of ${JSON.stringify(schema.enum)}`);

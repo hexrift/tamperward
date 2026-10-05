@@ -137,7 +137,7 @@ describe('partitioned evidence store (#518)', () => {
     expect(readFileSync(join(store, 'README.md'), 'utf8')).toContain('TamperWard audit stats');
 
     const state = JSON.parse(readFileSync(join(store, 'summaries', 'state.json'), 'utf8')) as Record<string, unknown>;
-    expect(state).toMatchObject({ schema: 'audit-store-state-v1', events: 4, legacy_events: 3, legacy_bytes: statSync(join(store, 'events', 'all.jsonl')).size });
+    expect(state).toMatchObject({ schema: 'audit-store-state-v2', events: 4, legacy_events: 3, legacy_bytes: statSync(join(store, 'events', 'all.jsonl')).size });
 
     for (const e of [...stored, fresh]) {
       const id = e.id as string;
@@ -277,7 +277,7 @@ describe('partitioned evidence store (#518)', () => {
       stored_sha256: sha256(''),
     }) + '\n').join('');
     writeFileSync(join(store, 'ingested', 'batches.jsonl'), ledger);
-    const state = { schema: 'audit-store-state-v1', events: 0, blocked: 0, warnings: 0, sessions: 0, first: null, last: null, by_rule: {}, by_surface: {}, legacy_events: 0, legacy_bytes: 0 };
+    const state = { schema: 'audit-store-state-v2', events: 0, blocked: 0, warnings: 0, sessions: 0, first: null, last: null, by_rule: {}, by_surface: {}, durations: { hook_latency_ms: {}, verify_wall_clock_ms: {}, bare_suite_wall_clock_ms: {} }, oob_signoffs: 0, legacy_events: 0, legacy_bytes: 0 };
     writeFileSync(join(store, 'summaries', 'state.json'), JSON.stringify(state) + '\n');
     const result = publish(store, candidates({ 'one-more': lines([event(1)]) }), { ingestedAt: '2026-09-30T23:59:59.000Z' });
     expect(result.status).toBe(2);
