@@ -324,6 +324,12 @@ export function defaultPolicy(version = 1): Policy {
         '**/.tamperward.yml',
         '.claude/settings.json',
         '.claude/settings.local.json',
+        // The project hook wiring of the experimental runtimes: where Codex reads
+        // project hooks and where the Copilot CLI reads repository hooks. Each is
+        // the interception for its runtime; removing or weakening it before a
+        // protected edit is the tamper, and the gate must see the wiring change.
+        '.codex/config.toml',
+        '.github/hooks/tamperward.json',
         '**/.pre-commit-config.yaml',
         // CODEOWNERS is enforcement wiring, not documentation: it is the only
         // thing that can require a human on a change to the workflow that

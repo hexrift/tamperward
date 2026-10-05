@@ -977,6 +977,68 @@ export function codeownersWeakening(before: string, after: string, extra: string
   return out;
 }
 
+// ── the experimental runtimes' hook wiring ─────────────────────────────────────
+//
+// Codex reads project hooks from the `[hooks]` tables of `.codex/config.toml`, a file
+// that also carries the model, the approval policy and whatever else the project
+// configures; the Copilot CLI reads repository hooks from the `hooks` member of
+// `.github/hooks/tamperward.json`. Each is read at that grain: the hook tables (or
+// member) are held as they were, the rest of the file is the project's to edit.
+// Hooks that arrive where there were none are an install, not a weakening.
+
+const TOML_TABLE = /^\s*\[\[?\s*([^\]]*?)\s*\]\]?/;
+const isHooksTable = (name: string): boolean => name === 'hooks' || name.startsWith('hooks.');
+
+/** The lines of every `[hooks]` / `[hooks.*]` / `[[hooks.*]]` table, trimmed, with
+ *  blank and comment lines dropped — the part of a Codex config the runtime reads
+ *  hooks from, as one comparable text. */
+export function codexHooksTables(toml: string): string {
+  const out: string[] = [];
+  let inHooks = false;
+  for (const raw of toml.split('\n')) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) continue;
+    const table = line.match(TOML_TABLE);
+    if (table) inHooks = isHooksTable(table[1].replace(/["']/g, ''));
+    if (inHooks) out.push(line);
+  }
+  return out.join('\n');
+}
+
+/** Reasons the after-config's `[hooks]` tables are not the before-config's. */
+export function codexHooksWeakening(before: string, after: string): string[] {
+  const was = codexHooksTables(before);
+  if (!was) return [];
+  const now = codexHooksTables(after);
+  if (now === was) return [];
+  if (GATE.test(was) && !GATE.test(now)) return ['the tamperward hook entries were removed from the [hooks] tables — Codex no longer runs the gate'];
+  return ['the [hooks] tables changed — the PreToolUse and Stop wiring Codex reads is no longer what it was'];
+}
+
+function hooksMember(src: string): { hooks: string | null } | null {
+  let doc: unknown;
+  try {
+    doc = JSON.parse(src);
+  } catch {
+    return null;
+  }
+  if (!isDoc(doc)) return { hooks: null };
+  return { hooks: doc.hooks === undefined ? null : JSON.stringify(doc.hooks) };
+}
+
+/** Reasons the after-wiring's `hooks` member is not the before-wiring's. A before
+ *  that did not parse has nothing to compare; an after that does not parse loads no
+ *  hook at all. */
+export function copilotHooksWeakening(before: string, after: string): string[] {
+  const was = hooksMember(before);
+  if (was === null || was.hooks === null) return [];
+  const now = hooksMember(after);
+  if (now === null) return ['the file no longer parses as JSON — the Copilot CLI loads no hook from it'];
+  if (now.hooks === was.hooks) return [];
+  if (GATE.test(was.hooks) && !GATE.test(now.hooks ?? '')) return ['the tamperward hook entries were removed from "hooks" — the Copilot CLI no longer runs the gate'];
+  return ['the "hooks" entries changed — the preToolUse and agentStop wiring the Copilot CLI reads is no longer what it was'];
+}
+
 // ── lefthook / pre-commit / package.json ───────────────────────────────────────
 
 type Doc = Record<string, unknown>;
