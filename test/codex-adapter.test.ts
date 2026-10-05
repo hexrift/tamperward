@@ -78,10 +78,15 @@ describe('normalizeCodexEvent — tool-name → OperationKind and per-phase shap
     expect(codexOperationKind('mcp__filesystem__read_file')).toBe('mcp');
     expect(codexOperationKind('mcp__foo__exec_command')).toBe('mcp');
     expect(codexOperationKind('view_image')).toBe('file-read');
-    expect(codexOperationKind('spawn_agent')).toBe('other');
-    expect(codexOperationKind('write_stdin')).toBe('other');
     expect(codexOperationKind(undefined)).toBe('other');
   });
+
+  it.each(['write_stdin', 'spawn_agent', 'future_mutating_tool', 'bash', 'APPLY_PATCH'])(
+    'classifies the unrecognised Codex tool name %s as unknown, never as a no-op',
+    (name) => {
+      expect(codexOperationKind(name)).toBe('unknown');
+    },
+  );
 
   it('normalizes MCP operations without guessing capability availability', () => {
     for (const tool_name of ['mcp__filesystem__read_file', 'mcp__unknown__do_thing']) {
@@ -127,6 +132,43 @@ describe('normalizeCodexEvent — tool-name → OperationKind and per-phase shap
 });
 
 describe('CodexRuntimeAdapter.decide — pre-action content verdict via the SAME engine', () => {
+  it.each([
+    ['write_stdin', { session_id: 1, chars: 'rm src/a.spec.ts\n' }],
+    ['future_mutating_tool', { path: 'src/a.spec.ts', content: "it.skip('one', () => {});\n" }],
+  ])('denies the unrecognised Codex tool %s instead of allowing it as a no-op', (tool_name, tool_input) => {
+    const cwd = repoFixture();
+    try {
+      const raw = JSON.stringify({ tool_name, cwd, tool_input });
+      const r = codexAdapter.decide(raw, 'pre-action', cwd);
+      expect(r.outcome).toBe('ok');
+      expect(r.decision?.verdict).toBe('deny');
+      expect(r.decision?.findings.map((f) => f.rule)).toEqual(['unknown-tool']);
+      expect(r.decision?.findings[0].evidence).toContain(tool_name);
+      const j = JSON.parse(r.wire as string);
+      expect(j.hookSpecificOutput.hookEventName).toBe('PreToolUse');
+      expect(j.hookSpecificOutput.permissionDecision).toBe('deny');
+      expect(j.hookSpecificOutput.permissionDecisionReason).toContain('unknown-tool');
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    ['view_image', { path: 'src/a.spec.ts' }],
+    ['update_plan', { plan: [] }],
+    ['web_search', { query: 'vitest' }],
+  ])('allows the known non-mutating Codex tool %s', (tool_name, tool_input) => {
+    const cwd = repoFixture();
+    try {
+      const raw = JSON.stringify({ tool_name, cwd, tool_input });
+      const r = codexAdapter.decide(raw, 'pre-action', cwd);
+      expect(r.decision?.verdict).toBe('allow');
+      expect(r.wire).toBe('');
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
   it('denies a protected test deletion via a Bash command (real hook shape)', () => {
     const cwd = repoFixture();
     try {
