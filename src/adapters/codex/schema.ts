@@ -34,17 +34,20 @@ export interface CodexHookInput {
 const SHELL_TOOLS = new Set(['Bash']);
 const FILE_EDIT_TOOLS = new Set(['apply_patch', 'Write', 'Edit']);
 const FILE_READ_TOOLS = new Set(['view_image']);
+const NON_MUTATING_TOOLS = new Set(['update_plan', 'web_search']);
 const MCP_PREFIX = 'mcp__';
 
-/** Codex hook-facing tool name → neutral operation kind. Read-only and unknown kinds
- *  produce no Change downstream (src/adapters/codex/changes.ts). */
+/** Codex hook-facing tool name → neutral operation kind. Read-only kinds produce no Change
+ *  downstream (src/adapters/codex/changes.ts); unknown names stay explicit so the adapter
+ *  denies them. */
 export function codexOperationKind(toolName: string | undefined): OperationKind {
   if (!toolName) return 'other';
   if (SHELL_TOOLS.has(toolName)) return 'shell';
   if (FILE_EDIT_TOOLS.has(toolName)) return 'file-edit';
   if (toolName.startsWith(MCP_PREFIX)) return 'mcp';
   if (FILE_READ_TOOLS.has(toolName)) return 'file-read';
-  return 'other';
+  if (NON_MUTATING_TOOLS.has(toolName)) return 'other';
+  return 'unknown';
 }
 
 /** Field-by-field, wrong types dropped rather than believed. Never throws — the caller

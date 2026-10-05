@@ -31,13 +31,14 @@ import {
   UntrustedIdentity,
   failClosedResult,
   steeringUnavailableFinding,
+  unknownToolFinding,
 } from '../contract';
 import { changesFromCodex } from './changes';
 import { codexDenyWire } from './deny';
 import { normalizeCodexEvent } from './schema';
 
 // `unknown` is an adapter classification outcome, not a declarable capability kind;
-// an unrecognized Copilot name is denied before it can reach this neutral set.
+// an unrecognized Codex name is denied before it can reach this neutral set.
 const POST_OBSERVE: readonly OperationKind[] = ['shell', 'file-edit', 'file-read', 'mcp', 'other'];
 
 export class CodexRuntimeAdapter implements RuntimeAdapter {
@@ -127,6 +128,13 @@ export class CodexRuntimeAdapter implements RuntimeAdapter {
       const swept = stopFromRaw(raw, defaultCwd, idv.trustedRoot);
       const findings = swept.findings ? [...swept.findings] : [];
       return { outcome: 'ok', wire: swept.stdout, decision: { verdict: swept.stdout ? 'deny' : 'allow', findings, reason: swept.stdout || undefined } };
+    }
+
+    if (parsed.operation.kind === 'unknown') {
+      const detail = `unrecognized Codex tool ${parsed.operation.name}; refusing to evaluate it as a no-op`;
+      const findings = [unknownToolFinding('Codex', parsed.operation.name)];
+      const wire = this.denyPayload(findings, 'pre-action');
+      return { outcome: 'ok', wire, detail, decision: { verdict: 'deny', findings, reason: wire } };
     }
 
     try {

@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.39.14] — 2026-10-05
+
+### Fixed
+
+- **Unknown Codex tool names fail closed** (#726). The experimental Codex adapter mapped
+  every tool name outside its vocabulary to `other`, which reconstructs to no change and is
+  allowed — the gap 2.38.4 closed for Copilot. A `write_stdin` carrying `rm src/a.spec.ts`
+  into a running exec session, or any future mutating tool, was evaluated as a no-op. An
+  unmapped non-empty Codex tool name now produces the `unknown-tool` finding and a
+  PreToolUse deny before reconstruction; `view_image`, `update_plan` and `web_search` stay
+  allowed as non-mutating. The `unknown-tool` finding now names the runtime that raised it.
+  Codex remains experimental with an empty `preDeny`.
+
 ## [2.39.13] — 2026-09-28
 
 ### Fixed

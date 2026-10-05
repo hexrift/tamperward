@@ -41,8 +41,8 @@ Capabilities are declared **per operation**, not per layer. The operation kinds 
 shell | file-edit | file-read | mcp | other
 ```
 
-`unknown` is deliberately not in this declarable list. It is a Copilot classification
-outcome for an unmapped non-empty tool name; the adapter denies it with the
+`unknown` is deliberately not in this declarable list. It is the Codex and Copilot
+classification outcome for an unmapped non-empty tool name; the adapter denies it with the
 `unknown-tool` finding before reconstruction, so it cannot be treated as a no-op.
 
 A runtime's `RuntimeCapabilities` records, for each phase, which operation kinds it
@@ -221,7 +221,10 @@ of the neutral `RuntimeAdapter` contract, and it is deliberately conservative.
 source (`openai/codex`, `codex-rs/hooks/schema/generated` and `codex-rs/core/src/tools`),
 not guessed. The canonical **hook-facing** tool names are `Bash` (the whole shell/exec
 family), `apply_patch` (with `Write`/`Edit` as matcher aliases), and `mcp__<server>__<tool>`
-(`hook_names.rs`, `unified_exec.rs`, `mcp.rs`). The **apply_patch** payload is
+(`hook_names.rs`, `unified_exec.rs`, `mcp.rs`). `view_image` is the native read, and
+`update_plan` and `web_search` are allowlisted as non-mutating; any other non-empty tool
+name — `write_stdin` and `spawn_agent` included — fails closed with `unknown-tool`, so a
+tool the adapter does not model is never evaluated as a no-op. The **apply_patch** payload is
 `tool_input.command` carrying the patch text (`apply_patch.rs`). The **deny wire differs by
 phase**: PreToolUse denies with `hookSpecificOutput.permissionDecision:"deny"` (plus the
 deprecated top-level `decision:"block"`), while Stop denies with `{decision:"block", reason}`
