@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.39.15] — 2026-10-05
+
+### Fixed
+
+- **Unmodelled Copilot SDK permission kinds fail closed** (#728). The experimental hosted
+  Copilot SDK adapter mapped every permission `kind` other than `shell`, `write`, `read` and
+  `mcp` to `other`, which reconstructs to no change and is approved: a misspelt `shelll`
+  request carrying `rm src/a.spec.ts`, a `custom-tool` the host never registered, or any kind
+  the SDK adds later reached the gate as a no-op. Such a request now produces the
+  `unknown-tool` finding and an SDK reject before reconstruction; `url`, `memory` and `hook`
+  stay allowed. The adapter remains experimental with an empty `preDeny`.
+
 ## [2.39.14] — 2026-10-05
 
 ### Fixed

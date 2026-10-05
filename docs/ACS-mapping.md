@@ -38,7 +38,7 @@ implementation:
 | deny reason returned to the agent | **actionable policy feedback** to the controlled agent | **Implemented** (`formatDenial` on the deny wire) |
 | repository/CI as final authority | **defence in depth** — a control layer that is not the sole authority | **Implemented** — the run envelope and CI re-adjudicate independently of any adapter |
 
-`unknown` is intentionally absent from the operation-kind list and from `OPERATION_KINDS`: it is an adapter classification outcome, not a capability a runtime may declare. The Codex and Copilot adapters deny an unmapped non-empty tool name with the `unknown-tool` rule before change reconstruction.
+`unknown` is intentionally absent from the operation-kind list and from `OPERATION_KINDS`: it is an adapter classification outcome, not a capability a runtime may declare. The Codex, Copilot and Copilot SDK adapters deny an unmapped non-empty tool name or permission kind with the `unknown-tool` rule before change reconstruction.
 
 ## Explicitly unsupported (out of scope)
 
