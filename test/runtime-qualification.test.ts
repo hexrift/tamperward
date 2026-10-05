@@ -322,9 +322,25 @@ describe('capability derivation is honest (#599)', () => {
   );
 
   it('an adapter that says its fail-closed transport is unproven reports UNPROVEN, not PARTIAL', () => {
-    const a = assessCapabilities(codexAdapter.capabilities);
-    expect(stateOf(a, 'transport:timeout')).toBe('UNPROVEN');
+    const unproven: RuntimeCapabilities = immutableRuntimeCapabilities({
+      preDeny: [],
+      postObserve: [],
+      endOfTurn: true,
+      unsupported: ['fail-closed hook transport not yet proven on a pinned build'],
+    });
+    expect(stateOf(assessCapabilities(unproven), 'transport:timeout')).toBe('UNPROVEN');
   });
+
+  it.each(['transport:missing-executable', 'transport:non-zero', 'transport:timeout', 'transport:malformed', 'transport:empty'] as const)(
+    'grades the Codex hook-transport failure %s FAIL-OPEN from the pinned probe observation, never UNPROVEN',
+    (id) => {
+      const assessed = assessCapabilities(codexAdapter.capabilities).find((x) => x.id === id)!;
+      expect(assessed.state).toBe('FAIL-OPEN');
+      expect(assessed.evidence.source).toBe('adapter-unsupported');
+      expect(codexAdapter.capabilities.unsupported).toContain(assessed.evidence.detail);
+      expect(assessed.evidence.detail).toMatch(/45293/);
+    },
+  );
 
   it('a lifecycle-only end-of-turn is PARTIAL, and a declared post-observe is PARTIAL not PROVEN', () => {
     const copilot = assessCapabilities(copilotAdapter.capabilities);

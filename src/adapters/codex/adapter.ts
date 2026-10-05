@@ -58,6 +58,7 @@ export class CodexRuntimeAdapter implements RuntimeAdapter {
     unsupported: [
       'pre-action deny enforcement not yet proven on a pinned Codex build (see probe:codex-runtime)',
       'fail-closed hook transport not yet proven (openai/codex#41979)',
+      'a PreToolUse hook that is killed, hits its timeout, exits non-zero, or exits 0 with empty or malformed output, or whose configured executable is missing, fails OPEN on the pinned Codex 0.154.0 probe run: the tool dispatched after the hook failure and the mutation landed in some cases (openai/codex#45293, #41979)',
       'network-egress control',
       'identity / authentication',
     ],

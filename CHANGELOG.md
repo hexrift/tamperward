@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.39.19] — 2026-10-05
+
+### Fixed
+
+- **`runtime verify` grades Codex hook-transport failures as FAIL-OPEN** (#744). The pinned
+  Codex 0.154.0 probe run observed a killed, timed-out, non-zero, empty-output, malformed-output
+  or missing-executable hook followed by tool dispatch, but the Codex adapter declared only
+  that fail-closed transport was "not yet proven", so every `transport:*` row graded `UNPROVEN`
+  — no evidence either way — in `runtime verify`, `runtime status` and `onboard`. The adapter
+  now declares the observed semantic, naming the upstream reports, and the five rows grade
+  `FAIL-OPEN` citing it. Nothing is promoted; the in-loop aggregate stays `PARTIAL`.
+
 ## [2.39.18] — 2026-10-05
 
 ### Fixed
