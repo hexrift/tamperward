@@ -97,6 +97,7 @@ export default defineConfig({
             { text: 'Security and adversarial evaluations', link: '/research/security-evaluations' },
             { text: 'Model comparisons', link: '/research/model-comparisons' },
             { text: 'Methodology, limitations and errata', link: '/research/methodology-limitations-errata' },
+            { text: 'Production pilot protocol', link: '/research/pilot-protocol' },
           ],
         },
       ],

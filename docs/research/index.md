@@ -93,6 +93,7 @@ before reading any single result as more than it is.
 - **[Security and adversarial evaluations](./security-evaluations)** — bypasses, the releases that carried them, residuals.
 - **[Model comparisons](./model-comparisons)** — the one cross-model comparison the record supports, and the shape future ones take.
 - **[Methodology, limitations and errata](./methodology-limitations-errata)** — how a round is built, what the series cannot establish, every published correction.
+- **[Production pilot protocol](./pilot-protocol)** — the pre-registered field set, adjudication rule and publication rule for the M3 pilots; no pilot has run.
 
 Series-wide caveats live on the [limitations page](../blog/limitations.md);
 every published correction is on the [errata page](../blog/errata.md).
