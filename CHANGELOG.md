@@ -1,5 +1,22 @@
 # Changelog
 
+## [2.39.23] — 2026-10-05
+
+### Fixed
+
+- **The Codex and Copilot CLI project hook wiring is protected hooks surface** (#749, step 1).
+  `.codex/config.toml` (where Codex reads project hooks; what `runtime verify` hashes) and
+  `.github/hooks/tamperward.json` (the Copilot CLI repository hooks) were not in the default
+  `protected.hooks`, so an agent on either runtime could remove or weaken its own interception
+  before a protected edit and the gate saw nothing. Both are now protected by default and
+  recognised at any depth, with symlinks resolved as the Claude settings are. `hook-tampering`
+  reads each at the grain its format has: a deletion or rename, a gate entry removed, changed or
+  joined by a sibling in the TOML `[hooks]` tables or the JSON `hooks` member, or a wiring file
+  that no longer parses is the finding; an edit outside the hook tables / member, and hooks
+  arriving where there were none, are the project's own. The shell surface covers the files
+  through the policy (`rm`, `mv`, a redirection). `init` does not write this wiring yet; that is
+  step 2.
+
 ## [2.39.22] — 2026-10-05
 
 ### Fixed

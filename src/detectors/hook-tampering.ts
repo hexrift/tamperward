@@ -9,13 +9,13 @@ import { Change, Detector, DetectorContext, FileChange, Finding, Policy } from '
 import { addedLines, removedLines } from '../diff/select';
 import { inspectRel, textOf } from '../disk';
 import { isProtected, POLICY_FILE } from '../policy';
-import { OURS, PLAIN_SEMVER, PRE_TOOLS, TW_VERSION, compareVersions, initScriptPin, isClaudeSettings, pinNotBelow, resolvesToClaudeSettings } from '../wiring';
+import { OURS, PLAIN_SEMVER, PRE_TOOLS, RuntimeWiring, TW_VERSION, compareVersions, initScriptPin, isClaudeSettings, pinNotBelow, resolvesToClaudeSettings, resolvesToRuntimeWiring } from '../wiring';
 import { makeFinding } from './finding';
 import { policyAddWeakening, policyWeakening } from './policy-diff';
 import { segments, tokens, unquote } from './command';
 import { trackedFiles } from './repo';
 import {
-  ScriptOpts, codeownersWeakening, gateOf, hookIdentity, insertsDeadGuard, insertsPassingExit, invocations, isCodeowners,
+  ScriptOpts, codeownersWeakening, codexHooksWeakening, copilotHooksWeakening, gateOf, hookIdentity, insertsDeadGuard, insertsPassingExit, invocations, isCodeowners,
   isLefthook, isLefthookLocal, isPackageJson, isPreCommitConfig, lefthookWeakening, mergeDocs, packageJsonWeakening,
   parseDoc, pinRaiseOnly, preCommitWeakening, scriptWeakening, shebangProblem, shellHookTarget, shellWritesHook, xargsWritesHook,
 } from './hook-wiring';
@@ -847,6 +847,29 @@ const isHuskyScript = (path: string): boolean => /(?:^|\/)\.husky\/[^/]+$/.test(
 const isHookNote = (path: string): boolean =>
   !/(?:^|\/)\.husky\/_\//.test(path) && /\.(?:md|markdown|txt)$|(?:^|\/)\.git(?:ignore|attributes)$/i.test(path);
 
+const RUNTIME_WIRING_LABEL: Record<RuntimeWiring, string> = { codex: 'Codex', copilot: 'Copilot CLI' };
+
+/** Findings for an edit to the Codex or Copilot CLI project hook wiring, read at the
+ *  grain its format has (hook-wiring.ts). With full content the hook tables / member
+ *  are compared; on a hunk-only view a removed line that ran tamperward is the loss. */
+function runtimeWiringFindings(c: FileChange, wiring: RuntimeWiring, policy: Policy): Finding[] {
+  const finding = (reason: string): Finding =>
+    makeFinding(RULE, policy, {
+      file: c.path,
+      message: `The ${RUNTIME_WIRING_LABEL[wiring]} hook wiring was weakened: ${reason}.`,
+      evidence: reason,
+      remediation:
+        'Leave the hook entries that run tamperward as they were. Editing the wiring is editing the gate: restore it, or sign off.',
+    });
+  if (c.after != null) {
+    if (c.before == null) return [];
+    const weaken = wiring === 'codex' ? codexHooksWeakening : copilotHooksWeakening;
+    return weaken(c.before, c.after).map(finding);
+  }
+  const lost = removedLines(c).find((l) => /\btamperward\b/.test(l.content));
+  return lost ? [finding(`a line running tamperward was removed (\`${lost.content.trim()}\`)`)] : [];
+}
+
 export const hookTampering: Detector = {
   id: RULE,
   surface: ['file', 'command'],
@@ -856,6 +879,7 @@ export const hookTampering: Detector = {
 
     for (const c of changes) {
       let semantic: Finding[] | null;
+      let wiring: RuntimeWiring | null;
       if (c.kind === 'file') {
         // A Claude settings file is the enforcement wherever the runtime reads it
         // from — the user file and managed settings included, which the tool-call
@@ -863,7 +887,8 @@ export const hookTampering: Detector = {
         const targetsHook =
           isProtected(c.path, policy, 'hooks') ||
           (c.oldPath ? isProtected(c.oldPath, policy, 'hooks') : false) ||
-          resolvesToClaudeSettings(c.path);
+          resolvesToClaudeSettings(c.path) ||
+          resolvesToRuntimeWiring(c.path) !== null;
         if (!targetsHook) {
           // package.json is config-class, but `prepare: husky` is the line that
           // INSTALLS the hooks on a fresh checkout — exact through the JSON, so
@@ -930,6 +955,8 @@ export const hookTampering: Detector = {
           out.push(...semantic);
         } else if (c.op === 'rename') {
           // a same-identity rename with unchanged content: kept (see renameKept)
+        } else if ((wiring = resolvesToRuntimeWiring(c.path)) !== null) {
+          out.push(...runtimeWiringFindings(c, wiring, policy));
         } else if (isCodeowners(c.path)) {
           // Ownership wiring, not a script: the word `husky` in `/.husky/ @owner` is a
           // path, not an invocation. What can be lost here is a human requirement on
