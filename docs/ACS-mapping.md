@@ -55,10 +55,11 @@ capabilities:
 - **Full lifecycle / runtime governance, quotas, rate limits, and audit attestation.** The
   `--json` verdict and job-summary renderer exist, but a *signed, attested verdict
   statement* does not (tracked as SPEC M5).
-- **Cross-runtime equivalence.** Only Claude Code is implemented in-loop. A future partial
-  adapter maps only the operation kinds it actually enforces and records the rest in
-  `unsupported`; it does not inherit this table's "Implemented" marks for uncovered
-  operations. Claude itself currently leaves MCP and catch-all `other` pre-deny unproven and relies on the
+- **Cross-runtime equivalence.** Only Claude Code is implemented in-loop. The experimental
+  Codex, Copilot CLI and Copilot SDK-hosted adapters declare an empty `preDeny`, map only the
+  operation kinds they model, and record the rest in `unsupported`; none inherits this
+  table's "Implemented" marks, and `tamperward runtime verify` grades each from its own
+  declaration and retained evidence. Claude itself currently leaves MCP and catch-all `other` pre-deny unproven and relies on the
   end-of-turn sweep plus repository/CI authority for mutations from those unmodelled operations.
 
 ## Why the mapping is by mechanism, not by hook name
