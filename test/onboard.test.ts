@@ -182,7 +182,7 @@ describe('happy path', () => {
     expect(s.out).toMatch(/NOTE[^\n]*Claude Code only/);
     expect(s.out).toMatch(/QUALIFY\s+Cursor: no shipped qualification adapter/);
     expect(s.out).not.toContain('runtime verify --runtime cursor');
-    expect(s.out).toContain('#482');
+    expect(s.out).not.toMatch(/#(482|602)\b/);
   });
 });
 

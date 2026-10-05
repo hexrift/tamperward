@@ -7,10 +7,10 @@
 //    `tamperward run` envelope — protect ANY agent and ANY human, because they
 //    judge the committed or candidate tree rather than intercepting a tool call.
 //  - The IN-LOOP steering layer (PreToolUse deny + Stop sweep) is runtime-
-//    specific: it needs an adapter that speaks the runtime's own hook wire. Today
-//    only Claude Code has a shipped adapter (src/adapters/claude); the neutral
-//    RuntimeAdapter contract (src/adapters/contract.ts, #482) is the seam a
-//    second runtime plugs into.
+//    specific: it needs an adapter that speaks the runtime's own hook wire. Only
+//    Claude Code's adapter (src/adapters/claude) is in-loop; the Codex and Copilot
+//    adapters behind the neutral RuntimeAdapter contract (src/adapters/contract.ts)
+//    are experimental and unqualified, and Cursor has none.
 //
 // This registry lets `onboard`/`init` tell the operator WHICH runtime their
 // repository is set up for and WHAT protection it actually gets today, instead of
@@ -57,8 +57,6 @@ export interface RuntimeDescriptor {
   detectExtra?: (cwd: string) => string | null;
   /** How far in-loop steering reaches for this runtime today. */
   steering: RuntimeSteering;
-  /** Issue tracking the native in-loop adapter, for a `neutral` runtime. */
-  adapterTracking?: string;
   /** One line on what this runtime gets, shown after detection. */
   note: string;
 }
@@ -165,24 +163,21 @@ export const KNOWN_RUNTIMES: readonly RuntimeDescriptor[] = deepFreeze([
     label: 'Cursor',
     markers: ['.cursor', '.cursorrules'],
     steering: 'neutral',
-    adapterTracking: '#482',
-    note: 'agent-neutral layers (pre-commit + CI) today; a native in-loop adapter is tracked in #482.',
+    note: 'agent-neutral layers (pre-commit + CI) today; no in-loop adapter ships for Cursor.',
   },
   {
     id: 'copilot',
     label: 'GitHub Copilot',
     markers: ['.github/copilot-instructions.md', '.github/copilot'],
     steering: 'neutral',
-    adapterTracking: '#482',
-    note: 'agent-neutral layers (pre-commit + CI) today; a native in-loop adapter is tracked in #482.',
+    note: 'agent-neutral layers (pre-commit + CI) today; the experimental Copilot adapters are not qualified for in-loop steering (see `tamperward runtime verify`).',
   },
   {
     id: 'codex',
     label: 'an AGENTS.md-aware agent (e.g. Codex)',
     markers: ['.codex', 'AGENTS.md'],
     steering: 'neutral',
-    adapterTracking: '#482',
-    note: 'agent-neutral layers (pre-commit + CI) today; a native in-loop adapter is tracked in #482.',
+    note: 'agent-neutral layers (pre-commit + CI) today; the experimental Codex adapter is not qualified for in-loop steering (see `tamperward runtime verify`).',
   },
 ] as const);
 
@@ -258,7 +253,6 @@ export function neutralOnlyCaveat(detected: readonly DetectedRuntime[]): string 
   const neutral = detected.filter((r) => r.steering === 'neutral');
   if (neutral.length === 0) return null;
   const names = neutral.map((r) => r.label).join(', ');
-  const tracking = [...new Set(neutral.map((r) => r.adapterTracking).filter(Boolean))].join(', ');
   const claudeAlso = hasInLoopRuntime(detected);
   const lead = claudeAlso
     ? `In-loop steering (deny-before-execute) ships for Claude Code only today: Claude Code here gets it, but on ${names} your live protection is `
@@ -266,5 +260,5 @@ export function neutralOnlyCaveat(detected: readonly DetectedRuntime[]): string 
   const tail = claudeAlso
     ? ''
     : ' The Claude hook wiring is still written and is inert unless Claude Code runs in this repository.';
-  return `${lead}the agent-neutral layers: pre-commit and CI.${tail}${tracking ? ` A native in-loop adapter is tracked in ${tracking}.` : ''}`;
+  return `${lead}the agent-neutral layers: pre-commit and CI.${tail}`;
 }

@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.39.18] — 2026-10-05
+
+### Fixed
+
+- **Onboarding states what each runtime gets instead of pointing at tracking issues** (#732).
+  The runtime notes, the neutral-runtime caveat and the Cursor qualification line ended with
+  "a native in-loop adapter is tracked in #482" or "See #602", although experimental Codex
+  and Copilot adapters already ship and `tamperward runtime verify` reports their exact
+  state, and a tracking issue is closed long before a binary stops printing it. Cursor's
+  note now says no in-loop adapter ships for it; Codex and Copilot say their experimental
+  adapters are not qualified for in-loop steering and name `tamperward runtime verify`. No
+  shipped output points at an issue number.
+
 ## [2.39.17] — 2026-10-05
 
 ### Fixed

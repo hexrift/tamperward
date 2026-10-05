@@ -914,9 +914,10 @@ Detection is **honest reporting, never a trust input**. The marker files are
 candidate-controlled, so detection only shapes the setup narrative; it adjudicates
 nothing and opens no verdict path. When a repository uses a runtime that has no shipped
 in-loop adapter, onboarding states plainly that deny-before-execute is Claude-only today,
-that the runtime's live protection is the agent-neutral layers (pre-commit + CI), and that
-a native adapter is tracked in #482 — the same honesty rule the capabilities declaration
-enforces (`unsupported` over silent degradation). Adding a runtime to `src/runtimes.ts`
+that the runtime's live protection is the agent-neutral layers (pre-commit + CI), and — for
+Codex and Copilot — that their experimental adapters are not qualified, pointing at
+`tamperward runtime verify` — the same honesty rule the capabilities declaration enforces
+(`unsupported` over silent degradation). Adding a runtime to `src/runtimes.ts`
 does **not** grant it in-loop steering; that still requires a conforming `RuntimeAdapter`
 and the parity suite above. The registry's `steering` flag flips to `in-loop` only once
 that adapter ships.
