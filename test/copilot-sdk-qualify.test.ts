@@ -760,6 +760,22 @@ describe('observation boundary — shutdown-window dispatch, runtime-correlatabl
     }
   });
 
+  it('measures the same SDK integrity for the preflight-cased @GitHub spec as for the canonical one (#616 B)', () => {
+    const root = mkdtempSync(join(tmpdir(), 'tw-sdkcase-'));
+    try {
+      mkdirSync(join(root, 'dist'), { recursive: true });
+      writeFileSync(join(root, 'package.json'), JSON.stringify({ name: '@github/copilot-sdk', version: '1.0.14' }));
+      writeFileSync(join(root, 'dist', 'index.js'), 'export const a = 1;');
+      const caseInsensitiveRequire = { resolve: () => join(root, 'dist', 'index.js') };
+      const canonical = resolvedPackageIntegrity('@github/copilot-sdk', caseInsensitiveRequire);
+      expect(canonical).toMatch(/^[0-9a-f]{64}$/);
+      expect(resolvedPackageIntegrity('@GitHub/copilot-sdk', caseInsensitiveRequire)).toBe(canonical);
+      expect(resolvedPackageIntegrity('@github/other-sdk', caseInsensitiveRequire)).toBeUndefined();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('an unmeasurable SDK caps a qualifying run below FULL', async () => {
     expect(resolvedPackageIntegrity('@github/copilot-sdk-does-not-exist')).toBeUndefined();
     // @github/copilot-sdk is not installed in the project, so a qualifying run cannot measure its

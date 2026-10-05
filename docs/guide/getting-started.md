@@ -19,8 +19,8 @@ It has five sections:
    agent) and exactly what protection each gets, so setup never silently assumes
    Claude. In-loop steering (deny-before-execute) ships for Claude Code today;
    any other detected runtime is protected by the agent-neutral layers
-   (pre-commit + CI), with a native in-loop adapter tracked in #482 — onboarding
-   says so plainly rather than implying more coverage than exists. Then compact
+   (pre-commit + CI) — the Codex and Copilot adapters are experimental and
+   unqualified, and Cursor has none — onboarding says so plainly rather than implying more coverage than exists. Then compact
    lines for policy, the in-loop (Claude) hooks, pre-commit,
    CI and CODEOWNERS, plus a `Git ignore` item when an installed `node_modules/`
    tree would otherwise be staged as repository source. The plan is still the
