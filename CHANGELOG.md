@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.39.17] — 2026-10-05
+
+### Fixed
+
+- **A Codex hook-config change marks a recorded Codex qualification `STALE`** (#731). The
+  qualification binding hashed the hook configuration for Claude Code and the Copilot CLI but
+  not for Codex, so every Codex record carried `hook_config_hash: null`: rewriting
+  `.codex/config.toml` to turn the hooks off, or deleting it, left `runtime status` and
+  `onboard` reporting the record as current. The binding now hashes `.codex/config.toml`,
+  where Codex reads project hooks, and an edited or removed file flips the record `STALE`.
+  The runtime adapter guide now names that file, not the inert `.codex/hooks.json`, as the
+  gated wiring.
+
 ## [2.39.16] — 2026-10-05
 
 ### Fixed
