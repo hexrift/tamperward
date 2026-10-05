@@ -1127,7 +1127,8 @@ function main() {
     lines.push(`  ${r.status.padEnd(12)} ${r.name.padEnd(32)} ${r.detail}`);
   }
 
-  // Fail-closed transport (crash/missing/malformed/empty/nonzero fail CLOSED; timeout FAIL-OPEN).
+  // Fail-closed transport (crash/non-zero fail CLOSED; timeout/empty/malformed documented FAIL-OPEN;
+  // missing-executable measured) — see transportExpectation.
   const transports = [];
   lines.push('', 'Fail-closed transport (crash/exit fail CLOSED; command-hook timeout FAIL-OPEN by docs):');
   if (!runtimeAbort) {

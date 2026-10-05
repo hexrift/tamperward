@@ -639,8 +639,9 @@ through an injected fake binding + the real adapter (`test/copilot-sdk-qualify.t
 pinned SDK, no credentials, or a missing/`auto` model the harness reports **INSUFFICIENT** and exits
 non-zero — "could not test" is never "passed".
 
-The neutral adapter is intentionally **unshipped** (absent from `dist/`), so the harness self-compiles
-it with esbuild to a temporary ESM module and imports it, hashing the exact bundle into provenance. The
+The CLI bundle (`dist/cli/index.js`) exports nothing — it is a binary, not a library — so the
+harness self-compiles the adapter from `src` with esbuild to a temporary ESM module and imports it,
+hashing the exact bundle into provenance. The
 bundled `src` graph loads `yaml`/`picomatch` lazily via `createRequire(import.meta.url)`; because
 esbuild collapses every module's `import.meta.url` to the output file's URL — which sits in the OS temp
 dir with no `node_modules` — the build anchors `import.meta.url` back at the real checkout source so
