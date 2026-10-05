@@ -709,6 +709,26 @@ describe('CopilotSdkHostedAdapter.decide — failure states fail CLOSED (deny)',
     }
   });
 
+  it('an end-of-turn sweep that fails closed carries the end-of-turn-sweep category', () => {
+    const cwd = repoFixture();
+    try {
+      writeFileSync(join(cwd, '.tamperward.yml'), 'version: [unterminated\n');
+      const r = copilotSdkAdapter.decide(JSON.stringify({ sessionId: 's', cwd }), 'end-of-turn', cwd);
+      expect(r.decision?.verdict).toBe('deny');
+      expect(r.decision?.findings.map((f) => f.rule)).toEqual(['tamperward-unavailable']);
+      expect(r.unavailableReason).toBe('end-of-turn-sweep');
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it.each(['transport-failure', 'not-invoked'] as const)('a %s fail-closed result carries its own cause category', (outcome) => {
+    const r = copilotSdkAdapter.failClosed(outcome, 'callback never fired', 'pre-action');
+    expect(r.outcome).toBe(outcome);
+    expect(r.decision?.verdict).toBe('deny');
+    expect(r.unavailableReason).toBe(outcome);
+  });
+
   it('a normal ALLOW / policy DENY carries NO unavailableReason — the category marks fail-closed only (#616 item C)', () => {
     const cwd = repoFixture();
     try {

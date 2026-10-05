@@ -144,7 +144,13 @@ export class CopilotSdkHostedAdapter implements RuntimeAdapter {
       // human denial text (#616 item D). `stdout`/`wire` is unchanged.
       const swept = stopFromRaw(stopInput, defaultCwd, idv.trustedRoot);
       const findings = swept.findings ? [...swept.findings] : [];
-      return { outcome: 'ok', wire: swept.stdout, decision: { verdict: swept.stdout ? 'deny' : 'allow', findings, reason: swept.stdout || undefined } };
+      const sweepFailedClosed = findings.some((f) => f.rule === 'tamperward-unavailable');
+      return {
+        outcome: 'ok',
+        wire: swept.stdout,
+        ...(sweepFailedClosed ? { unavailableReason: 'end-of-turn-sweep' as const } : {}),
+        decision: { verdict: swept.stdout ? 'deny' : 'allow', findings, reason: swept.stdout || undefined },
+      };
     }
 
     if (parsed.operation.kind === 'unknown') {
@@ -157,7 +163,7 @@ export class CopilotSdkHostedAdapter implements RuntimeAdapter {
     // Track WHICH pre-action step is running, so a throw fails closed with a SANITIZED bounded cause
     // category (#616 item C) rather than only an opaque `tamperward-unavailable`. The category is the
     // code SITE, never parsed from the (possibly path-bearing) error text.
-    let stage: UnavailableReason = 'repo-context';
+    let stage: UnavailableReason = 'baseline';
     try {
       const root = idv.trustedRoot ?? repoRoot(defaultCwd ?? process.cwd());
       // Pin the Stop-sweep baseline at TURN START on EVERY pre-action call, regardless of kind, so
