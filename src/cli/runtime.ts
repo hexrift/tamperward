@@ -354,13 +354,15 @@ function resolveComponentVersions(_canonicalId: string): string[] {
  *  For the Copilot CLI the adapter wires its hooks in `.github/hooks/tamperward.json` (see
  *  docs/guide/runtime-adapters.md and `harness/adapters/copilot-probe.mjs`); the previous
  *  `.github/copilot/hooks.json` path never existed, so the hash was always null and an edited
- *  Copilot hook config never marked the qualification STALE. */
+ *  Copilot hook config never marked the qualification STALE. Codex reads project hooks from
+ *  `.codex/config.toml`. */
 function resolveHookConfigHash(canonicalId: string, cwd: string): string | null {
   if (canonicalId === 'claude-code') {
     return sha16Local(JSON.stringify(interventionWiring(cwd)));
   }
   const files: Record<string, string> = {
     'github-copilot-cli': join(cwd, '.github', 'hooks', 'tamperward.json'),
+    codex: join(cwd, '.codex', 'config.toml'),
   };
   const file = files[canonicalId];
   if (!file || !existsSync(file)) return null;
