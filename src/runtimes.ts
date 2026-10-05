@@ -20,8 +20,9 @@
 // marker files it reads are candidate-controlled.
 
 import { deepFreeze } from './immutable';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { codexWiringTables } from './wiring';
 
 /**
  * How far TamperWard's steering reaches for a given runtime TODAY.
@@ -145,6 +146,37 @@ function claudeSettingsBeyondTamperward(cwd: string): boolean {
  * files `init` never writes and its generated hook file is judged by content, not
  * mere presence (#526) — otherwise every onboarded repository would report Claude.
  */
+/** Whether `.codex/` holds anything a human put there: an entry other than the config file
+ *  init writes, or configuration in that file beyond the hooks tables init appends. */
+function codexDirBeyondTamperward(cwd: string): boolean {
+  const dir = join(cwd, '.codex');
+  let entries: string[];
+  try {
+    if (!existsSync(dir) || !statSync(dir).isDirectory()) return false;
+    entries = readdirSync(dir);
+  } catch {
+    return false;
+  }
+  if (entries.some((e) => e !== 'config.toml')) return true;
+  if (!entries.includes('config.toml')) return false;
+  let raw: string;
+  try {
+    raw = readFileSync(join(dir, 'config.toml'), 'utf8');
+  } catch {
+    return false;
+  }
+  return raw.split('\n').some((line) => {
+    const t = line.trim();
+    return t !== '' && !t.startsWith('#') && !/^\[\[?hooks/.test(t) && !codexWiringLines().has(t);
+  });
+}
+
+let wiringLines: Set<string> | null = null;
+function codexWiringLines(): Set<string> {
+  if (!wiringLines) wiringLines = new Set(codexWiringTables().split('\n').map((l) => l.trim()).filter(Boolean));
+  return wiringLines;
+}
+
 export const KNOWN_RUNTIMES: readonly RuntimeDescriptor[] = deepFreeze([
   {
     id: 'claude-code',
@@ -175,7 +207,11 @@ export const KNOWN_RUNTIMES: readonly RuntimeDescriptor[] = deepFreeze([
   {
     id: 'codex',
     label: 'an AGENTS.md-aware agent (e.g. Codex)',
-    markers: ['.codex', 'AGENTS.md'],
+    // `.codex/config.toml` is a file `init` writes (the hook wiring), so the directory
+    // counts only for what else it holds, or for configuration in that file beyond the
+    // hooks tables init appends (#526).
+    markers: ['AGENTS.md'],
+    detectExtra: (cwd) => (codexDirBeyondTamperward(cwd) ? '.codex' : null),
     steering: 'neutral',
     note: 'agent-neutral layers (pre-commit + CI) today; the experimental Codex adapter is not qualified for in-loop steering (see `tamperward runtime verify`).',
   },

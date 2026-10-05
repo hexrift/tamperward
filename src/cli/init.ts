@@ -19,7 +19,12 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:pat
 import { POLICY_FILE } from '../policy';
 import { loadPolicy } from '../policy-load';
 import { GENERATED_CI_TIMEOUT_MINUTES } from '../verifier-limits';
-import { HOOK_CMD, MARKER, OURS, PRECOMMIT_CMD, PRE_MATCHER, SWEEP_CMD, TW_VERSION, requireShippedVersion } from '../wiring';
+import {
+  COPILOT_WIRING_NOTE, HOOK_CMD, MARKER, OURS, PRECOMMIT_CMD, PRE_MATCHER, SWEEP_CMD, TW_VERSION, codexWiringTables, copilotWiringDocument,
+  requireShippedVersion, runtimeGatePins, withoutRuntimeGatePins,
+} from '../wiring';
+import { codexHooksTables } from '../detectors/hook-wiring';
+import { detectRuntimes } from '../runtimes';
 import { isRecord } from '../narrow';
 import { judgeGateEntry, type HookEvent } from '../detectors/hook-tampering';
 import { repoRoot } from '../repo-context';
@@ -1102,6 +1107,91 @@ function sameDir(a: string, b: string): boolean {
   }
 }
 
+const RUNTIME_WARNING = (label: string, id: string): string =>
+  `EXPERIMENTAL: the ${label} hook wiring was written because this repository shows ${label} markers, but the ${label} adapter has not passed a pinned live qualification. \`tamperward runtime verify --runtime ${id}\` grades what is proven; until it reports in-loop steering, the agent-neutral layers (pre-commit + CI) are the live protection.`;
+
+/** `.codex/config.toml`: Codex reads project hooks from its `[hooks]` tables. The file is the
+ *  project's; init appends the tables when none exist, re-pins the ones it wrote, and refuses
+ *  a hand-written hooks block. Planned only when a Codex marker is present. */
+function planCodexHooks(cwd: string): Action {
+  const rel = '.codex/config.toml';
+  const path = join(cwd, rel);
+  const item = 'codex-hooks';
+  const refused = refuseNonRegular(path);
+  if (refused) return { item, path: rel, status: 'error', detail: refused };
+  const warning = RUNTIME_WARNING('Codex', 'codex');
+  const tables = codexWiringTables();
+  if (!existsSync(path)) {
+    return {
+      item, path: rel, status: 'create', detail: 'wire the PreToolUse deny and Stop sweep [hooks] tables (experimental)', warning,
+      apply: () => {
+        mkdirSync(dirname(path), { recursive: true });
+        atomicReplaceFile(path, tables, 0o644);
+      },
+    };
+  }
+  const current = readFileSync(path, 'utf8');
+  const existing = codexHooksTables(current);
+  if (!existing) {
+    const next = current + (current.endsWith('\n') || current === '' ? '' : '\n') + '\n' + tables;
+    return {
+      item, path: rel, status: 'update', detail: 'append the PreToolUse deny and Stop sweep [hooks] tables (experimental)', warning,
+      apply: () => atomicReplaceFile(path, next, existingMode(path, 0o644)),
+    };
+  }
+  if (existing === codexHooksTables(tables)) return { item, path: rel, status: 'ok', detail: 'PreToolUse + Stop hooks already wired' };
+  if (withoutRuntimeGatePins(existing) === withoutRuntimeGatePins(codexHooksTables(tables))) {
+    const pins = [...new Set(runtimeGatePins(existing))];
+    const next = current.replace(/\btamperward@\S+ (hook|sweep) codex\b/g, `tamperward@${TW_VERSION} $1 codex`);
+    return {
+      item, path: rel, status: 'update', detail: `re-pin the hook commands to tamperward@${TW_VERSION} (was ${pins.join(', ')})`, warning,
+      apply: () => atomicReplaceFile(path, next, existingMode(path, 0o644)),
+    };
+  }
+  return {
+    item, path: rel, status: 'error',
+    detail: 'the [hooks] tables are not the shape init writes — remove them or add the tamperward entries by hand, then re-run init (refusing to rewrite a hand-written hooks block)',
+  };
+}
+
+/** `.github/hooks/tamperward.json`: the Copilot CLI loads workspace hooks from
+ *  `.github/hooks/*.json`. The file is TamperWard's own, so it is written whole; a file that
+ *  carries anything init did not write is refused. Planned only when a Copilot marker is present. */
+function planCopilotHooks(cwd: string): Action {
+  const rel = '.github/hooks/tamperward.json';
+  const path = join(cwd, rel);
+  const item = 'copilot-hooks';
+  const refused = refuseNonRegular(path);
+  if (refused) return { item, path: rel, status: 'error', detail: refused };
+  const warning = RUNTIME_WARNING('Copilot CLI', 'copilot');
+  const document = copilotWiringDocument();
+  const content = JSON.stringify({ $comment: COPILOT_WIRING_NOTE, ...document }, null, 2) + '\n';
+  const write = (): void => {
+    mkdirSync(dirname(path), { recursive: true });
+    atomicReplaceFile(path, content, existingMode(path, 0o644));
+  };
+  if (!existsSync(path)) {
+    return { item, path: rel, status: 'create', detail: 'wire the preToolUse deny and agentStop sweep hooks (experimental)', warning, apply: write };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(path, 'utf8'));
+  } catch {
+    return { item, path: rel, status: 'error', detail: 'exists but is not valid JSON — fix it, then re-run init (refusing to overwrite)' };
+  }
+  const hooks = isRecord(parsed) ? JSON.stringify(parsed.hooks ?? null) : 'null';
+  const wanted = JSON.stringify(document.hooks);
+  if (hooks === wanted) return { item, path: rel, status: 'ok', detail: 'preToolUse + agentStop hooks already wired' };
+  if (withoutRuntimeGatePins(hooks) === withoutRuntimeGatePins(wanted)) {
+    const pins = [...new Set(runtimeGatePins(hooks))];
+    return { item, path: rel, status: 'update', detail: `re-pin the hook commands to tamperward@${TW_VERSION} (was ${pins.join(', ')})`, warning, apply: write };
+  }
+  return {
+    item, path: rel, status: 'error',
+    detail: 'the hooks are not the shape init writes — remove the file or restore the tamperward entries by hand, then re-run init (refusing to rewrite a hand-written hooks file)',
+  };
+}
+
 export function planInit(cwd: string, opts: { forceWorkflow?: boolean } = {}): Action[] {
   // Canonical hook/pre-commit/CI wiring is a trust anchor. If this build cannot
   // identify its own plain release version, generating a floating or synthetic
@@ -1113,9 +1203,25 @@ export function planInit(cwd: string, opts: { forceWorkflow?: boolean } = {}): A
     planned('policy', POLICY_FILE, () => planPolicy(cwd)),
     ...(gitignore ? [gitignore] : []),
     planned('agent', '.claude/settings.json', () => planClaudeHooks(cwd)),
+    ...runtimeWiringPlans(cwd),
     planned('pre-commit', '(hooks)', () => planPreCommit(cwd)),
     planned('ci', '.github/workflows/tamperward.yml', () => planWorkflow(cwd, opts.forceWorkflow ?? false)),
     planned('codeowners', '.github/CODEOWNERS', () => planCodeowners(cwd)),
+  ];
+}
+
+/** The experimental runtimes' wiring, planned only for a runtime whose markers are present:
+ *  a repository that does not show Codex or Copilot use gets no inert files for them. */
+function runtimeWiringPlans(cwd: string): Action[] {
+  let detected: Set<string>;
+  try {
+    detected = new Set(detectRuntimes(cwd).map((r) => r.id));
+  } catch {
+    detected = new Set();
+  }
+  return [
+    ...(detected.has('codex') ? [planned('codex-hooks', '.codex/config.toml', () => planCodexHooks(cwd))] : []),
+    ...(detected.has('copilot') ? [planned('copilot-hooks', '.github/hooks/tamperward.json', () => planCopilotHooks(cwd))] : []),
   ];
 }
 

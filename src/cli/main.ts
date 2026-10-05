@@ -15,6 +15,7 @@ import { runTraceVerify, parseTraceVerify } from './trace-verify';
 import { runEnvelope, parseRun } from './run';
 import { runWatch } from './watch';
 import { runOnboard, OnboardOpts } from './onboard';
+import { runRuntimeHook } from './runtime-hook';
 import { runResearchCommand, RESEARCH_SUBCOMMANDS } from './research';
 import { runRuntime, parseRuntime, RUNTIME_SUBCOMMANDS } from './runtime';
 import { runReceipt, RECEIPT_SUBCOMMANDS } from './receipt';
@@ -34,12 +35,9 @@ function parseAllow(args: string[]): AllowOpts {
 }
 
 function runAgentCommand(kind: 'hook' | 'sweep', args: string[]): number {
-  const agent = args[0];
-  if (agent !== 'claude') {
-    process.stderr.write(`tamperward: unsupported ${kind} agent "${agent ?? ''}" (only "claude" so far)\n`);
-    return 2;
-  }
-  return kind === 'hook' ? runHookClaude() : runSweepClaude();
+  const agent = args[0] ?? '';
+  if (agent === 'claude') return kind === 'hook' ? runHookClaude() : runSweepClaude();
+  return runRuntimeHook(kind === 'hook' ? 'PreToolUse' : 'Stop', agent);
 }
 
 function parseInit(args: string[]): InitOpts {
