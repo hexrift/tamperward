@@ -109,6 +109,26 @@
       }
     },
     {
+      "id": "status.recompute.100",
+      "description": "status verification recompute (#752): computeBinding -> treeFingerprint over 100 tracked files, after a recorded VERIFIED state",
+      "fixture": "tree100",
+      "runs": 5,
+      "wall_ms": {
+        "p50": 207.7,
+        "p95": 431.6,
+        "min": 188.9,
+        "max": 431.6,
+        "mean": 251.5
+      },
+      "cpu_ms": {
+        "p50": 215,
+        "p95": 288,
+        "min": 194,
+        "max": 288,
+        "mean": 224.4
+      }
+    },
+    {
       "id": "hook.cold.1k",
       "description": "PreToolUse hook, NEW session every run (baseline pin + first snapshot), 1k protected files",
       "fixture": "tree1k",
@@ -186,6 +206,46 @@
         "min": 1319,
         "max": 1395,
         "mean": 1366.6
+      }
+    },
+    {
+      "id": "status.recompute.1k",
+      "description": "status verification recompute (#752): computeBinding -> treeFingerprint over 1k tracked files, after a recorded VERIFIED state",
+      "fixture": "tree1k",
+      "runs": 5,
+      "wall_ms": {
+        "p50": 251.1,
+        "p95": 270.2,
+        "min": 221.9,
+        "max": 270.2,
+        "mean": 249.9
+      },
+      "cpu_ms": {
+        "p50": 261,
+        "p95": 284,
+        "min": 231,
+        "max": 284,
+        "mean": 260.4
+      }
+    },
+    {
+      "id": "status.recompute.10k",
+      "description": "status verification recompute (#752): computeBinding -> treeFingerprint over 10k tracked files, after a recorded VERIFIED state — the cost #752 proposes to make incremental",
+      "fixture": "tree10k",
+      "runs": 5,
+      "wall_ms": {
+        "p50": 423.3,
+        "p95": 521.3,
+        "min": 355.8,
+        "max": 521.3,
+        "mean": 429.2
+      },
+      "cpu_ms": {
+        "p50": 492,
+        "p95": 505,
+        "min": 423,
+        "max": 505,
+        "mean": 478.4
       }
     },
     {

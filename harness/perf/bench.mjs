@@ -176,6 +176,16 @@ function stateDir(dir) {
   return join(isAbsolute(gd) ? gd : join(dir, gd), 'tamperward');
 }
 
+/** One `verify --cmd true` so a VERIFIED record exists; `status` then recomputes
+ *  the live binding (computeBinding -> treeFingerprint over the whole tree) and
+ *  compares it, which is the path #752 measures. Without a record `status`
+ *  short-circuits to UNVERIFIED and never recomputes, so this setup is what makes
+ *  the recompute items time the recompute. */
+function recordVerifiedState(cli, dir) {
+  const r = measure(process.execPath, [cli, 'verify', '--cmd', 'true'], { cwd: dir });
+  if (r.code !== 0) throw new Error(`cannot record a verified state in ${dir}: exit ${r.code}\n${r.stderr}`);
+}
+
 /**
  * Item catalogue. `fixture` names a repository built lazily by `repos`;
  * `setup` runs once per item after the fixture exists; `each` runs before every
@@ -216,6 +226,12 @@ function catalogue(cli, opts) {
       command: (dir) => ({ cmd: node, args: [cli, 'check', '--diff', 'perf-base...perf-small', '--format', 'text'] }), expect: 0,
     },
     {
+      id: 'status.recompute.100', fixture: 'tree100', smoke: true,
+      description: 'status verification recompute (#752): computeBinding -> treeFingerprint over 100 tracked files, after a recorded VERIFIED state',
+      setup: (dir) => { recordVerifiedState(cli, dir); return {}; },
+      command: () => ({ cmd: node, args: [cli, 'status'] }), expect: 0,
+    },
+    {
       id: 'hook.cold.1k', fixture: 'tree1k',
       description: 'PreToolUse hook, NEW session every run (baseline pin + first snapshot), 1k protected files',
       each: () => ({ sid: newSession() }),
@@ -238,6 +254,18 @@ function catalogue(cli, opts) {
       description: 'Stop sweep: turn view + protected-tree snapshot, 10k protected files',
       setup: (dir) => ({ sid: establishSession(cli, dir) }),
       command: (dir, st) => sweep(dir, st.sid), expect: 0,
+    },
+    {
+      id: 'status.recompute.1k', fixture: 'tree1k',
+      description: 'status verification recompute (#752): computeBinding -> treeFingerprint over 1k tracked files, after a recorded VERIFIED state',
+      setup: (dir) => { recordVerifiedState(cli, dir); return {}; },
+      command: () => ({ cmd: node, args: [cli, 'status'] }), expect: 0,
+    },
+    {
+      id: 'status.recompute.10k', fixture: 'tree10k',
+      description: 'status verification recompute (#752): computeBinding -> treeFingerprint over 10k tracked files, after a recorded VERIFIED state — the cost #752 proposes to make incremental',
+      setup: (dir) => { recordVerifiedState(cli, dir); return {}; },
+      command: () => ({ cmd: node, args: [cli, 'status'] }), expect: 0,
     },
     {
       id: 'check.diff.large', fixture: 'tree1k',

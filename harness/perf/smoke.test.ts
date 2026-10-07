@@ -56,6 +56,14 @@ const SMOKE_BUDGET_RATIOS: Record<string, number> = {
   'hook.warm.100': 1.25,
   'snapshot.100': 1.25,
   'check.diff.small': 3,
+  // status.recompute.100 is the verification-state recompute (#752): computeBinding
+  // -> treeFingerprint over the tracked tree, after a recorded VERIFIED state. On
+  // the same idle 4-core box (Node 22) it sits at ~0.52× — it does not load the
+  // parser, and 100 files' content reads are cheap. 1.25× leaves the usual 2× of
+  // headroom for a slower runner while still failing a 3× regression. The 1k/10k
+  // recompute items are bench-only (nightly baseline), where the read cost that
+  // scales with repository size actually shows.
+  'status.recompute.100': 1.25,
 };
 
 /** `cli.noop` stays in the smoke profile as the process-start floor the table
