@@ -74,8 +74,25 @@ tamperward verify --base main
 | `--budget <seconds>` | Per-stage time budget (positive number). |
 | `--json` | Emit one versioned `verify` verdict document; never falls back to prose. |
 | `--keep` | Keep the two materialised copies and report their paths. |
+| `--cargo-target-root <dir>` | Opt-in local-backend Cargo output cache outside the checkout. Sets distinct `<dir>/visible` and `<dir>/pristine` targets; never copies visible build output into pristine. Refused for isolated-container. |
 | `--require-ancestor` | Refuse a `--base` that is not an ancestor of `HEAD` (fail closed rather than silently anchoring older). |
 | `--cwd <dir>` | Run as if from `<dir>`. |
+
+Verification reports the active stage on stderr immediately and every 30 seconds,
+including elapsed time and captured output byte counts. Candidate output remains bounded
+and buffered; it is never forwarded as live terminal or GitHub workflow syntax. JSON
+stdout stays one verdict document. Nested silent verification emits no progress.
+
+The Cargo cache option is operator configuration, not policy in the candidate tree.
+Restore and save both stage directories separately in CI, retain dependency crates only,
+and avoid caching workspace binaries or saving failed runs. The first run remains cold;
+new lockfiles or toolchains can miss the cache. This is build-output reuse, not dependency
+attestation or an artifact-integrity claim. It does not shorten or skip either suite.
+Checkpointed-local candidate code runs with the caller's UID: separate paths prevent
+accidental cross-stage reuse, but do not create an adversarial filesystem boundary.
+Use fresh targets (omit this option and any inherited `CARGO_TARGET_DIR`) when persistent
+build outputs are outside the operator's trust model. Container mode accepts no host
+Cargo cache through this flag.
 
 Verdicts: `VERIFIED`, `MASKED_FAILURE`, `SUITE_RED`, `BUDGET_EXCEEDED`, `CANNOT_VERIFY`.
 Exit: **0** `VERIFIED` (or a `MASKED_FAILURE` cleared by an out-of-band
