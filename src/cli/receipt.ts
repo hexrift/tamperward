@@ -41,6 +41,7 @@ import {
 import { runVerify, type VerifyVerdictSummary } from './verify';
 import { oobToken, oobFromEnv, oobHeadFromEnv, oobHeadProblem } from '../signoff';
 import { colourEnabled } from './render/text';
+import { verifyWorkflowCommand } from './render/verify-github';
 import { paint, severityColour, BOLD, type Severity } from './render/status';
 
 export const RECEIPT_SUBCOMMANDS = ['export', 'reconcile'] as const;
@@ -524,6 +525,12 @@ export function runReceiptReconcile(opts: ReceiptReconcileOpts = {}): number {
 
   // GitHub Actions job summary: the same separated report, in Markdown.
   writeJobSummary(r, claimedReceipt, ci.binding, ci.adjudicated_tree);
+
+  // Keep --json stdout machine-readable; the generated CI workflow uses the human report.
+  if (!opts.json) {
+    const annotation = verifyWorkflowCommand(ci.verdict, exit);
+    if (annotation) process.stdout.write(`${annotation}\n`);
+  }
 
   // The exit code is CI's verdict, computed above BEFORE the receipt was read.
   return exit;
