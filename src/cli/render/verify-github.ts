@@ -1,6 +1,9 @@
-// Global GitHub Actions annotations for whole-suite verify verdicts.
-// These findings have no reliable file/line attribution; keep them on the check surface.
-import type { VerifyVerdict } from '../../machine-output';
+import type { VerifyCannotVerifyReason, VerifyVerdict } from '../../machine-output';
+
+export interface VerifyAnnotationDetails {
+  reason?: VerifyCannotVerifyReason;
+  detail?: string;
+}
 
 const ERROR_MESSAGES: Record<Exclude<VerifyVerdict, 'VERIFIED' | 'MASKED_FAILURE'> | 'MASKED_FAILURE', string> = {
   MASKED_FAILURE:
@@ -10,26 +13,40 @@ const ERROR_MESSAGES: Record<Exclude<VerifyVerdict, 'VERIFIED' | 'MASKED_FAILURE
   BUDGET_EXCEEDED:
     'BUDGET_EXCEEDED: verification exceeded its configured budget; CI could not establish a clean result.',
   CANNOT_VERIFY:
-    'CANNOT_VERIFY: CI could not establish a trusted verification result. Inspect the job summary and log.',
+    'CANNOT_VERIFY: CI could not establish a trusted verification result.',
 };
 
-/**
- * Produce a global workflow annotation for an effective non-green CI verdict.
- * Text is selected only from fixed messages: repository or test output must never
- * be interpolated into a GitHub workflow command.
- */
+const DETAIL_LIMIT = 320;
+
+function safeDetail(value: string): string {
+  const normalized = value.replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (normalized.length <= DETAIL_LIMIT) return normalized;
+  return normalized.slice(0, DETAIL_LIMIT - 1).trimEnd() + '…';
+}
+
+function workflowData(value: string): string {
+  // Escape percent first so data cannot smuggle an encoded workflow-command delimiter.
+  return value.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
+}
+
+/** Emit a global annotation for whole-suite verify verdicts without inventing a
+ * source location or allowing diagnostic text to become a workflow command. */
 export function verifyWorkflowCommand(
   verdict: VerifyVerdict,
   exitCode: number,
+  details: VerifyAnnotationDetails = {},
   env: NodeJS.ProcessEnv = process.env,
 ): string | undefined {
   if (env.GITHUB_ACTIONS !== 'true' || verdict === 'VERIFIED') return undefined;
 
-  // A MASKED_FAILURE remains visible, but a valid trusted sign-off makes the
-  // effective CI exit green. Use a warning so the annotation agrees with status.
   if (verdict === 'MASKED_FAILURE' && exitCode === 0) {
     return '::warning title=TamperWard verify::MASKED_FAILURE: a trusted out-of-band sign-off was accepted; this is not a VERIFIED result. Review the verification summary.';
   }
 
-  return `::error title=TamperWard verify::${ERROR_MESSAGES[verdict]}`;
+  const parts = [ERROR_MESSAGES[verdict]];
+  if (verdict === 'CANNOT_VERIFY') {
+    if (details.reason) parts.push(`Reason: ${details.reason}`);
+    if (details.detail) parts.push(`Detail: ${safeDetail(details.detail)}`);
+  }
+  return `::error title=TamperWard verify::${workflowData(parts.join('\n'))}`;
 }

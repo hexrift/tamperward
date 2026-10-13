@@ -18,7 +18,7 @@
 // verdict from the receipt; CI recomputes it from trusted inputs.
 
 import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
-import { machineOutput, type MachineSchemaVersion, VERIFY_VERDICTS, type VerifyVerdict } from '../machine-output';
+import { machineOutput, type MachineSchemaVersion, VERIFY_CANNOT_VERIFY_REASONS, VERIFY_VERDICTS, type VerifyCannotVerifyReason, type VerifyVerdict } from '../machine-output';
 import { repoContext, outsideRepository } from '../repo-context';
 import {
   computeBinding,
@@ -41,7 +41,7 @@ import {
 import { runVerify, type VerifyVerdictSummary } from './verify';
 import { oobToken, oobFromEnv, oobHeadFromEnv, oobHeadProblem } from '../signoff';
 import { colourEnabled } from './render/text';
-import { verifyWorkflowCommand } from './render/verify-github';
+import { verifyWorkflowCommand, type VerifyAnnotationDetails } from './render/verify-github';
 import { paint, severityColour, BOLD, type Severity } from './render/status';
 
 export const RECEIPT_SUBCOMMANDS = ['export', 'reconcile'] as const;
@@ -222,7 +222,7 @@ export function runReceiptExport(opts: ReceiptExportOpts = {}): number {
 
 /** CI's own verify adjudication: rerun the suite, or consume a preceding step's
  *  `--json` document. Never reads the receipt. */
-function ciAdjudicate(cwd: string, opts: ReceiptReconcileOpts): { ci: CiAdjudication; exit: number } {
+function ciAdjudicate(cwd: string, opts: ReceiptReconcileOpts): { ci: CiAdjudication; exit: number; annotation?: VerifyAnnotationDetails } {
   const inputs = reconcileInputs(opts);
   let binding: VerificationBinding | null = null;
   let bindingError: string | undefined;
@@ -243,6 +243,7 @@ function ciAdjudicate(cwd: string, opts: ReceiptReconcileOpts): { ci: CiAdjudica
       return {
         ci: { verdict: 'CANNOT_VERIFY', binding, binding_error: `unreadable CI verify result: ${e instanceof Error ? e.message : String(e)}` },
         exit: 2,
+        annotation: { detail: 'The CI verify result could not be read. Check the verify step output and artifact path.' },
       };
     }
     // The `--ci-result` document is the ONE place a file's `verdict` becomes CI's
@@ -253,7 +254,11 @@ function ciAdjudicate(cwd: string, opts: ReceiptReconcileOpts): { ci: CiAdjudica
     // (#601 finding 4). Fail-closed, never a pass.
     const check = readCiVerify(doc, binding, cwd, opts);
     if (check.reason !== undefined) {
-      return { ci: { verdict: 'CANNOT_VERIFY', binding, binding_error: check.reason }, exit: 2 };
+      return {
+        ci: { verdict: 'CANNOT_VERIFY', binding, binding_error: check.reason },
+        exit: 2,
+        annotation: { detail: check.reason },
+      };
     }
     // The sign-off that turns a MASKED_FAILURE into exit 0 must come from the
     // TRUSTED out-of-band channel (the CI env the workflow sets from a reviewer's
@@ -280,6 +285,7 @@ function ciAdjudicate(cwd: string, opts: ReceiptReconcileOpts): { ci: CiAdjudica
         ...(bindingError ? { binding_error: bindingError } : {}),
       },
       exit: verdictExit(check.verdict, signedOff),
+      annotation: { reason: check.verifierReason, detail: check.detail },
     };
   }
 
@@ -309,6 +315,7 @@ function ciAdjudicate(cwd: string, opts: ReceiptReconcileOpts): { ci: CiAdjudica
       ...(bindingError ? { binding_error: bindingError } : {}),
     },
     exit,
+    annotation: { reason: summary?.reason, detail: summary?.detail },
   };
 }
 
@@ -337,7 +344,7 @@ function readCiVerify(
   binding: VerificationBinding | null,
   cwd: string,
   opts: ReceiptReconcileOpts,
-): { verdict: VerifyVerdict; reason?: string; adjudicated_tree?: string } {
+): { verdict: VerifyVerdict; reason?: string; verifierReason?: VerifyCannotVerifyReason; detail?: string; adjudicated_tree?: string } {
   if (!doc || typeof doc !== 'object' || Array.isArray(doc)) {
     return { verdict: 'CANNOT_VERIFY', reason: 'CI verify result is not a JSON object' };
   }
@@ -373,7 +380,9 @@ function readCiVerify(
   // else (absent, or a malformed value) is left undefined and reconcile degrades to
   // NON_APPLICABLE rather than assume CI ran the receipt's tree (#601 re-review).
   const adjudicated_tree = typeof d.adjudicated_tree === 'string' && d.adjudicated_tree.length > 0 ? d.adjudicated_tree : undefined;
-  return { verdict: d.verdict, adjudicated_tree };
+  const verifierReason = isOneOf(VERIFY_CANNOT_VERIFY_REASONS, d.reason) ? d.reason : undefined;
+  const detail = typeof d.detail === 'string' ? d.detail : undefined;
+  return { verdict: d.verdict, verifierReason, detail, adjudicated_tree };
 }
 
 function isRecordObject(v: unknown): v is Record<string, unknown> {
@@ -503,7 +512,7 @@ export function runReceiptReconcile(opts: ReceiptReconcileOpts = {}): number {
   const guard = needRepo(cwd, 'reconcile');
   if (guard !== null) return guard;
 
-  const { ci, exit } = ciAdjudicate(cwd, opts);
+  const { ci, exit, annotation: annotationDetails } = ciAdjudicate(cwd, opts);
 
   // Load the claimed receipt. A local claim must be EXPLICIT (#601 finding 1):
   // the receipt is read ONLY from `--receipt`. There is deliberately NO fall-back
@@ -525,6 +534,11 @@ export function runReceiptReconcile(opts: ReceiptReconcileOpts = {}): number {
 
   // GitHub Actions job summary: the same separated report, in Markdown.
   writeJobSummary(r, claimedReceipt, ci.binding, ci.adjudicated_tree);
+
+  if (!opts.json) {
+    const annotation = verifyWorkflowCommand(ci.verdict, exit, annotationDetails);
+    if (annotation) process.stdout.write(`${annotation}\n`);
+  }
 
   // Keep --json stdout machine-readable; the generated CI workflow uses the human report.
   if (!opts.json) {

@@ -21,7 +21,7 @@ When implemented, the trusted receipt-reconciliation step will emit a workflow-l
 - The existing job summary and process exit code remain unchanged authorities. Rendering must not change adjudication or sign-off behavior.
 - Existing diff-based annotations remain responsible for localized `check` findings.
 
-The annotation text will be constructed from fixed messages selected by the validated verdict. Untrusted command output and free-form fields will not be copied into a workflow command.
+The verdict messages and reason codes are selected from fixed, validated values. For `CANNOT_VERIFY`, the annotation may include the verifier's structured detail after control-character removal, whitespace normalization, length capping, and workflow-command escaping. Raw captured suite output is not copied into the command.
 
 ## Alternatives considered
 
