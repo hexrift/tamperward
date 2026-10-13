@@ -43,7 +43,7 @@
 
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmodSync, cpSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync, existsSync } from 'node:fs';
+import { chmodSync, cpSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { loadPolicy, loadPolicyAt } from '../policy-load';
@@ -106,6 +106,7 @@ export interface VerifyOpts {
    *  merge-base would silently anchor to something older. The envelope
    *  enforces this itself; standalone CI wiring needs to ask for it. */
   requireAncestor?: boolean;
+  cargoTargetRoot?: string;
   policyOverride?: Policy; // frozen entry-time policy (envelope): the overlay classes
                            // must not be widened by a policy the agent just wrote
   /** A parse fault (`--base --json`): recorded rather than guessed around, so
@@ -1007,7 +1008,29 @@ export function localVerifierShell(
   }
 }
 
-function runLocalSuite(dir: string, cmd: string, budgetSecs: number): RunResult {
+export function cargoStageTargets(root: string, cwd: string): Record<'visible' | 'pristine', string> {
+  const absolute = resolve(cwd, root);
+  mkdirSync(absolute, { recursive: true });
+  const canonical = realpathSync(absolute);
+  const checkout = realpathSync(cwd);
+  const contains = (parent: string, child: string) => {
+    const rel = relative(parent, child);
+    return rel === '' || (!rel.startsWith('..' + sep) && rel !== '..' && !isAbsolute(rel));
+  };
+  if (contains(checkout, canonical) || contains(canonical, checkout)) {
+    throw new Error('Cargo target root must be outside the checkout and cannot contain it');
+  }
+  const targets = { visible: join(canonical, 'visible'), pristine: join(canonical, 'pristine') };
+  for (const target of Object.values(targets)) {
+    mkdirSync(target, { recursive: true });
+    if (lstatSync(target).isSymbolicLink() || realpathSync(target) !== target) {
+      throw new Error('Cargo stage targets must be distinct real directories, not links');
+    }
+  }
+  return targets;
+}
+
+function runLocalSuite(dir: string, cmd: string, budgetSecs: number, stage: 'visible' | 'pristine', target: string | undefined, progress: boolean): RunResult {
   const t0 = Date.now();
   const shell = localVerifierShell(process.platform, cmd);
   if (!shell) {
@@ -1020,13 +1043,23 @@ function runLocalSuite(dir: string, cmd: string, budgetSecs: number): RunResult 
   }
   const scratch = mkdtempSync(join(tmpdir(), 'tw-verify-run-'));
   try {
+    const env = suiteEnv(scratch);
+    if (target) {
+      let valid = false;
+      try { valid = realpathSync(target) === target && !lstatSync(target).isSymbolicLink(); } catch {}
+      if (!valid) {
+        return { exit: null, secs: 0, failure: 'backend', reason: 'Cargo stage target changed before execution' };
+      }
+      env.CARGO_TARGET_DIR = target;
+    }
     const r = runCapturedProcessSync(shell.executable, shell.args, {
       cwd: dir,
-      env: suiteEnv(scratch),
+      env,
       timeoutMs: budgetSecs * 1000,
       detached: true,
       killGroupOnFinish: true,
       backstopMs: 30_000,
+      progressStage: progress ? stage : undefined,
     });
     const secs = Math.round((Date.now() - t0) / 1000);
     if (r.timedOut) {
@@ -1265,6 +1298,15 @@ function runVerifyImpl(opts: VerifyOpts): number {
     return 2;
   }
   const isolated = verifierBackend.kind === 'container';
+  let cargoTargets: Record<'visible' | 'pristine', string> | undefined;
+  if (opts.cargoTargetRoot !== undefined) {
+    if (isolated) return cannotVerify('INVALID_ARGUMENTS', '--cargo-target-root is supported only by the checkpointed-local backend');
+    try {
+      cargoTargets = cargoStageTargets(opts.cargoTargetRoot, cwd);
+    } catch (e) {
+      return cannotVerify('INVALID_ARGUMENTS', `cannot configure Cargo stage targets (${e instanceof Error ? e.message : String(e)})`);
+    }
+  }
   if (!isolated && !localVerifierShell(process.platform, cmd)) {
     opts.onVerdict?.({ verdict: 'CANNOT_VERIFY', reason: 'LOCAL_VERIFIER_UNSUPPORTED_PLATFORM', detail: `checkpointed-local verifier is unsupported on ${process.platform}` });
     if (opts.json) {
@@ -1321,10 +1363,10 @@ function runVerifyImpl(opts: VerifyOpts): number {
     : null;
   const checkDeps = () =>
     dependencyEnvironment ? checkDependencyEnvironment(cwd, dependencyEnvironment) : { ok: true };
-  const runStage = opts.runStage ?? ((dir: string): RunResult =>
+  const runStage = (dir: string, stage: 'visible' | 'pristine'): RunResult => opts.runStage ? opts.runStage(dir) :
     isolated
-      ? runContainerStage(verifierBackend, dir, cmd, budget)
-      : runLocalSuite(dir, cmd, budget));
+      ? runContainerStage(verifierBackend, dir, cmd, budget, opts.silent ? undefined : stage)
+      : runLocalSuite(dir, cmd, budget, stage, cargoTargets?.[stage], !opts.silent);
 
   // A stage that exits with a process still holding stdout open is not quiescent:
   // that process can still mutate the tree or verification material before the
@@ -1453,7 +1495,7 @@ function runVerifyImpl(opts: VerifyOpts): number {
     );
   }
 
-  const visible = runStage(visDir);
+  const visible = runStage(visDir, 'visible');
   if (visible.pipeHeldOpen) {
     cleanup([visRoot]);
     return notQuiescent('visible', visible);
@@ -1575,7 +1617,7 @@ function runVerifyImpl(opts: VerifyOpts): number {
   }
 
   const overlayBefore = overlayDigest(priDir, restored);
-  const pristine = runStage(priDir);
+  const pristine = runStage(priDir, 'pristine');
   if (pristine.pipeHeldOpen) {
     cleanup([visRoot, priRoot]);
     return notQuiescent('pristine', pristine);
@@ -1812,13 +1854,14 @@ export function parseVerify(args: string[]): VerifyOpts {
     if (a === '--json') o.json = true;
     else if (a === '--keep') o.keep = true;
     else if (a === '--require-ancestor') o.requireAncestor = true;
-    else if (a === '--base' || a === '--cmd' || a === '--cwd' || a === '--budget') {
+    else if (a === '--base' || a === '--cmd' || a === '--cwd' || a === '--budget' || a === '--cargo-target-root') {
       const v = value(i, a);
       if (v === undefined) continue;
       i++;
       if (a === '--base') o.base = v;
       else if (a === '--cmd') o.cmd = v;
       else if (a === '--cwd') o.cwd = v;
+      else if (a === '--cargo-target-root') o.cargoTargetRoot = v;
       else {
         o.budget = Number(v);
         if (!Number.isFinite(o.budget) || o.budget <= 0)

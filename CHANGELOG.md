@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.43.0] — 2026-10-13
+
+### Added
+
+- `verify --cargo-target-root <dir>` configures distinct persistent visible/pristine
+  Cargo output directories for checkpointed-local verification. Rejects roots in the
+  checkout, aliased stage directories and use with the container backend. Both full
+  suites and all existing verdict rules remain active; mutable build outputs are not
+  attested or a new same-UID isolation guarantee.
+- Trusted verifier progress on stderr at stage start and every 30 seconds, with elapsed
+  time and output byte counts. Candidate streams remain bounded and buffered, JSON
+  stdout remains one document, and nested silent verification stays quiet.
+
 ## [2.42.0] — 2026-10-13
 
 ### Added

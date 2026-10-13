@@ -428,3 +428,19 @@ evidence that any counted trajectory used them: no such use has been looked for
 in the transcripts, and this note describes what was possible, not what happened.
 What it does mean is that the disclosure covering rounds 2, 3 and 3.1 should be
 read as covering the verifier's isolation as well as its materialisation rule.
+
+## Operator-owned Cargo output reuse
+
+`verify --cargo-target-root <dir>` opts the checkpointed-local backend into persistent
+Cargo outputs. Visible and pristine receive different canonical, non-symlink child
+directories outside the checkout. Visible outputs are not copied into pristine, and a
+missing or replaced stage directory fails closed before that stage executes. Neither
+suite, overlay, timeout, quiescence check nor exit-code decision changes.
+
+These outputs are mutable operator inputs outside dependency attestation. Candidate
+code in checkpointed-local mode has the same UID and can address external paths; the
+two target directories are an accidental-contamination control, not isolation against
+that code. CI should cache dependency crates only, never workspace binaries, and not
+save failed runs. An operator requiring fresh outputs omits the flag and unsets
+`CARGO_TARGET_DIR`; container mode refuses this host-output option. Progress uses only
+trusted phase names, elapsed time and byte counters on stderr, never candidate text.
