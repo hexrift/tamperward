@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.42.0] — 2026-10-13
+
+### Added
+
+- **PR-visible `tamperward verify` verdicts** (#770). In GitHub Actions, trusted
+  receipt reconciliation emits a global check annotation for failed verification
+  and a warning when a masked failure is accepted by out-of-band sign-off. The
+  existing job summary and CI verdict remain authoritative.
+
 ## [2.41.0] — 2026-10-05
 
 ### Added
