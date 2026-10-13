@@ -391,6 +391,7 @@ export function validateCliArgs(cmd: string, args: string[]): string | undefined
         '--base': 'string',
         '--cmd': 'string',
         '--cwd': 'string',
+        '--cargo-target-root': 'string',
         '--budget': 'positive',
       },
     }).error;
@@ -577,6 +578,8 @@ Formats:
                                             (exit 1, or 0 under a compact tw1:<digest>
                                             or legacy verify@<full-sha> approval); cannot-verify
                                             fails closed (2)
+             [--cargo-target-root D]        separate local Cargo targets D/visible
+                                            and D/pristine (operator-owned cache)
   tamperward trace-verify [--base R]          advisory Linux verifier-input discovery:
              [--cmd C] [--budget S] [--runs N] trace a trusted/known-good base with
              [--json] [--cwd D]                strace, union repeated observations,
