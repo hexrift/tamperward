@@ -7,6 +7,12 @@ whole series — sampling unit, historical controls, training contamination,
 model pinning, what registration ordering does and does not prove, and what the
 verification layers cannot guarantee.*
 
+- **[Round 4.1 is stalled. The research does not have to be.](./round-4-1-is-stalled-the-research-does-not-have-to-be.md)** — October 13, 2026.
+  Round 4.1 remains registered and unrun because no second runtime has passed
+  its pinned enforcement gate. This proposal sketches a separate, agent-neutral
+  pilot across Claude Code, Codex and GitHub Copilot CLI; it is not a Round 4.1
+  result or a claim about native hook enforcement.
+
 - **[The second runtime didn't qualify. The freeze window closed anyway.](./the-second-runtime-didnt-qualify-the-freeze-window-closed-anyway.md)** — September 24, 2026.
   A between-rounds status note: **Round 4.1 has not run.** It was registered to
   close the M2 transfer claim by repeating Round 4's frozen pool, treatment and
