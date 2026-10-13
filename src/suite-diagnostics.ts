@@ -51,6 +51,8 @@ export interface CapturedProcessOptions {
    *  finishing anyway, so a descendant holding a pipe open cannot stall it.
    *  Defaults to 1000. */
   drainMs?: number;
+  progressStage?: 'visible' | 'pristine';
+  progressIntervalMs?: number;
 }
 
 const EMPTY_STREAM: StreamDiagnostics = {
@@ -278,6 +280,16 @@ let timedOut = false;
 let exitInfo = { exit: null, signal: null };
 let descendantTracker = null;
 let drainTimer = null;
+let progressTimer = null;
+const started = Date.now();
+function progress() {
+  if (cfg.progressStage !== 'visible' && cfg.progressStage !== 'pristine') return;
+  try {
+    fs.writeSync(2, 'verify: ' + cfg.progressStage + ' suite running (' +
+      Math.floor((Date.now() - started) / 1000) + 's; ' +
+      (stdout.total + stderr.total) + ' output bytes captured)\n');
+  } catch {}
+}
 
 function killOwned() {
   if (!child || !child.pid) return;
@@ -300,6 +312,7 @@ function finish(extra) {
   done = true;
   if (descendantTracker) clearInterval(descendantTracker);
   if (drainTimer) clearTimeout(drainTimer);
+  if (progressTimer) clearInterval(progressTimer);
   // fd 1 is the reserved result channel (suite streams are separate pipes).
   // Write synchronously: process.stdout.write is async on a POSIX pipe, so an
   // immediate process.exit(0) can truncate the result before it flushes.
@@ -338,6 +351,11 @@ try {
 }
 
 if (child) {
+  if (cfg.progressStage === 'visible' || cfg.progressStage === 'pristine') {
+    progress();
+    progressTimer = setInterval(progress, Number(cfg.progressIntervalMs) || 30000);
+    progressTimer.unref();
+  }
   if (process.platform === 'linux') {
     trackDescendants();
     descendantTracker = setInterval(trackDescendants, 5);
@@ -433,6 +451,8 @@ export function runCapturedProcessSync(
         killGroupOnFinish: Boolean(opts.killGroupOnFinish),
         drainMs: opts.drainMs ?? 1000,
         captureBytes: DIAGNOSTIC_TAIL_BYTES,
+        progressStage: opts.progressStage,
+        progressIntervalMs: opts.progressIntervalMs,
       }),
       { mode: 0o600 },
     );
@@ -444,7 +464,7 @@ export function runCapturedProcessSync(
         cwd: opts.cwd,
         env: opts.env,
         encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'ignore'],
+        stdio: ['ignore', 'pipe', opts.progressStage ? 'inherit' : 'ignore'],
         // The trusted result is at most two 16 KiB tails plus small metadata.
         // A candidate that somehow writes into the supervisor's stdout through
         // same-UID /proc can only overflow/corrupt this bounded channel and make

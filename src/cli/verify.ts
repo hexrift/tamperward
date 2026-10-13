@@ -1007,7 +1007,7 @@ export function localVerifierShell(
   }
 }
 
-function runLocalSuite(dir: string, cmd: string, budgetSecs: number): RunResult {
+function runLocalSuite(dir: string, cmd: string, budgetSecs: number, stage?: 'visible' | 'pristine'): RunResult {
   const t0 = Date.now();
   const shell = localVerifierShell(process.platform, cmd);
   if (!shell) {
@@ -1027,6 +1027,7 @@ function runLocalSuite(dir: string, cmd: string, budgetSecs: number): RunResult 
       detached: true,
       killGroupOnFinish: true,
       backstopMs: 30_000,
+      progressStage: stage,
     });
     const secs = Math.round((Date.now() - t0) / 1000);
     if (r.timedOut) {
@@ -1321,10 +1322,10 @@ function runVerifyImpl(opts: VerifyOpts): number {
     : null;
   const checkDeps = () =>
     dependencyEnvironment ? checkDependencyEnvironment(cwd, dependencyEnvironment) : { ok: true };
-  const runStage = opts.runStage ?? ((dir: string): RunResult =>
+  const runStage = (dir: string, stage: 'visible' | 'pristine'): RunResult => opts.runStage ? opts.runStage(dir) :
     isolated
-      ? runContainerStage(verifierBackend, dir, cmd, budget)
-      : runLocalSuite(dir, cmd, budget));
+      ? runContainerStage(verifierBackend, dir, cmd, budget, opts.silent ? undefined : stage)
+      : runLocalSuite(dir, cmd, budget, opts.silent ? undefined : stage);
 
   // A stage that exits with a process still holding stdout open is not quiescent:
   // that process can still mutate the tree or verification material before the
@@ -1453,7 +1454,7 @@ function runVerifyImpl(opts: VerifyOpts): number {
     );
   }
 
-  const visible = runStage(visDir);
+  const visible = runStage(visDir, 'visible');
   if (visible.pipeHeldOpen) {
     cleanup([visRoot]);
     return notQuiescent('visible', visible);
@@ -1575,7 +1576,7 @@ function runVerifyImpl(opts: VerifyOpts): number {
   }
 
   const overlayBefore = overlayDigest(priDir, restored);
-  const pristine = runStage(priDir);
+  const pristine = runStage(priDir, 'pristine');
   if (pristine.pipeHeldOpen) {
     cleanup([visRoot, priRoot]);
     return notQuiescent('pristine', pristine);

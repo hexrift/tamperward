@@ -494,6 +494,7 @@ export function runContainerStage(
   dir: string,
   command: string,
   budgetSecs: number,
+  progressStage?: 'visible' | 'pristine',
 ): BackendRunResult {
   const t0 = Date.now();
   if (
@@ -535,6 +536,7 @@ export function runContainerStage(
         env: engineClientEnv(),
         timeoutMs: budgetSecs * 1000,
         backstopMs: 30_000,
+        progressStage,
       },
     );
     const secs = Math.round((Date.now() - t0) / 1000);
