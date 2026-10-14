@@ -108,6 +108,7 @@ export default defineConfig({
             { text: 'All posts', link: '/blog/' },
             { text: 'Limitations', link: '/blog/limitations' },
             { text: 'Errata', link: '/blog/errata' },
+            { text: 'Round 4.1 is stalled. The research does not have to be.', link: '/blog/round-4-1-is-stalled-the-research-does-not-have-to-be' },
             { text: "The second runtime didn't qualify. The freeze window closed anyway.", link: '/blog/the-second-runtime-didnt-qualify-the-freeze-window-closed-anyway' },
             { text: "The prevention bet didn't replicate. No surviving tampering was certified clean.", link: '/blog/the-prevention-bet-didnt-replicate-no-surviving-tampering-was-certified-clean' },
             { text: 'How round 4 is built to be hard to fool', link: '/blog/how-round-4-is-built-to-be-hard-to-fool' },
