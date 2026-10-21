@@ -7,7 +7,7 @@ unresolved" above them — they are open items, not dated corrections.
 
 ## Known, unresolved
 
-Three inconsistencies the audit surfaced that the repository's artifacts
+Two inconsistencies the audit surfaced that the repository's artifacts
 cannot decide. They are recorded here rather than silently "fixed",
 because a correction we cannot verify is just a second guess:
 
@@ -23,9 +23,6 @@ because a correction we cannot verify is just a second guess:
    refuted" where the post's own closing tally is seven of twelve across
    all its registrations; no artifact pins which scope the index line
    intended.
-3. **The CHANGELOG carries no `## [1.7.0]` heading** — the 1.7.0 release
-   exists in git history, but its notes are folded into the 1.8.0 section.
-   A repo-record inconsistency rather than an article error.
 
 Also explicitly not re-verified (and so not certified by the audit): the
 seed-study outcome labels as scored by their oracles (verified only against
@@ -35,6 +32,16 @@ sets); and the negative claim over 58 of the 59 trajectories in the
 transient-mutation rescan.
 
 ## Corrections — newest first
+
+## 2026-10-21 — v1.7.0 changelog heading restored
+
+The v1.7.0 release notes had been folded into the v1.8.0 section. The heading
+`## [1.7.0] — 2026-08-30` is restored immediately before the
+`test-content-removal` notes, without changing the historical release prose.
+The [tagged changelog](https://github.com/hexrift/tamperward/blob/56951deb7d615b40f01ca95bc0668aa67666f3e1/CHANGELOG.md)
+and [published v1.7.0 release](https://github.com/hexrift/tamperward/releases/tag/v1.7.0)
+establish the heading, date and notes. This resolves the former third
+"Known, unresolved" item; the two publication-count uncertainties above remain open.
 
 ## 2026-09-09 — round 4 preregistration published; two mid-course deviations disclosed
 
