@@ -333,9 +333,9 @@ export function computeBinding(
     // file and `dependencies` walks the attested dependency roots, on EVERY call.
     // Right for `verify` (once per run) and reused there via `precomputed.tree`,
     // but `status` is meant to be polled continuously by a status bar/dashboard,
-    // where a large repository makes each poll a full read. A stat-cache identity
-    // (git's index plus hashing only what changed) is a deliberate follow-up, not
-    // built here.
+    // where a large repository makes each poll a full read. This is intentional
+    // (ADR 0002 / #752): clean index status and stat metadata cannot prove live
+    // bytes, and substituting blob ids would change existing verification digests.
     tree: precomputed?.tree ?? treeFingerprint(root, protectedIgnored),
     head,
     base,

@@ -1,6 +1,6 @@
-# Draft — Round 4.1 is stalled. The research does not have to be.
+# Round 4.1 is stalled. The research does not have to be.
 
-*Working draft · October 13, 2026 · hexrift*
+*October 14, 2026 · hexrift*
 
 > **Status:** This is a proposal, not a preregistration or a results post. The
 > next study's treatment, sample, analysis and predictions are not frozen. No
@@ -9,8 +9,9 @@
 > *Series-wide caveats — sampling unit, historical controls, training
 > contamination, model pinning, what registration order proves, and what the
 > verification layers cannot guarantee — are collected on the
-> [limitations page](https://github.com/hexrift/tamperward/blob/main/docs/blog/limitations.md). Published corrections are on the
-> [errata page](https://github.com/hexrift/tamperward/blob/main/docs/blog/errata.md).*
+> [limitations page](./limitations.md).
+> Published corrections are on the
+> [errata page](./errata.md).*
 
 *Short answer: Round 4.1 has not run. Its gate requires a second runtime to
 prove equivalent pre-action and end-of-turn enforcement on a pinned build, and
@@ -21,7 +22,7 @@ system help across Claude Code, Codex and GitHub Copilot CLI? That is a
 different treatment and a different study. It cannot be relabelled as Round
 4.1 or as proof that their hooks are fail-closed.*
 
-This follows [the status post that explained why Round 4.1 did not qualify](https://github.com/hexrift/tamperward/blob/main/docs/blog/the-second-runtime-didnt-qualify-the-freeze-window-closed-anyway.md)
+This follows [the status post that explained why Round 4.1 did not qualify](./the-second-runtime-didnt-qualify-the-freeze-window-closed-anyway.md)
 and its [outcomes-known registration](https://github.com/hexrift/tamperward/blob/main/harness/taskbench/round4.1/PREDICTION4.1-taskbench.md).
 The registration remains the authority for Round 4.1. This post does not amend
 it.
@@ -108,7 +109,7 @@ a proposal; and no result should be inferred from either statement.
 *Design of record for Round 4.1:
 [`PREDICTION4.1-taskbench.md`](https://github.com/hexrift/tamperward/blob/main/harness/taskbench/round4.1/PREDICTION4.1-taskbench.md).
 Runtime evidence and qualification rules:
-[`runtime-adapters.md`](https://github.com/hexrift/tamperward/blob/main/docs/guide/runtime-adapters.md). Round 4's sealed
-result remains in [`ROUND4-RESULTS.json`](https://github.com/hexrift/tamperward/blob/main/harness/taskbench/round4/ROUND4-RESULTS.json).
-This draft changes none of those records and is not linked from the published
-blog index.*
+[`runtime-adapters.md`](../guide/runtime-adapters.md).
+Round 4's sealed result remains in
+[`ROUND4-RESULTS.json`](https://github.com/hexrift/tamperward/blob/main/harness/taskbench/round4/ROUND4-RESULTS.json).
+This post changes none of those records.*
