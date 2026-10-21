@@ -35,17 +35,14 @@ export function treeFingerprint(cwd: string, keepIgnored?: (rel: string) => bool
   const files = [...new Set([...listed, ...(keepIgnored ? ignoredPaths({ cwd }, keepIgnored) : [])])].sort();
   const h = createHash('sha256');
   for (const rel of files) {
-    h.update(rel);
-    h.update('\0');
     const entry = inspectRel(cwd, rel);
     // Content alone aliases identities that execute differently: 0644 vs 0755,
     // a regular file vs a symlink with identical bytes, and an unreadable special
     // file vs another unreadable kind. Hash type + complete stat mode as well as
     // git-recordable content; never use mtime/size as a substitute for bytes.
-    h.update(entry.kind);
-    h.update('\0');
-    h.update(String(entry.mode));
-    h.update('\0');
+    // Batch the framing into one native hash update. Keep the raw content read:
+    // index blob ids, clean status and stat metadata cannot prove these bytes.
+    h.update(`${rel}\0${entry.kind}\0${entry.mode}\0`);
     h.update(entry.content ?? `<${entry.kind}:${entry.detail}>`);
     h.update('\0');
   }

@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.43.1] — 2026-10-21
+
+### Changed
+
+- Batch tree-fingerprint metadata framing into one hash update per file (#752).
+  Digests remain byte-identical and every file is still read through the guarded
+  disk reader. ADR 0002 records why index/stat/cache shortcuts are not used;
+  regressions cover hidden tracked edits and normalized Git blobs.
+
 ## [2.43.0] — 2026-10-13
 
 ### Added
