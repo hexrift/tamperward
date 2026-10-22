@@ -71,6 +71,7 @@ export default defineConfig({
             { text: 'The rules', link: '/guide/rules' },
             { text: 'Enforcement & sign-off', link: '/guide/enforcement' },
             { text: 'Signed verdict statements', link: '/guide/attestation' },
+            { text: 'Organisation policy floor', link: '/guide/organisation-policy' },
             { text: 'Runtime adapters', link: '/guide/runtime-adapters' },
             { text: 'Environment variables', link: '/guide/environment' },
             { text: 'Audit history & stats', link: '/guide/audit' },
