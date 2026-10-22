@@ -72,6 +72,7 @@ export default defineConfig({
             { text: 'Enforcement & sign-off', link: '/guide/enforcement' },
             { text: 'Signed verdict statements', link: '/guide/attestation' },
             { text: 'Organisation policy floor', link: '/guide/organisation-policy' },
+            { text: 'Independent function oracle', link: '/guide/external-oracle' },
             { text: 'Runtime adapters', link: '/guide/runtime-adapters' },
             { text: 'Environment variables', link: '/guide/environment' },
             { text: 'Audit history & stats', link: '/guide/audit' },
