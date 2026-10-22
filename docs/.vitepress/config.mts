@@ -70,6 +70,7 @@ export default defineConfig({
             { text: 'Getting started', link: '/guide/getting-started' },
             { text: 'The rules', link: '/guide/rules' },
             { text: 'Enforcement & sign-off', link: '/guide/enforcement' },
+            { text: 'Signed verdict statements', link: '/guide/attestation' },
             { text: 'Runtime adapters', link: '/guide/runtime-adapters' },
             { text: 'Environment variables', link: '/guide/environment' },
             { text: 'Audit history & stats', link: '/guide/audit' },

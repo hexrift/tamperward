@@ -21,6 +21,7 @@ import { runRuntime, parseRuntime, RUNTIME_SUBCOMMANDS } from './runtime';
 import { runReceipt, RECEIPT_SUBCOMMANDS } from './receipt';
 import { runStats, type StatsOpts } from './audit';
 import { runMeasureSuite } from './measure-suite';
+import { runAttestation } from './attestation';
 import { runSignoffLabel, SignoffLabelOpts } from './signoff-label';
 
 function parseAllow(args: string[]): AllowOpts {
@@ -629,12 +630,16 @@ Formats:
   tamperward research bundle --validate F   structurally and provenance-validate a bundle
   tamperward research validate --bundle F   alias for bundle validation
   tamperward stats [--file F] [--since 30d] aggregate privacy-safe hook/sweep audit
-  tamperward measure-suite --cmd C [--budget S] time a bare suite in the live checkout
              [--json] [--cwd D]              events by rule and enforcement surface.
                                              Defaults to the repository-local
                                              .git/tamperward/audit.jsonl (or
                                              TAMPERWARD_AUDIT_LOG). A finding is an
                                              integrity signal, not proof of agent intent.
+  tamperward measure-suite --cmd C [--budget S] time a bare suite in the live checkout
+  tamperward attestation sign --payload F --key K --out F
+                                            sign a trusted CI verdict with an external Ed25519 key
+  tamperward attestation verify --statement F --key K --expect F
+                                            require a trusted public key and exact fresh binding
   tamperward allow <rule> --reason "..."    record a human sign-off (local audit ledger)
              [--file F] [--cwd D]
   tamperward signoff-label --rule <rule> --head <sha> [--file F]
@@ -768,6 +773,8 @@ export function main(argv: string[]): number | Promise<number> {
       return runStats(parseStats(rest));
     case 'measure-suite':
       return runMeasureSuite(rest);
+    case 'attestation':
+      return runAttestation(rest);
     case 'status':
       return runStatus(parseStatus(rest));
     case 'onboard':
