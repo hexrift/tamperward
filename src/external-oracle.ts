@@ -57,7 +57,7 @@ const request = JSON.parse(Buffer.from(process.argv[1], 'base64').toString('utf8
     return v;
   });
   process.stdout.write(encoded + '\\n');
-})().catch(() => { process.exitCode = 1; });
+})().catch(error => { console.error(error); process.exitCode = 1; });
 `;
 export function oracleProgram(request: OracleRequest): ContainerProgram {
   // Fixed program text and request data are separate argv entries. Neither a

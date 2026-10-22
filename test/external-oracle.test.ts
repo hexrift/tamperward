@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import * as backend from '../src/verifier-backend';
 import { runExternalOracle } from '../src/cli/oracle';
 import { evaluateOracleCases, oracleProgram, ORACLE_WORKER, parseOraclePlan, type OracleRequest } from '../src/external-oracle';
-import { emptySuiteDiagnostics } from '../src/suite-diagnostics';
+import { emptySuiteDiagnostics, runCapturedProcessSync } from '../src/suite-diagnostics';
 import type { BackendRunResult } from '../src/verifier-backend';
 
 const image = 'registry.invalid/node@sha256:' + 'a'.repeat(64);
@@ -22,6 +22,13 @@ function response(request: OracleRequest, value: unknown, rawText?: string): Bac
   return { exit: 0, secs: 0, diagnostics };
 }
 describe('independent JSON RPC oracle controller (#782)', () => {
+  it('accepts a fractional remaining budget through the real capture supervisor', () => {
+    const result = runCapturedProcessSync(process.execPath, ['-e', 'process.stdout.write("42")'], {
+      cwd: process.cwd(), env: process.env, timeoutMs: 4999.75,
+    });
+    expect(result.exit).toBe(0);
+    expect(result.diagnostics.stdout.tail).toBe('42');
+  });
   it('passes hostile request strings only as data, never shell or worker source', () => {
     const request: OracleRequest = { module: 'src/answer.cjs', export: 'answer', nonce: 'a'.repeat(32), args: ["'); process.exit(19); //", '$(exit 19)', '`exit 19`', '\n\"\\'] };
     const program = oracleProgram(request);

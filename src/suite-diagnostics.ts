@@ -470,7 +470,10 @@ export function runCapturedProcessSync(
         // same-UID /proc can only overflow/corrupt this bounded channel and make
         // parsing fail closed; its suite streams are never inherited here.
         maxBuffer: 256 * 1024,
-        timeout: opts.timeoutMs + backstop,
+        // Remaining oracle budgets come from a monotonic clock and may have
+        // fractional milliseconds. Node's synchronous backstop requires an
+        // integer; keep the actual supervisor budget above unchanged.
+        timeout: Math.ceil(opts.timeoutMs + backstop),
         killSignal: 'SIGKILL',
       },
     );
