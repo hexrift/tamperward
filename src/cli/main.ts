@@ -22,6 +22,7 @@ import { runReceipt, RECEIPT_SUBCOMMANDS } from './receipt';
 import { runStats, type StatsOpts } from './audit';
 import { runMeasureSuite } from './measure-suite';
 import { runAttestation } from './attestation';
+import { runOracle } from './oracle';
 import { runSignoffLabel, SignoffLabelOpts } from './signoff-label';
 
 function parseAllow(args: string[]): AllowOpts {
@@ -636,6 +637,8 @@ Formats:
                                              TAMPERWARD_AUDIT_LOG). A finding is an
                                              integrity signal, not proof of agent intent.
   tamperward measure-suite --cmd C [--budget S] time a bare suite in the live checkout
+  tamperward oracle --manifest F --sha256 H [--cwd D]
+                                            independent container-backed JSON function oracle
   tamperward attestation sign --payload F --key K --out F
                                             sign a trusted CI verdict with an external Ed25519 key
   tamperward attestation verify --statement F --key K --expect F
@@ -775,6 +778,8 @@ export function main(argv: string[]): number | Promise<number> {
       return runMeasureSuite(rest);
     case 'attestation':
       return runAttestation(rest);
+    case 'oracle':
+      return runOracle(rest);
     case 'status':
       return runStatus(parseStatus(rest));
     case 'onboard':

@@ -1,5 +1,11 @@
 # Threat model — what the pristine run inherits from the agent
 
+**Separate opt-in protocol from 2.47.0:** the
+[independent JSON function oracle](./guide/external-oracle.md) completes assertions
+on the trusted host while candidate response code runs in a container. Its scope is
+finite CommonJS JSON function-response cases. It does not change the default suite
+runner or remove the `suite-exit-only` limitation documented below for `verify`.
+
 **Status: closed in 1.14.2 by option B below.** As of **1.14.1** six vectors were
 live in the shipped verifier, demonstrated end to end; 1.14.2 gives `verify` a
 verification surface and all six are blocked. This document records what was

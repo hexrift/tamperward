@@ -1,5 +1,24 @@
 # Changelog
 
+## [2.47.0] — 2026-10-22
+
+### Added
+
+- `oracle --manifest F --sha256 H` adds an independent host-completed JSON RPC
+  oracle for CommonJS function endpoints (#782). Expected values stay outside the
+  isolated candidate container; every planned response must pass a trusted host
+  comparison. Missing, malformed, replayed, partial or truncated responses and
+  early successful process exit fail closed. This opt-in profile does not upgrade
+  arbitrary test frameworks: ordinary `verify` remains `suite-exit-only`. The
+  candidate controls RPC values; finite-case hardcoding and host/container escapes
+  remain outside the claim. A pinned external plan and trusted CI host are required.
+
+### Fixed
+
+- Keep oracle worker source separate from request data with a shell-free Node
+  invocation. Accept fractional remaining budgets in the capture supervisor's
+  integer-only synchronous backstop without changing its actual execution budget.
+
 ## [2.46.0] — 2026-10-22
 
 ### Added

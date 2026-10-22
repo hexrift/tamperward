@@ -506,7 +506,7 @@ function rejectLinkedParent(cwd: string, rel: string): void {
  * files retain bytes/mode; safe relative links retain their exact link target;
  * unrepresentable links and special files fail closed. node_modules remains a
  * deliberate same-domain dependency link until the isolated backend replaces it. */
-function materialize(cwd: string, dest: string, dependencyRoot: string | null): void {
+export function materialize(cwd: string, dest: string, dependencyRoot: string | null): void {
   const listed = workingTreePaths(cwd);
   if (
     dependencyRoot &&

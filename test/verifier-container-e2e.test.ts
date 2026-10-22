@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import Ajv2020 from 'ajv/dist/2020.js';
 import { execFileSync } from 'node:child_process';
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -6,6 +7,9 @@ import { join } from 'node:path';
 import { runVerify } from '../src/cli/verify';
 import { runEnvelope } from '../src/cli/run';
 import { prepareVerifierBackend, type PreparedVerifierBackend } from '../src/verifier-backend';
+import * as verifierBackend from '../src/verifier-backend';
+import { createHash } from 'node:crypto';
+import { runExternalOracle } from '../src/cli/oracle';
 
 const ENABLED = process.env.TAMPERWARD_CONTAINER_E2E === '1';
 const containerIt = it.skipIf(!ENABLED);
@@ -13,6 +17,32 @@ const BASE_IMAGE = 'node@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e
 
 const dirs: string[] = [];
 const originalHelper = process.env.TW_HELPER;
+
+describe('external oracle completion outside candidate control (#782)', () => {
+  containerIt('checks correct/wrong values and refuses a candidate early exit that would green an in-process suite', () => {
+    const { cwd } = repo();
+    const control = mkdtempSync(join(tmpdir(), 'tw-trusted-oracle-')); dirs.push(control);
+    const manifest = join(control, 'plan.json');
+    const bytes = JSON.stringify({ protocol: 'node-json-rpc-v1', image: BASE_IMAGE, budget_secs: 30, cases: [{ module: 'rpc.cjs', export: 'answer', args: [manifest], expected: 42 }] });
+    writeFileSync(manifest, bytes);
+    const sha256 = createHash('sha256').update(bytes).digest('hex');
+    const output = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    const execution = vi.spyOn(verifierBackend, 'runContainerStage');
+    // The candidate cannot read the host-only expected-value manifest.
+    writeFileSync(join(cwd, 'rpc.cjs'), "exports.answer = path => require('fs').existsSync(path) ? 0 : 42;\n");
+    const code = runExternalOracle({ cwd, manifest, sha256 });
+    expect(code, JSON.stringify({ report: String(output.mock.calls.at(-1)?.[0]), execution: execution.mock.results })).toBe(0);
+    expect(JSON.parse(String(output.mock.calls.at(-1)?.[0]))).toMatchObject({ verdict: 'VERIFIED', completed: 1, passed: 1 });
+    const validate = new Ajv2020({ strict: true }).compile(JSON.parse(readFileSync(join(__dirname, '../schemas/oracle-v1.schema.json'), 'utf8')));
+    expect(validate(JSON.parse(String(output.mock.calls.at(-1)?.[0]))), JSON.stringify(validate.errors)).toBe(true);
+    writeFileSync(join(cwd, 'rpc.cjs'), 'exports.answer = () => 0;\n');
+    expect(runExternalOracle({ cwd, manifest, sha256 })).toBe(1);
+    expect(JSON.parse(String(output.mock.calls.at(-1)?.[0]))).toMatchObject({ verdict: 'ORACLE_RED', passed: 0 });
+    writeFileSync(join(cwd, 'rpc.cjs'), 'process.exit(0); exports.answer = () => 0;\n');
+    expect(runExternalOracle({ cwd, manifest, sha256 })).toBe(2);
+    expect(JSON.parse(String(output.mock.calls.at(-1)?.[0]))).toMatchObject({ verdict: 'CANNOT_VERIFY', completed: 0, passed: 0 });
+  }, 120_000);
+});
 
 afterEach(() => {
   vi.restoreAllMocks();
