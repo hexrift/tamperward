@@ -8,7 +8,7 @@ import { repoRoot } from '../repo-context';
 import { treeFingerprint } from '../fingerprint';
 import { trustedGitEnv } from '../git/trusted';
 import { prepareVerifierBackend, runContainerStage } from '../verifier-backend';
-import { evaluateOracleCases, oracleCommand, parseOraclePlan, type OracleEvaluation } from '../external-oracle';
+import { evaluateOracleCases, oracleProgram, parseOraclePlan, type OracleEvaluation } from '../external-oracle';
 import { materialize, probeFilesystemCaseSensitivity } from './verify';
 
 export interface ExternalOracleOpts { cwd: string; manifest: string; sha256: string }
@@ -50,7 +50,7 @@ export function runExternalOracle(opts: ExternalOracleOpts): number {
       if (source.kind !== copy.kind || source.mode !== copy.mode || !source.content || !copy.content || !source.content.equals(copy.content)) throw new Error('oracle snapshot changed');
     }
     if (treeFingerprint(cwd) !== tree || git(['rev-parse', 'HEAD']).trim() !== head) throw new Error('oracle candidate changed during snapshot');
-    const result = evaluateOracleCases(plan, (request, budget) => runContainerStage(backend, snapshot, oracleCommand(request), budget));
+    const result = evaluateOracleCases(plan, (request, budget) => runContainerStage(backend, snapshot, oracleProgram(request), budget));
     if (treeFingerprint(cwd) !== tree || git(['rev-parse', 'HEAD']).trim() !== head) throw new Error('oracle candidate changed during evaluation');
     return emit(result, { head, tree, manifest: opts.sha256, image: plan.image });
   } catch {

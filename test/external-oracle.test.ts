@@ -1,12 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import Ajv2020 from 'ajv/dist/2020.js';
 import { createHash } from 'node:crypto';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import * as backend from '../src/verifier-backend';
 import { runExternalOracle } from '../src/cli/oracle';
-import { evaluateOracleCases, oracleCommand, parseOraclePlan, type OracleRequest } from '../src/external-oracle';
+import { evaluateOracleCases, oracleProgram, ORACLE_WORKER, parseOraclePlan, type OracleRequest } from '../src/external-oracle';
 import { emptySuiteDiagnostics } from '../src/suite-diagnostics';
 import type { BackendRunResult } from '../src/verifier-backend';
 
@@ -21,6 +22,54 @@ function response(request: OracleRequest, value: unknown, rawText?: string): Bac
   return { exit: 0, secs: 0, diagnostics };
 }
 describe('independent JSON RPC oracle controller (#782)', () => {
+  it('passes hostile request strings only as data, never shell or worker source', () => {
+    const request: OracleRequest = { module: 'src/answer.cjs', export: 'answer', nonce: 'a'.repeat(32), args: ["'); process.exit(19); //", '$(exit 19)', '`exit 19`', '\n\"\\'] };
+    const program = oracleProgram(request);
+    expect(program.executable).toBe('/usr/local/bin/node');
+    expect(program.args.slice(0, 2)).toEqual(['-e', ORACLE_WORKER]);
+    expect(program.args).toHaveLength(3);
+    expect(JSON.parse(Buffer.from(program.args[2], 'base64').toString('utf8'))).toEqual(request);
+    const argv = backend.containerRunArgs({ image, name: 'test', workspace: '/snapshot', command: program, uid: 1000, gid: 1000 });
+    expect(argv.slice(-6)).toEqual(['--entrypoint', program.executable, image, ...program.args]);
+    expect(argv).not.toContain('/bin/sh');
+  });
+  it('materializes a real repository before invoking the independent controller', () => {
+    const root = mkdtempSync(join(tmpdir(), 'tw-oracle-snapshot-')); dirs.push(root);
+    const cwd = join(root, 'candidate'); mkdirSync(cwd);
+    const git = (...args: string[]) => execFileSync('git', args, { cwd });
+    git('init', '-q'); git('config', 'user.name', 'test'); git('config', 'user.email', 'test@example.invalid');
+    writeFileSync(join(cwd, 'answer.cjs'), 'exports.answer = n => n * 2;\n');
+    git('add', '.'); git('commit', '-qm', 'fixture');
+    const plan = raw(); plan.cases[0].module = 'answer.cjs';
+    const manifest = join(root, 'plan.json'), bytes = JSON.stringify(plan); writeFileSync(manifest, bytes);
+    const sha256 = createHash('sha256').update(bytes).digest('hex');
+    vi.spyOn(backend, 'prepareVerifierBackend').mockReturnValue({ kind: 'container', trust: 'isolated-container', available: true, image });
+    const invoke = vi.spyOn(backend, 'runContainerStage').mockImplementation((_backend, snapshot, program) => {
+      expect(readFileSync(join(snapshot, 'answer.cjs'), 'utf8')).toBe('exports.answer = n => n * 2;\n');
+      if (typeof program === 'string') throw new Error('unexpected shell command');
+      return response(JSON.parse(Buffer.from(program.args[2], 'base64').toString('utf8')), 42);
+    });
+    const output = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    const code = runExternalOracle({ cwd, manifest, sha256 });
+    expect(code, String(output.mock.calls.at(-1)?.[0])).toBe(0);
+    expect(invoke).toHaveBeenCalledOnce();
+  });
+  it('the actual worker emits a JSON frame and a real newline, not escaped delimiter text', () => {
+    // Substitute only module resolution for the container's /workspace mount;
+    // execute the exact worker bytes and real Node stdout transport.
+    const fixture = `const Module = require('node:module'); const original = Module._load;
+      Module._load = function(name, ...args) {
+        if (name === '/workspace/src/answer.cjs') return { answer: n => n * 2 };
+        return original.call(this, name, ...args);
+      };`;
+    const result = evaluateOracleCases(parseOraclePlan(raw()), request => {
+      const child = spawnSync(process.execPath, ['-e', fixture + ORACLE_WORKER, Buffer.from(JSON.stringify(request)).toString('base64')], { encoding: 'utf8', timeout: 5000, maxBuffer: 16384 });
+      expect(child.status, child.stderr).toBe(0);
+      expect(child.stdout.endsWith('\n')).toBe(true);
+      return response(request, 42, child.stdout);
+    });
+    expect(result.verdict).toBe('VERIFIED');
+  });
   it('validates published contracts and refuses candidate-owned plans before execution', () => {
     const root = mkdtempSync(join(tmpdir(), 'tw-oracle-plan-')); dirs.push(root);
     const cwd = join(root, 'candidate'); mkdirSync(cwd);
@@ -45,7 +94,7 @@ describe('independent JSON RPC oracle controller (#782)', () => {
     const result = evaluateOracleCases(plan, request => {
       expect(request).not.toHaveProperty('expected');
       expect(Object.keys(request).sort()).toEqual(['args', 'export', 'module', 'nonce']);
-      expect(oracleCommand(request)).not.toContain('expected');
+      expect(Buffer.from(oracleProgram(request).args[2], 'base64').toString('utf8')).not.toContain('expected');
       return response(request, Number(request.args[0]) * 2);
     });
     expect(result).toEqual({ verdict: 'VERIFIED', planned: 1, completed: 1, passed: 1 });

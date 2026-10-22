@@ -22,13 +22,14 @@ describe('external oracle completion outside candidate control (#782)', () => {
     const { cwd } = repo();
     const control = mkdtempSync(join(tmpdir(), 'tw-trusted-oracle-')); dirs.push(control);
     const manifest = join(control, 'plan.json');
-    const bytes = JSON.stringify({ protocol: 'node-json-rpc-v1', image: BASE_IMAGE, budget_secs: 30, cases: [{ module: 'rpc.cjs', export: 'answer', args: [], expected: 42 }] });
+    const bytes = JSON.stringify({ protocol: 'node-json-rpc-v1', image: BASE_IMAGE, budget_secs: 30, cases: [{ module: 'rpc.cjs', export: 'answer', args: [manifest], expected: 42 }] });
     writeFileSync(manifest, bytes);
     const sha256 = createHash('sha256').update(bytes).digest('hex');
     const output = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
     // The candidate cannot read the host-only expected-value manifest.
-    writeFileSync(join(cwd, 'rpc.cjs'), `exports.answer = () => require('fs').existsSync(${JSON.stringify(manifest)}) ? 0 : 42;\n`);
-    expect(runExternalOracle({ cwd, manifest, sha256 })).toBe(0);
+    writeFileSync(join(cwd, 'rpc.cjs'), "exports.answer = path => require('fs').existsSync(path) ? 0 : 42;\n");
+    const code = runExternalOracle({ cwd, manifest, sha256 });
+    expect(code, String(output.mock.calls.at(-1)?.[0])).toBe(0);
     expect(JSON.parse(String(output.mock.calls.at(-1)?.[0]))).toMatchObject({ verdict: 'VERIFIED', completed: 1, passed: 1 });
     const validate = new Ajv2020({ strict: true }).compile(JSON.parse(readFileSync(join(__dirname, '../schemas/oracle-v1.schema.json'), 'utf8')));
     expect(validate(JSON.parse(String(output.mock.calls.at(-1)?.[0]))), JSON.stringify(validate.errors)).toBe(true);

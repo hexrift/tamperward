@@ -396,11 +396,16 @@ function cleanupContainer(backend: PreparedVerifierBackend, name: string): void 
   }
 }
 
+export interface ContainerProgram {
+  executable: string;
+  args: string[];
+}
+
 export interface ContainerRunArgsInput {
   image: string;
   name: string;
   workspace: string;
-  command: string;
+  command: string | ContainerProgram;
   uid: number;
   gid: number;
   resources?: VerifierResourceLimits;
@@ -439,9 +444,9 @@ export function containerRunArgs(input: ContainerRunArgsInput): string[] {
     '--env', 'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
     // The image supplies immutable runtime/dependencies, not command policy.
     // Docker otherwise appends our command to an image ENTRYPOINT.
-    '--entrypoint', '/bin/sh',
+    '--entrypoint', typeof input.command === 'string' ? '/bin/sh' : input.command.executable,
     input.image,
-    '-c', input.command,
+    ...(typeof input.command === 'string' ? ['-c', input.command] : input.command.args),
   ];
 }
 
@@ -492,7 +497,7 @@ export function containerStateResult(
 export function runContainerStage(
   backend: PreparedVerifierBackend,
   dir: string,
-  command: string,
+  command: string | ContainerProgram,
   budgetSecs: number,
   progressStage?: 'visible' | 'pristine',
 ): BackendRunResult {

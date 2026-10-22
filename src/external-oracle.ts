@@ -4,7 +4,7 @@
 import { isDeepStrictEqual } from 'node:util';
 import { randomBytes } from 'node:crypto';
 import { isRecord } from './narrow';
-import type { BackendRunResult } from './verifier-backend';
+import type { BackendRunResult, ContainerProgram } from './verifier-backend';
 
 export interface OracleCase { module: string; export: string; args: unknown[]; expected: unknown }
 export interface OraclePlan { protocol: 'node-json-rpc-v1'; image: string; budget_secs: number; cases: OracleCase[] }
@@ -59,11 +59,10 @@ const request = JSON.parse(Buffer.from(process.argv[1], 'base64').toString('utf8
   process.stdout.write(encoded + '\\n');
 })().catch(() => { process.exitCode = 1; });
 `;
-export function oracleCommand(request: OracleRequest): string {
-  // Both interpolated strings are base64, never candidate shell syntax.
-  const worker = Buffer.from(ORACLE_WORKER).toString('base64');
-  const args = Buffer.from(JSON.stringify(request)).toString('base64');
-  return `node -e "eval(Buffer.from('${worker}','base64').toString('utf8'))" '${args}'`;
+export function oracleProgram(request: OracleRequest): ContainerProgram {
+  // Fixed program text and request data are separate argv entries. Neither a
+  // shell nor eval interprets any request field as JavaScript source.
+  return { executable: '/usr/local/bin/node', args: ['-e', ORACLE_WORKER, Buffer.from(JSON.stringify(request)).toString('base64')] };
 }
 export function evaluateOracleCases(plan: OraclePlan, invoke: (request: OracleRequest, budget: number) => BackendRunResult): OracleEvaluation {
   const counts = { planned: plan.cases.length, completed: 0, passed: 0 };
