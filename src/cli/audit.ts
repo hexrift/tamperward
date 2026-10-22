@@ -11,6 +11,7 @@ import { dirname, isAbsolute, join, resolve } from 'node:path';
 import type { Finding } from '../types';
 import { repoContext } from '../repo-context';
 import { appendRegular, openRegular, stateDirectory } from '../disk';
+import { parseMeasurement } from './measurements';
 
 export const AUDIT_SCHEMA_VERSION = 1 as const;
 export const AUDIT_LOG_ENV = 'TAMPERWARD_AUDIT_LOG';
@@ -78,6 +79,12 @@ export interface AuditSummary {
   latency: Record<AuditDurationField, DurationPercentiles | null>;
   oob_signoffs: number;
   interpretation: 'finding-is-not-proof-of-intent';
+  measurements?: {
+    verify: number;
+    bare_suite: number;
+    incomplete: number;
+    signoffs: number;
+  };
 }
 
 /** Nearest-rank percentiles over the events that carry a duration field. */
@@ -113,7 +120,7 @@ function eventId(): string {
   return 'sha256:' + createHash('sha256').update(randomBytes(32)).digest('hex').slice(0, 32);
 }
 
-function configuredAuditPath(cwd: string, env: NodeJS.ProcessEnv = process.env): string | null {
+export function configuredAuditPath(cwd: string, env: NodeJS.ProcessEnv = process.env): string | null {
   const value = env[AUDIT_LOG_ENV];
   if (!value) return null;
   if (value === 'auto') {
@@ -375,6 +382,7 @@ interface Bound {
 export interface AuditAggregator {
   /** Folds one event into the running totals. */
   add(event: AuditEventV1): void;
+  addDuration(field: AuditDurationField, value: number): void;
   /** The stats-v1 summary of every event added so far. */
   finish(): AuditSummary;
 }
@@ -406,6 +414,9 @@ export function createAuditAggregator(): AuditAggregator {
   const bounds: { first: Bound | null; last: Bound | null } = { first: null, last: null };
 
   return {
+    addDuration(field, value) {
+      durations[field].set(value, (durations[field].get(value) ?? 0) + 1);
+    },
     add(event) {
       events++;
       if (event.severity === 'block') blocked++;
@@ -462,7 +473,7 @@ export function createAuditAggregator(): AuditAggregator {
 
 /** Nearest-rank percentiles (the smallest value at or past the rank) over the counted
  *  values, or null when nothing was measured. Order of insertion never matters. */
-function percentiles(counts: Map<number, number>): DurationPercentiles | null {
+export function percentiles(counts: Map<number, number>): DurationPercentiles | null {
   const values = [...counts.keys()].sort((a, b) => a - b);
   if (values.length === 0) return null;
   const samples = [...counts.values()].reduce((a, b) => a + b, 0);
@@ -496,6 +507,10 @@ export function renderAuditStats(summary: AuditSummary): string {
 
   if (summary.first_event && summary.last_event) {
     out.push(`First       ${summary.first_event}`, `Last        ${summary.last_event}`);
+  }
+  if (summary.measurements) {
+    const m = summary.measurements;
+    out.push('', `Measurements: ${m.verify} verify, ${m.bare_suite} bare suite, ${m.incomplete} incomplete, ${m.signoffs} sign-offs`);
   }
 
   if (summary.by_rule.length) {
@@ -558,8 +573,26 @@ export function runStats(opts: StatsOpts = {}): number {
     if (cutoff !== null && Date.parse(event.timestamp) < cutoff) return;
     aggregator.add(event);
   });
-  if (!read && explicitFile) throw new Error(`audit file not found: ${file}`);
+  // Sidecar records never become rule fires, warnings or session exposure.
+  // Repeated ids are ignored here; distinct invocations remain distinct samples.
+  const measurementCounts = { verify: 0, bare_suite: 0, incomplete: 0, signoffs: 0 };
+  const ids = new Set<string>();
+  const measured = forEachAuditLine(file + '.measurements', line => {
+    const event = parseMeasurement(JSON.parse(line));
+    if (cutoff !== null && Date.parse(event.timestamp) < cutoff) return;
+    if (ids.has(event.id)) return;
+    ids.add(event.id);
+    if (event.kind === 'verify') measurementCounts.verify++;
+    else measurementCounts.bare_suite++;
+    if (event.outcome === 'INCOMPLETE') measurementCounts.incomplete++;
+    else aggregator.addDuration(event.kind === 'verify' ? 'verify_wall_clock_ms' : 'bare_suite_wall_clock_ms', event.duration_ms);
+    if (event.oob_signoff === true) measurementCounts.signoffs++;
+  });
+  if (!read && !measured && explicitFile) throw new Error(`audit file not found: ${file}`);
   const summary = aggregator.finish();
+  if (ids.size) {
+    summary.measurements = measurementCounts;
+  }
   process.stdout.write(opts.json ? JSON.stringify(summary) + '\n' : renderAuditStats(summary));
   return 0;
 }

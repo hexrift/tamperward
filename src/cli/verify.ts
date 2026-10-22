@@ -92,6 +92,8 @@ import {
 } from '../suite-diagnostics';
 import { colourEnabled } from './render/text';
 import { paint, severityColour, BOLD, type Severity } from './render/status';
+import { configuredAuditPath } from './audit';
+import { measurementComparison, recordMeasurement, type MeasurementOutcome } from './measurements';
 
 export interface VerifyOpts {
   cwd?: string;
@@ -1176,14 +1178,23 @@ export function runVerify(opts: VerifyOpts): number {
   // `finally` so an early fail-closed return still releases it.
   const markerCwd = repoRoot(opts.cwd ?? process.cwd());
   const marked = opts.silent ? false : beginVerifying(markerCwd);
+  const started = performance.now();
+  let path: string | null = null;
+  try { path = configuredAuditPath(markerCwd); } catch { /* evidence only */ }
+  const measurement: { outcome: MeasurementOutcome; comparison?: string; oob_signoff?: boolean } = { outcome: 'INCOMPLETE' };
   try {
-    return runVerifyImpl(opts);
+    return runVerifyImpl({ ...opts, onVerdict: v => { measurement.outcome = v.verdict; opts.onVerdict?.(v); } }, path ? measurement : undefined);
+  } catch (error) {
+    measurement.outcome = 'INCOMPLETE';
+    delete measurement.oob_signoff;
+    throw error;
   } finally {
     if (marked) endVerifying(markerCwd);
+    recordMeasurement(path, { kind: 'verify', duration_ms: Math.max(0, Math.round(performance.now() - started)), ...measurement });
   }
 }
 
-function runVerifyImpl(opts: VerifyOpts): number {
+function runVerifyImpl(opts: VerifyOpts, measurement?: { comparison?: string; oob_signoff?: boolean }): number {
   // Normalize to the repository root once, so policy load, git enumeration,
   // materialization, verifier inputs and suite execution all agree on one tree.
   // Invoked from a package subdirectory, the caller's cwd would otherwise
@@ -1465,6 +1476,9 @@ function runVerifyImpl(opts: VerifyOpts): number {
   // pristine copy is made of.
   const protectedIgnored = (rel: string): boolean => isProtected(rel, policy);
   const treeBefore = treeFingerprint(cwd, protectedIgnored);
+  if (measurement) {
+    try { measurement.comparison = measurementComparison(git(['rev-parse', 'HEAD'], cwd).trim(), treeBefore, cmd); } catch { /* evidence only */ }
+  }
   const dependencyAtEntry = dependencyEnvironment
     ? (
         reuseDependencyEnvironmentAttestation(
@@ -1753,6 +1767,7 @@ function runVerifyImpl(opts: VerifyOpts): number {
   const oob = oobFromEnv();
   const oobHead = oobHeadFromEnv();
   const signedOff = verdict === 'MASKED_FAILURE' ? oobToken('verify', oob, oobHead) : null;
+  if (measurement) measurement.oob_signoff = Boolean(signedOff);
   if (signedOff) code = 0;
   // A `verify` approval offered under a head the gate cannot identify clears nothing
   // (oobToken refuses every token under it); say so once, on stderr, so the label does
