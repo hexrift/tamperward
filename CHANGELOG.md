@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.45.0] — 2026-10-22
+
+### Added
+
+- `attestation sign` and `attestation verify` transport externally trusted Ed25519
+  verdict statements bound to head, base, gate version, effective policy hash,
+  verdict, audience and nonce (#780). Verification requires every expected binding,
+  the operator's trusted public key, and a valid expiry window. Unsigned receipts
+  remain non-authoritative; signing keys and payload provenance belong to a trusted
+  CI/signing job outside candidate control, not the repository under evaluation.
+
 ## [2.44.0] — 2026-10-22
 
 ### Added
