@@ -4,7 +4,9 @@
 // The working-tree file is read only as a REGULAR FILE at the repository root (see
 // loadPolicy); a link or a special file there is refused, never followed.
 
-import { isAbsolute, join, posix } from 'node:path';
+import { isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
+import { createHash } from 'node:crypto';
+import { realpathSync } from 'node:fs';
 import { yaml } from './lazy-deps';
 import { Policy, Severity } from './types';
 import { defaultPolicy, isNegatedGlob, mergeProtected, mergeRules, normalizeGlob, POLICY_FILE } from './policy';
@@ -202,15 +204,16 @@ function validate(r: Record<string, unknown>, where: string): RawPolicy {
   return out;
 }
 
-export function parsePolicy(raw: unknown, where: string = POLICY_FILE): Policy {
+export function parsePolicy(raw: unknown, where: string = POLICY_FILE, floor?: Policy): Policy {
   const doc = raw ?? {};
   if (!isMapping(doc)) throw new PolicyError(`${where} is not a policy mapping`);
-  const version = normalizeVersion(doc.version, where);
+  const version = normalizeVersion(doc.version === undefined ? floor?.version : doc.version, where);
   const r = validate(doc, where);
   // The baseline is gated by the DECLARED version before user rules overlay it, so a
   // gated graduation applies only to opted-in policies while an explicit severity —
   // written by the user, in either direction — always wins.
-  const base = defaultPolicy(version);
+  const base = floor ?? defaultPolicy(version);
+  const verification = floor ? (r.verify ? { ...base.verify, ...r.verify } : base.verify) : r.verify;
   const globs = (list: string[] | undefined): string[] | undefined => list?.map(normalizeGlob);
   const userProtected = r.protected
     ? Object.fromEntries(Object.entries(r.protected).map(([cat, list]) => [cat, globs(list) ?? []]))
@@ -220,8 +223,9 @@ export function parsePolicy(raw: unknown, where: string = POLICY_FILE): Policy {
         Object.entries(r.rules).map(([name, cfg]) => [name, cfg?.exclude ? { ...cfg, exclude: globs(cfg.exclude) } : cfg]),
       )
     : undefined;
-  return {
+  const policy: Policy = {
     version,
+    ...(floor?.organizationFloor ? { organizationFloor: floor.organizationFloor } : {}),
     // Merge with the baseline, never replace. For an integrity tool, a config that sets
     // one rule's severity must NOT silently drop the other nine — nor may naming one
     // protected glob wipe out the rest of its category (see mergeProtected), nor may
@@ -233,31 +237,86 @@ export function parsePolicy(raw: unknown, where: string = POLICY_FILE): Policy {
       requiredFor: r.signoff?.required_for ?? r.signoff?.requiredFor ?? base.signoff.requiredFor,
       ledger: r.signoff?.ledger ?? base.signoff.ledger,
     },
-    ...(r.verify?.command
+    ...(verification?.command
       ? {
           verify: {
-            command: r.verify.command,
-            budget: r.verify.budget ?? 300,
+            command: verification.command,
+            budget: verification.budget ?? 300,
             // Rebuilding the block field-by-field means a field added later and
             // not listed here is SILENTLY DROPPED — which is how `inputs` first
             // shipped as a no-op that parsed, validated, and restored nothing.
-            ...(Array.isArray(r.verify.inputs) ? { inputs: r.verify.inputs.map(String) } : {}),
-            ...(r.verify.backend ? { backend: r.verify.backend } : {}),
-            ...(r.verify.image ? { image: r.verify.image } : {}),
+            ...(Array.isArray(verification.inputs) ? { inputs: verification.inputs.map(String) } : {}),
+            ...(verification.backend ? { backend: verification.backend } : {}),
+            ...(verification.image ? { image: verification.image } : {}),
           },
         }
       : {}),
   };
+  if (floor) enforceFloor(policy, floor, userProtected, where);
+  return policy;
 }
 
-function parseOrThrow(src: string, where: string): Policy {
+function enforceFloor(policy: Policy, floor: Policy, declaredProtected: Policy['protected'] | undefined, where: string): void {
+  const refuse = (field: string): never => { throw new PolicyError(`${where}: organisation policy floor refuses weakening or unsupported substitution of ${field}`); };
+  const subset = (values: readonly string[] | undefined, allowed: readonly string[] | undefined): boolean => (values ?? []).every(v => (allowed ?? []).includes(v));
+  const same = (a: readonly string[] | undefined, b: readonly string[] | undefined): boolean => subset(a, b) && subset(b, a);
+  if (policy.version < floor.version) refuse('version');
+  if (!subset(policy.ignore, floor.ignore)) refuse('ignore');
+  for (const [name, minimum] of Object.entries(floor.rules)) {
+    const actual = policy.rules[name];
+    if (minimum.enabled !== false && (actual?.enabled === false || (minimum.severity === 'block' && actual?.severity !== 'block'))) refuse(`rules.${name}`);
+    if (!subset(actual?.exclude, minimum.exclude)) refuse(`rules.${name}.exclude`);
+  }
+  // Protected categories alter detector classification, not just coverage.
+  // Arbitrary added globs can suppress a source-only rule; v1 freezes these
+  // sets rather than claiming to prove semantic glob containment/strength.
+  for (const [category, globs] of Object.entries(declaredProtected ?? {})) {
+    if (!same(globs, floor.protected[category])) refuse(`protected.${category}`);
+  }
+  if (!subset(floor.signoff.requiredFor, policy.signoff.requiredFor) || policy.signoff.ledger !== floor.signoff.ledger) refuse('signoff');
+  if (floor.verify) {
+    const v = policy.verify, minimum = floor.verify;
+    if (!v || v.command !== minimum.command || v.budget < minimum.budget
+      || (v.backend ?? 'local') !== (minimum.backend ?? 'local') || v.image !== minimum.image
+      || !same(v.inputs, minimum.inputs)) refuse('verify');
+  }
+}
+
+function parseOrThrow(src: string, where: string, floor?: Policy, strictRules = false): Policy {
   let raw: unknown;
   try {
     raw = yaml.parse(src);
   } catch (e) {
     throw new PolicyError(`${where} is not valid YAML: ${errorMessage(e)}`);
   }
-  return parsePolicy(raw, where);
+  const policy = parsePolicy(raw, where, floor);
+  if (strictRules && isMapping(raw) && isMapping(raw.rules)) {
+    const known = defaultPolicy(policy.version).rules;
+    if (Object.keys(raw.rules).some(name => !Object.hasOwn(known, name))) throw new PolicyError('organisation policy floor requires rules understood by this gate version');
+  }
+  return policy;
+}
+
+/** Configuration belongs to the operator's control plane, never the candidate.
+ * Both path and exact-byte pin are mandatory; no remote retrieval or fallback. */
+export function configuredPolicyFloor(cwd: string): Policy | undefined {
+  const file = process.env.TAMPERWARD_POLICY_FLOOR;
+  const pin = process.env.TAMPERWARD_POLICY_FLOOR_SHA256;
+  if (file === undefined && pin === undefined) return undefined;
+  if (!file || !isAbsolute(file) || !pin || !/^[a-f0-9]{64}$/.test(pin)) throw new PolicyError('organisation policy floor requires an absolute external path and TAMPERWARD_POLICY_FLOOR_SHA256');
+  try {
+    const root = realpathSync(repoRoot(resolve(cwd)));
+    const rel = relative(root, realpathSync(file));
+    if (rel === '' || (!rel.startsWith('..' + sep) && rel !== '..' && !isAbsolute(rel))) throw new PolicyError('organisation policy floor must be outside the candidate repository');
+    const entry = inspectPath(file);
+    if (entry.kind !== 'file' || entry.content === null) throw new PolicyError('organisation policy floor must be a readable regular file');
+    if (createHash('sha256').update(entry.content).digest('hex') !== pin) throw new PolicyError('organisation policy floor SHA-256 pin mismatch');
+    const policy = parseOrThrow(textOf(entry) ?? '', 'organisation policy floor', undefined, true);
+    return { ...policy, organizationFloor: { sha256: pin, ...(policy.verify ? { verify: { command: policy.verify.command, budget: policy.verify.budget } } : {}) } };
+  } catch (e) {
+    if (e instanceof PolicyError) throw e;
+    throw new PolicyError(`cannot load organisation policy floor: ${errorMessage(e)}`);
+  }
 }
 
 /** The policy governing the repository `cwd` lies in. The file is read at the
@@ -280,14 +339,15 @@ function parseOrThrow(src: string, where: string): Policy {
  *  be read — is a PolicyError naming what stands there, so `check` exits 2 and the
  *  hooks deny at once with the reason. */
 export function loadPolicy(cwd: string = process.cwd()): Policy {
+  const floor = configuredPolicyFloor(cwd);
   const entry = inspectPath(join(repoRoot(cwd), POLICY_FILE));
-  if (entry.kind === 'absent') return defaultPolicy();
+  if (entry.kind === 'absent') return floor ?? defaultPolicy();
   if (entry.kind !== 'file') {
     throw new PolicyError(
       `${POLICY_FILE} ${notARegularFile(entry)}; the policy is read only as a regular file at the repository root — put one there (no symbolic link, FIFO, socket, device or directory) or remove it`,
     );
   }
-  return parseOrThrow(textOf(entry) ?? '', POLICY_FILE);
+  return parseOrThrow(textOf(entry) ?? '', POLICY_FILE, floor);
 }
 
 /**
@@ -300,7 +360,8 @@ export function loadPolicy(cwd: string = process.cwd()): Policy {
  * up as a finding (hook-tampering); it simply doesn't take effect until a human merges it.
  */
 export function loadPolicyAt(rev: string, cwd?: string): Policy | null {
+  const floor = configuredPolicyFloor(cwd ?? process.cwd());
   const src = fileAt(rev, POLICY_FILE, { cwd: cwd === undefined ? undefined : repoRoot(cwd) });
-  if (src == null) return null;
-  return parseOrThrow(src, `${POLICY_FILE} at ${rev}`);
+  if (src == null) return floor ?? null;
+  return parseOrThrow(src, `${POLICY_FILE} at ${rev}`, floor);
 }

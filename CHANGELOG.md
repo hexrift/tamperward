@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.46.0] — 2026-10-22
+
+### Added
+
+- Opt-in organisation policy floors from an operator-configured external regular
+  file with a required SHA-256 pin (#781). Repository policies inherit the floor
+  and fail closed on lower versions, disabled/lowered rules, additional ignore or
+  exclusion globs, removed sign-off requirements and verifier substitutions.
+  Classification-sensitive protected sets and verifier inputs are conservatively
+  frozen; no semantic glob-containment claim is made. Floor provenance binds into
+  verification evidence, and weaker verification flags are refused. Without the
+  operator configuration, existing repository policy behavior is unchanged.
+
 ## [2.45.0] — 2026-10-22
 
 ### Added

@@ -107,6 +107,8 @@ export interface RuleConfig {
 }
 
 export interface Policy {
+  /** Operator-pinned external baseline provenance, never accepted from YAML. */
+  organizationFloor?: { sha256: string; verify?: { command: string; budget: number } };
   /**
    * The policy-schema generation this repo has OPTED IN to. Rule graduations
    * (warn -> block in the baseline) are gated on it: a rule gated at version N blocks

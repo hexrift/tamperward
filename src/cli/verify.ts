@@ -1286,6 +1286,10 @@ function runVerifyImpl(opts: VerifyOpts, measurement?: { comparison?: string; oo
     );
   }
   const budget = opts.budget ?? policy.verify?.budget ?? 300;
+  const floorVerification = policy.organizationFloor?.verify;
+  if (floorVerification && (cmd !== floorVerification.command || budget < floorVerification.budget)) {
+    return cannotVerify('POLICY_ERROR', 'verification flags would weaken the organisation policy floor');
+  }
 
   // Establish the EXECUTION boundary before materialising or executing candidate
   // code. Container mode never falls back to local: inability to prove the
