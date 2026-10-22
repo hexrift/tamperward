@@ -22,27 +22,54 @@ mid-period reports two periods, not a blended one.
 
 ## What is collected
 
-Only `audit-v1` events, as the hooks write them. The writer is allowlist-only; the full
-field set is:
+Hook findings use `audit-v1` events. From 2.44.0, verification and explicitly requested
+bare-suite measurements use a separate `measurement-v1` sidecar. Both writers are
+allowlist-only; the historical finding field set is:
 
 | field | what it is | who writes it |
 | --- | --- | --- |
 | `id`, `timestamp`, `surface`, `agent`, `rule`, `severity`, `decision` | the finding, as a rule name and a verdict | every hook deny or warn |
 | `session` | a one-way hash of the runtime session id | every hook event with a session |
 | `hook_latency_ms` | whole milliseconds from the hook reading its input to the deny being written | the PreToolUse and Stop hooks, on every deny they record (2.40.0) |
-| `verify_wall_clock_ms` | wall-clock of a `tamperward verify` run | a producer the pilot wires; no in-tree producer yet |
+| `verify_wall_clock_ms` | historical finding-attached timing | accepted for older pilot producers; new automatic timing uses the sidecar below |
 | `bare_suite_wall_clock_ms` | wall-clock of the same suite with no TamperWard, the comparison for the row above | the same producer, measured on the same commit and machine |
-| `oob_signoff` | whether an out-of-band sign-off (a CI label or a local allow) was needed to clear the finding | a producer the pilot wires; no in-tree producer yet |
+| `oob_signoff` | whether an out-of-band sign-off (a CI label or a local allow) was needed to clear the finding | accepted for older pilot producers; new verify sign-off use is measured separately |
 
-Until the two producers exist, a pilot reports `verify` wall-clock and sign-off use from
-its own CI logs, by hand, and says so.
+With `TAMPERWARD_AUDIT_LOG=auto`, each `verify` invocation, including one nested in an
+envelope, records one measurement in `.git/tamperward/audit.jsonl.measurements`. A custom
+audit path uses the same `.measurements` suffix. Nothing is written when audit is off.
+The record contains only schema version, random id, UTC timestamp, `kind`, `outcome`,
+whole monotonic `duration_ms`, an optional hashed `comparison`, and optional boolean
+`oob_signoff`. The comparison binds head, candidate content/modes, command and machine;
+it retains none of those raw values. Sign-off is recorded only when evaluated, never
+as the approval token. Exceptions are incomplete; an early fail-closed verdict is
+recorded with its actual outcome and no invented sign-off measurement.
+
+Verify duration covers its lifecycle, materialization, suites and state reconciliation.
+It is not the sum of rounded per-stage seconds. For the bare comparator, explicitly run
+`TAMPERWARD_AUDIT_LOG=auto tamperward measure-suite --cmd 'npm test' --budget 300`
+in the same checkout and machine, using the same suite command as verify. This executes
+the command in the **live checkout**, without TamperWard verification/materialization;
+its timing includes process supervision but excludes before/after fingerprint checks.
+It may create normal suite outputs. Timeout, an unfinished process, or changed head or
+candidate inputs makes the measurement incomplete (exit 2), not a passing comparator.
+Ordinary suite failure exits 1. This command grants no verification or sign-off authority.
+
+Pair only records with identical non-missing comparison hashes, controlled dependency
+environments and a documented run order/cache policy. Unpaired percentiles are descriptive,
+not an overhead ratio. No host fingerprint proves a controlled performance environment.
+Local sidecars are mutable, non-authoritative evidence, with the same trust limit as
+the finding log. Missing or incomplete samples must be disclosed. Existing pilot logs
+without the sidecar remain valid inputs, and manual measurement must be identified.
 
 ## What is never collected
 
 Prompts, tool command bodies, source or evidence text, filenames, absolute paths,
 environment values, credentials and the raw session id. The writer cannot serialise them
 and the reader (`parseAuditEvent`, the publisher's `audit-verify.mjs`) rejects any field
-outside the set above rather than redacting it. A pilot that needs a file-level view
+outside its published schema rather than redacting it. The dependency-free publisher
+validator can also validate a sidecar against `schemas/measurement-v1.schema.json`;
+the existing finding publisher does not automatically publish sidecars. A pilot that needs a file-level view
 keeps it private and publishes only the aggregate.
 
 ## The aggregate that is published
@@ -54,6 +81,14 @@ The `tamperward stats --json` document over the period's events (`stats-v1`):
   `latency.bare_suite_wall_clock_ms`: nearest-rank p50, p95 and max with the sample count,
   or `null` where nothing was measured;
 - `oob_signoffs`.
+
+When a sidecar exists, `stats` also reports separate `measurements` counts for verify,
+bare-suite, incomplete runs and actual sign-offs. Timing histograms include completed
+sidecar measurements alongside historical finding-attached durations; incomplete runs
+do not enter percentiles. Finding counts, sessions and first/last finding timestamps
+exclude measurements. Duplicate sidecar ids are counted once per input file. No event
+count measures all session exposure. Publish the comparison pairing and outcome counts
+from the sidecar beside the aggregate, rather than presenting a red suite as a green run.
 
 Beside it, for every rule that fired, the false-positive count under the rule below, with
 the denominator (fires adjudicated) and the number left `unclear`.

@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.44.0] — 2026-10-22
+
+### Added
+
+- Opt-in verification duration, outcome and actual out-of-band sign-off measurements
+  in a strict privacy-safe sidecar, aggregated by `stats` without inventing rule
+  findings or session exposure (#779). Historical audit-v1 logs remain unchanged.
+- `measure-suite --cmd C [--budget S]` explicitly measures a bare suite in the live
+  checkout. Runs that time out or alter their inputs are marked incomplete; a hashed
+  comparison binding identifies matching head/tree/command/machine samples. This is
+  measurement evidence, never verification authority or a production-pilot result.
+
 ## [2.43.1] — 2026-10-21
 
 ### Changed
