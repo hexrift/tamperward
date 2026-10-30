@@ -21,6 +21,20 @@ function response(request: OracleRequest, value: unknown, rawText?: string): Bac
   diagnostics.stdout = { captured_bytes: Buffer.byteLength(text), retained_bytes: Buffer.byteLength(text), truncated: false, tail: text };
   return { exit: 0, secs: 0, diagnostics };
 }
+function commandFixture(caseCount = 2) {
+  const root = mkdtempSync(join(tmpdir(), 'tw-oracle-report-')); dirs.push(root);
+  const cwd = join(root, 'candidate'); mkdirSync(cwd);
+  const git = (...args: string[]) => execFileSync('git', args, { cwd });
+  git('init', '-q'); git('config', 'user.name', 'test'); git('config', 'user.email', 'test@example.invalid');
+  writeFileSync(join(cwd, 'answer.cjs'), 'exports.answer = n => n * 2;\n');
+  git('add', '.'); git('commit', '-qm', 'fixture');
+  const plan = raw(); plan.cases = Array.from({ length: caseCount }, () => ({ ...plan.cases[0], module: 'answer.cjs' }));
+  const manifest = join(root, 'plan.json'), bytes = JSON.stringify(plan); writeFileSync(manifest, bytes);
+  const sha256 = createHash('sha256').update(bytes).digest('hex');
+  const output = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+  const report = () => JSON.parse(String(output.mock.calls.at(-1)?.[0]));
+  return { cwd, manifest, sha256, report };
+}
 describe('independent JSON RPC oracle controller (#782)', () => {
   it('accepts a fractional remaining budget through the real capture supervisor', () => {
     const result = runCapturedProcessSync(process.execPath, ['-e', 'process.stdout.write("42")'], {
@@ -60,6 +74,49 @@ describe('independent JSON RPC oracle controller (#782)', () => {
     const code = runExternalOracle({ cwd, manifest, sha256 });
     expect(code, String(output.mock.calls.at(-1)?.[0])).toBe(0);
     expect(invoke).toHaveBeenCalledOnce();
+  });
+  it('reports only trustworthy completion across preflight, an interrupted case, and a changed candidate after evaluation (#802)', () => {
+    const { cwd, manifest, sha256, report } = commandFixture();
+    const preflight = vi.spyOn(backend, 'prepareVerifierBackend').mockReturnValue({ kind: 'container', trust: 'isolated-container', available: false });
+    expect(runExternalOracle({ cwd, manifest, sha256 })).toBe(2);
+    expect(report()).toMatchObject({ verdict: 'CANNOT_VERIFY', planned: 2, completed: 0, passed: 0, reason: 'EXECUTION_FAILED' });
+
+    preflight.mockReturnValue({ kind: 'container', trust: 'isolated-container', available: true, image });
+    let invoked = 0;
+    const invoke = vi.spyOn(backend, 'runContainerStage').mockImplementation((_backend, _snapshot, program) => {
+      if (++invoked === 2) throw new Error('private runtime detail');
+      if (typeof program === 'string') throw new Error('unexpected shell command');
+      return response(JSON.parse(Buffer.from(program.args[2], 'base64').toString('utf8')), 42);
+    });
+    expect(runExternalOracle({ cwd, manifest, sha256 })).toBe(2);
+    expect(report()).toMatchObject({ verdict: 'CANNOT_VERIFY', planned: 2, completed: 1, passed: 1, reason: 'EXECUTION_FAILED' });
+    expect(JSON.stringify(report())).not.toContain('private runtime detail');
+
+    invoked = 0;
+    invoke.mockImplementation((_backend, _snapshot, program) => {
+      if (typeof program === 'string') throw new Error('unexpected shell command');
+      if (++invoked === 2) writeFileSync(join(cwd, 'answer.cjs'), 'exports.answer = () => 0;\n');
+      return response(JSON.parse(Buffer.from(program.args[2], 'base64').toString('utf8')), 42);
+    });
+    expect(runExternalOracle({ cwd, manifest, sha256 })).toBe(2);
+    expect(report()).toMatchObject({ verdict: 'CANNOT_VERIFY', planned: 2, completed: 2, passed: 2, reason: 'EXECUTION_FAILED' });
+    expect(report()).not.toHaveProperty('binding');
+    expect(invoked).toBe(2);
+  });
+  it('refuses to emit VERIFIED when snapshot cleanup fails after all cases pass (#801, #802)', () => {
+    const { cwd, manifest, sha256, report } = commandFixture(1);
+    vi.spyOn(backend, 'prepareVerifierBackend').mockReturnValue({ kind: 'container', trust: 'isolated-container', available: true, image });
+    vi.spyOn(backend, 'runContainerStage').mockImplementation((_backend, _snapshot, program) => {
+      if (typeof program === 'string') throw new Error('unexpected shell command');
+      return response(JSON.parse(Buffer.from(program.args[2], 'base64').toString('utf8')), 42);
+    });
+    expect(runExternalOracle({ cwd, manifest, sha256 }, path => {
+      dirs.push(String(path));
+      throw new Error('private cleanup detail');
+    })).toBe(2);
+    expect(report()).toMatchObject({ verdict: 'CANNOT_VERIFY', planned: 1, completed: 1, passed: 1, reason: 'EXECUTION_FAILED' });
+    expect(report()).not.toHaveProperty('binding');
+    expect(JSON.stringify(report())).not.toContain('private cleanup detail');
   });
   it('the actual worker emits a JSON frame and a real newline, not escaped delimiter text', () => {
     // Substitute only module resolution for the container's /workspace mount;

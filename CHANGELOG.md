@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.48.4] — 2026-10-30
+
+### Fixed
+
+- Preserve host-completed oracle case counts when candidate or infrastructure
+  checks fail after evaluation (#802). Finish snapshot cleanup before emitting a
+  result, so a cleanup failure cannot leave a VERIFIED report behind. Such
+  failures remain CANNOT_VERIFY with the v1 reason vocabulary and no binding.
+
 ## [2.48.3] — 2026-10-30
 
 ### Changed
