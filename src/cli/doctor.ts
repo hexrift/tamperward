@@ -13,6 +13,7 @@ import { machineOutput, type MachineSchemaVersion } from '../machine-output';
 import { execFailure, isRecord } from '../narrow';
 import { repoRoot } from '../repo-context';
 import { colourEnabled } from './render/text';
+import { readStateFile } from '../disk';
 import { paint, severityColour, BOLD, type Severity } from './render/status';
 
 export interface DoctorOpts {
@@ -142,10 +143,8 @@ function wiringState(status: string, authority: boolean): DoctorState {
 }
 
 function pinsInFile(path: string): string[] {
-  if (!existsSync(path)) return [];
-  let src = '';
-  try { src = readFileSync(path, 'utf8'); } catch { return []; }
-  return Array.from(src.matchAll(/\btamperward@((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))\b/g), (m) => m[1]);
+  const src = readStateFile(path);
+  return src === null ? [] : Array.from(src.matchAll(/\btamperward@((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))\b/g), (m) => m[1]);
 }
 
 function permissionWrites(value: unknown): string[] | null {
@@ -170,14 +169,19 @@ function workflowPermissionCheck(
 
   for (const rel of workflowRels) {
     const path = resolve(cwd, rel);
-    if (!existsSync(path)) {
+    let text: string | null;
+    try { text = readStateFile(path); } catch (e) {
+      broken.push(`${rel} cannot be inspected (${e instanceof Error ? e.message : String(e)})`);
+      continue;
+    }
+    if (text === null) {
       broken.push(`${rel} is missing`);
       continue;
     }
 
     let doc: unknown;
     try {
-      doc = yaml.parse(readFileSync(path, 'utf8'));
+      doc = yaml.parse(text);
     } catch (e) {
       broken.push(`${rel} is not valid YAML (${e instanceof Error ? e.message : String(e)})`);
       continue;
@@ -314,15 +318,23 @@ export function collectLocalPosture(
   addWiring('codeowners', 'codeowners', true);
   checks.push(workflowPermissionCheck(cwd, authorityWorkflows));
 
-  const pins = [
-    ...pinsInFile(join(cwd, '.claude', 'settings.json')),
-    ...pinsInFile(join(cwd, '.git', 'hooks', 'pre-commit')),
-    ...pinsInFile(join(cwd, '.husky', 'pre-commit')),
-  ];
+  let pins: string[] = [];
+  let pinError: string | null = null;
+  try {
+    pins = [
+      ...pinsInFile(join(cwd, '.claude', 'settings.json')),
+      ...pinsInFile(join(cwd, '.git', 'hooks', 'pre-commit')),
+      ...pinsInFile(join(cwd, '.husky', 'pre-commit')),
+    ];
+  } catch (e) {
+    pinError = e instanceof Error ? e.message : String(e);
+  }
   const below = pins.filter((pin) => (compareVersions(pin, TW_VERSION) ?? 0) < 0);
   const above = pins.filter((pin) => (compareVersions(TW_VERSION, pin) ?? 0) < 0);
   checks.push(
-    below.length
+    pinError
+      ? { id: 'binary-version', state: 'BROKEN', detail: `cannot inspect version pins: ${pinError}` }
+      : below.length
       ? { id: 'binary-version', state: 'BROKEN', detail: `wiring pins older TamperWard version(s): ${Array.from(new Set(below)).join(', ')}; running binary is ${TW_VERSION}` }
       : above.length
         ? { id: 'binary-version', state: 'WARN', detail: `repository wiring targets newer TamperWard version(s): ${Array.from(new Set(above)).join(', ')}; running binary is ${TW_VERSION}` }
@@ -781,13 +793,17 @@ export function diagnose(opts: DoctorOpts = {}): DoctorOutcome {
 
   for (const workflowRel of workflowRels) {
     const workflowPath = resolve(cwd, workflowRel);
-    if (!existsSync(workflowPath)) {
+    let workflowText: string | null;
+    try { workflowText = readStateFile(workflowPath); } catch (e) {
+      return fail('ci-verifier', `${workflowRel}: cannot inspect workflow (${e instanceof Error ? e.message : String(e)})`);
+    }
+    if (workflowText === null) {
       return fail('ci-verifier', `${workflowRel}: workflow does not exist`);
     }
 
     let doc: unknown;
     try {
-      doc = yaml.parse(readFileSync(workflowPath, 'utf8'));
+      doc = yaml.parse(workflowText);
     } catch (e) {
       return fail('ci-verifier', 
         `${workflowRel}: workflow is not valid YAML (${e instanceof Error ? e.message : String(e)})`,
