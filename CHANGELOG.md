@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.49.1] — 2026-10-30
+
+### Added
+
+- Report command-specific readiness in doctor machine/terminal output and
+  onboarding (#803). A shared conservative model distinguishes static checks,
+  local and container verification, Linux lifecycle supervision and protected CI.
+  Unprobed Docker and repository authority remain UNVERIFIED, while the existing
+  global authoritative verdict and BROKEN checks keep their meaning.
+
 ## [2.49.0] — 2026-10-30
 
 ### Added
