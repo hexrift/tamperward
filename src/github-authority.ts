@@ -102,4 +102,3 @@ export function evaluateGitHubProtection(
   }
   return findings;
 }
-
