@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 import { evaluateGitHubProtection, githubAuthority, REPOSITORY_REQUIRED_CHECKS } from '../src/cli/doctor';
 
-const opts = { repo: 'acme/project', branch: 'main' };
+const opts = { repo: 'acme/project', branch: 'main', checkContract: 'tamperward-repo' as const };
 const prefix = 'repos/acme/project';
 function rulesFor(checks: readonly string[] = REPOSITORY_REQUIRED_CHECKS): unknown[] {
   return [
-    { type: 'pull_request', parameters: { require_code_owner_review: true, dismiss_stale_reviews_on_push: true } },
-    { type: 'required_status_checks', parameters: { required_status_checks: checks.map(context => ({ context })) } },
+    { type: 'pull_request', ruleset_id: 7, ruleset_source: 'acme/project', ruleset_source_type: 'Repository', parameters: { require_code_owner_review: true, dismiss_stale_reviews_on_push: true } },
+    { type: 'required_status_checks', ruleset_id: 7, ruleset_source: 'acme/project', ruleset_source_type: 'Repository', parameters: { required_status_checks: checks.map(context => ({ context })) } },
   ];
 }
 function classicFor(checks: readonly string[] = REPOSITORY_REQUIRED_CHECKS): unknown {
@@ -25,11 +25,9 @@ interface Fixture {
 function apiFor(fixture: Fixture = {}) {
   return vi.fn((_cwd: string, endpoint: string): unknown => {
     switch (endpoint) {
-      case `${prefix}/rules/branches/main`:
+      case `${prefix}/rules/branches/main?per_page=100&page=1`:
         if (fixture.rulesError) throw new Error(fixture.rulesError);
         return 'rules' in fixture ? fixture.rules : rulesFor([]);
-      case `${prefix}/rulesets`:
-        return [{ id: 7, name: 'main', target: 'branch', enforcement: 'active' }];
       case `${prefix}/rulesets/7`:
         if (fixture.detailError) throw new Error(fixture.detailError);
         return 'detail' in fixture ? fixture.detail : { bypass_actors: [] };

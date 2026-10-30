@@ -82,6 +82,8 @@ function parseDoctor(args: string[]): DoctorOpts {
     else if (a === '--json') o.json = true;
     else if (a === '--repo') o.repo = args[++i];
     else if (a === '--branch') o.branch = args[++i];
+    else if (a === '--required-checks') o.requiredChecks = args[++i].split(',');
+    else if (a === '--check-contract') o.checkContract = args[++i] as DoctorOpts['checkContract'];
   }
   return o;
 }
@@ -335,7 +337,7 @@ export function validateCliArgs(cmd: string, args: string[]): string | undefined
   }
 
   if (cmd === 'doctor') {
-    return validateFlatArgs(args, {
+    const parsed = validateFlatArgs(args, {
       flags: ['--github', '--json'],
       values: {
         '--cwd': 'string',
@@ -343,8 +345,15 @@ export function validateCliArgs(cmd: string, args: string[]): string | undefined
         '--workflow': 'string',
         '--repo': 'string',
         '--branch': 'string',
+        '--required-checks': 'string',
+        '--check-contract': 'string',
       },
-    }).error;
+    });
+    if (parsed.error) return parsed.error;
+    if (parsed.seen.has('--required-checks') && parsed.seen.has('--check-contract')) return 'choose either --required-checks or --check-contract';
+    const contract = args[args.indexOf('--check-contract') + 1];
+    if (parsed.seen.has('--check-contract') && contract !== 'tamperward-repo') return '--check-contract must be tamperward-repo';
+    return undefined;
   }
 
   if (cmd === 'stats') {
@@ -724,6 +733,8 @@ Formats:
              [--json]                       envelope against the trusted policy.
              [--github] [--repo O/R]        --github also validates repository
              [--branch B]                   authority: required tamperward status,
+             [--required-checks A,B]        explicit required status contexts, or
+             [--check-contract tamperward-repo]  this repository's expanded list;
                                             Code Owner review, and stale-review
                                             dismissal after new pushes. Public
                                             rules can be read anonymously; set

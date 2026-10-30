@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.48.0] — 2026-10-30
+
+### Added
+
+- Discover every applicable GitHub ruleset from protected-branch rule provenance,
+  including inherited organisation rules and bounded pagination (#797). Unknown
+  provenance or unavailable bypass details cannot certify repository authority.
+  `doctor --github` accepts `--required-checks A,B` for an exact downstream
+  contract and `--check-contract tamperward-repo` for this repository's expanded
+  CI list. The expanded list remains the default for `hexrift/tamperward`;
+  downstream repositories default to the `tamperward` status context.
+
 ## [2.47.2] — 2026-10-30
 
 ### Fixed

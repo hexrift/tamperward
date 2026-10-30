@@ -27,6 +27,9 @@ export interface DoctorOpts {
   repo?: string;
   /** Protected branch. Defaults to GITHUB_BASE_REF or GitHub's default branch. */
   branch?: string;
+  /** Exact required status contexts, or the named repository contract. */
+  requiredChecks?: string[];
+  checkContract?: 'tamperward-repo';
   /** Emit one machine-readable posture document instead of prose. */
   json?: boolean;
 }
@@ -587,48 +590,78 @@ export function githubAuthority(
   }
   if (!branch) throw new Error('cannot determine protected branch; pass --branch BRANCH');
 
-  let rules: unknown;
+  if (opts.checkContract && opts.requiredChecks) {
+    throw new Error('choose either --check-contract or --required-checks');
+  }
+  const requiredChecks = opts.checkContract === 'tamperward-repo' ||
+    (repo.toLowerCase() === 'hexrift/tamperward' && !opts.requiredChecks)
+    ? REPOSITORY_REQUIRED_CHECKS
+    : opts.requiredChecks ?? ['tamperward'];
+  if (requiredChecks.length === 0 || requiredChecks.some(check => !check.trim())) {
+    throw new Error('required status checks must be nonempty');
+  }
+
+  let rules: unknown[] | undefined;
   let rulesError: Error | null = null;
   try {
-    rules = readApi(cwd, 'repos/' + repo + '/rules/branches/' + encodeURIComponent(branch));
-    if (!Array.isArray(rules)) throw new Error('branch rules response is not an array');
+    rules = [];
+    for (let page = 1; page <= 10; page++) {
+      const batch = readApi(cwd, 'repos/' + repo + '/rules/branches/' + encodeURIComponent(branch) + '?per_page=100&page=' + page);
+      if (!Array.isArray(batch)) throw new Error('branch rules response is not an array');
+      rules.push(...batch);
+      if (batch.length < 100) break;
+      if (page === 10) throw new Error('branch rules exceed the 1000-rule inspection limit');
+    }
   } catch (e) {
     rulesError = e instanceof Error ? e : new Error(String(e));
   }
 
-  let bypassActors: unknown;
-  let rulesetInspectionError: Error | null = null;
-  try {
-    const rulesets = readApi(cwd, 'repos/' + repo + '/rulesets');
-    const active = Array.isArray(rulesets)
-      ? rulesets.find((raw) => {
-        const item = asMapping(raw);
-        return item?.name === 'main' && item?.target === 'branch' && item?.enforcement === 'active';
-      })
-      : null;
-    const id = asMapping(active)?.id;
-    if (typeof id !== 'number') {
-      rulesetInspectionError = new Error('no active main branch ruleset was found');
-    } else {
-      const detail = asMapping(readApi(cwd, 'repos/' + repo + '/rulesets/' + id));
-      bypassActors = detail?.bypass_actors;
+  const inspectionFindings: string[] = [];
+  const sources = new Map<number, string>();
+  for (const raw of rules ?? []) {
+    const item = asMapping(raw);
+    const id = item?.ruleset_id;
+    const source = item?.ruleset_source;
+    const sourceType = item?.ruleset_source_type;
+    if (!Number.isSafeInteger(id) || (id as number) <= 0 || typeof source !== 'string' ||
+        (sourceType !== 'Repository' && sourceType !== 'Organization')) {
+      inspectionFindings.push('branch rule has unknown ruleset provenance');
+      continue;
     }
-  } catch (e) {
-    rulesetInspectionError = e instanceof Error ? e : new Error(String(e));
+    const endpoint = sourceType === 'Organization'
+      ? /^[-\w]+$/.test(source) ? 'orgs/' + source + '/rulesets/' + id : null
+      : source === repo ? 'repos/' + repo + '/rulesets/' + id : null;
+    if (!endpoint || (sources.has(id as number) && sources.get(id as number) !== endpoint)) {
+      inspectionFindings.push('branch rule has inconsistent ruleset provenance');
+      continue;
+    }
+    sources.set(id as number, endpoint);
   }
-
+  let bypassActors: unknown = [];
+  if (inspectionFindings.length > 0 || rulesError) bypassActors = undefined;
+  for (const [id, endpoint] of sources) {
+    try {
+      const detail = asMapping(readApi(cwd, endpoint));
+      if (!Array.isArray(detail?.bypass_actors)) {
+        inspectionFindings.push('ruleset ' + id + ' bypass actors could not be verified');
+        if (!Array.isArray(bypassActors) || bypassActors.length === 0) bypassActors = undefined;
+      } else if (detail.bypass_actors.length > 0) {
+        bypassActors = detail.bypass_actors;
+      }
+    } catch (e) {
+      inspectionFindings.push('ruleset ' + id + ' bypass actors could not be verified: ' +
+        (e instanceof Error ? e.message : String(e)));
+      if (!Array.isArray(bypassActors) || bypassActors.length === 0) bypassActors = undefined;
+    }
+  }
   // Fallback can supply a missing requirement, but cannot discard adverse or
   // unknown observations or silently replace the requested check contract.
-  const inspectionFindings: string[] = [];
   if (rulesError) inspectionFindings.push('branch rules could not be verified: ' + rulesError.message);
-  if (rulesetInspectionError) {
-    inspectionFindings.push('active main ruleset bypass actors could not be verified: ' + rulesetInspectionError.message);
-  }
   const evaluate = (branchProtection?: unknown): string[] => [
     ...evaluateGitHubProtection(
       { rules, bypassActors, branchProtection },
       'tamperward',
-      REPOSITORY_REQUIRED_CHECKS,
+      requiredChecks,
     ),
     ...inspectionFindings,
   ];
