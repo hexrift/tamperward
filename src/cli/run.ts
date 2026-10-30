@@ -920,6 +920,16 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
     return 2;
   }
 
+  // Inspect rewrite metadata before any Git read of the trusted base. Git
+  // itself can consume shallow/graft metadata while resolving that base.
+  let rewritesBefore: string;
+  try {
+    rewritesBefore = objectRewriteState(cwd);
+  } catch (e) {
+    err(`tamperward run: ${e instanceof Error ? e.message : String(e)} — cannot verify the trusted Git object layer before agent start.`);
+    return 2;
+  }
+
   // Trusted base: resolved BEFORE the agent runs, so commits the agent makes
   // cannot move it. --base overrides for callers whose trusted state is older
   // than HEAD (e.g. a branch the agent was already let loose on).
@@ -1039,9 +1049,12 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
   // pristine overlay, the ancestry assertion, the ranged diff — goes through
   // it, and `git replace` / info/grafts / shallow can redirect all three
   // without moving a ref or touching a file (src/git/trusted.ts).
-  let rewritesBefore: string;
   try {
-    rewritesBefore = objectRewriteState(cwd);
+    if (objectRewriteState(cwd) !== rewritesBefore) {
+      err('tamperward run: Git rewrite metadata changed during entry preflight — cannot trust the frozen base.');
+      finishObserverAdvisory(observer, say);
+      return 2;
+    }
   } catch (e) {
     err(`tamperward run: ${e instanceof Error ? e.message : String(e)} — cannot verify the trusted Git object layer before agent start.`);
     finishObserverAdvisory(observer, say);

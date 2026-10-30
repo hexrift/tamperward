@@ -6,7 +6,7 @@
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { canReuseAdjacentDependencyAttestation, runEnvelope, parseRun, trustedLinuxPython } from '../src/cli/run';
@@ -66,6 +66,23 @@ const run = (cwd: string, argv: string[], extra: Partial<Parameters<typeof runEn
   runEnvelope({ cwd, cmd: CMD, budget: 30, argv, ...extra });
 
 describe('tamperward run — the enforcement envelope', () => {
+  it('refuses unreadable Git metadata before starting the agent (#798)', () => {
+    const cwd = repo(true);
+    symlinkSync('/dev/zero', join(cwd, '.git', 'shallow'));
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    try {
+      expect(run(cwd, sh('touch agent-ran'))).toBe(2);
+      expect(stderr.mock.calls.map(call => String(call[0])).join('')).toContain('cannot inspect Git rewrite metadata shallow');
+      expect(existsSync(join(cwd, 'agent-ran'))).toBe(false);
+    } finally {
+      stderr.mockRestore();
+    }
+  });
+
+  it.skipIf(!rootless)('refuses unreadable Git metadata installed by the agent (#798)', () => {
+    const cwd = repo(true);
+    expect(run(cwd, sh('ln -s /dev/zero .git/shallow'))).toBe(2);
+  });
   it.skipIf(!rootless)('honest fix, agent exits 0 → green means green (exit 0)', () => {
     const cwd = repo();
     expect(run(cwd, sh(`echo "module.exports = 42;" > src.js`))).toBe(0);
