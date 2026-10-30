@@ -1,0 +1,336 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index bf3f5fb..4473cdf 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,5 +1,16 @@
+ # Changelog
+ 
++## [2.48.0] — 2026-10-30
++
++### Fixed
++
++- Bound Git rewrite-state metadata reads and subprocesses (#798). Refuse links,
++  irregular and oversized files rather than hanging or fingerprinting an unknown
++  state. Resolve actual Git paths so linked worktrees inspect common metadata.
++- Inspect rewrite state before entry-time object reads and fail closed when it
++  becomes uninspectable after the agent or verification. Run JSON adds the
++  `GIT_REWRITE_STATE_UNAVAILABLE` reason; the changed schema has a new release URL.
++
+ ## [2.47.2] — 2026-10-30
+ 
+ ### Fixed
+diff --git a/package-lock.json b/package-lock.json
+index a82ad17..4119c5b 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -1,12 +1,12 @@
+ {
+   "name": "tamperward",
+-  "version": "2.47.2",
++  "version": "2.48.0",
+   "lockfileVersion": 3,
+   "requires": true,
+   "packages": {
+     "": {
+       "name": "tamperward",
+-      "version": "2.47.2",
++      "version": "2.48.0",
+       "license": "Apache-2.0",
+       "dependencies": {
+         "picomatch": "^4.0.2",
+diff --git a/package.json b/package.json
+index 5c01ec6..a33daa9 100644
+--- a/package.json
++++ b/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "tamperward",
+-  "version": "2.47.2",
++  "version": "2.48.0",
+   "description": "The deterministic agent-integrity gate. One ruleset, evaluated on the actual diff/commands as a verdict, enforced everywhere a change can be made.",
+   "license": "Apache-2.0",
+   "author": "hexrift",
+diff --git a/schemas/run-v1.schema.json b/schemas/run-v1.schema.json
+index 9e3bbda..5dfc918 100644
+--- a/schemas/run-v1.schema.json
++++ b/schemas/run-v1.schema.json
+@@ -1,6 +1,6 @@
+ {
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+-  "$id": "https://raw.githubusercontent.com/hexrift/tamperward/v2.38.0/schemas/run-v1.schema.json",
++  "$id": "https://raw.githubusercontent.com/hexrift/tamperward/v2.48.0/schemas/run-v1.schema.json",
+   "title": "TamperWard run JSON output v1",
+   "type": "object",
+   "required": [
+@@ -61,6 +61,7 @@
+     },
+     "reason": {
+       "enum": [
++        "GIT_REWRITE_STATE_UNAVAILABLE",
+         "AGENT_LIFECYCLE_NOT_OWNED",
+         "VERIFY_CANNOT_VERIFY",
+         "CHECK_DIFF_UNJUDGEABLE",
+diff --git a/src/cli/run.ts b/src/cli/run.ts
+index 4c72d6c..226bf17 100644
+--- a/src/cli/run.ts
++++ b/src/cli/run.ts
+@@ -920,6 +920,16 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
+     return 2;
+   }
+ 
++  // Inspect metadata before any history/object reads. A FIFO or uninspectable
++  // entry is not an anchor; refuse before starting the agent (#798).
++  let rewritesBefore: string;
++  try {
++    rewritesBefore = objectRewriteState(cwd);
++  } catch (error) {
++    err(`tamperward run: cannot inspect entry-time Git rewrite state (${error instanceof Error ? error.message : String(error)}) — failing closed.`);
++    return 2;
++  }
++
+   // Trusted base: resolved BEFORE the agent runs, so commits the agent makes
+   // cannot move it. --base overrides for callers whose trusted state is older
+   // than HEAD (e.g. a branch the agent was already let loose on).
+@@ -1039,7 +1049,6 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
+   // pristine overlay, the ancestry assertion, the ranged diff — goes through
+   // it, and `git replace` / info/grafts / shallow can redirect all three
+   // without moving a ref or touching a file (src/git/trusted.ts).
+-  const rewritesBefore = objectRewriteState(cwd);
+   const spawnTicks = nowTicks(); // survivors are what appears after this
+   // Always use the trusted lifecycle supervisor. A runtime budget controls
+   // elapsed time; it does not control whether TamperWard owns descendants.
+@@ -1124,7 +1133,15 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
+   // BEFORE adjudication, not merely reported after it: every check downstream
+   // reads the base through this layer, so a report produced under a redirected
+   // base describes an anchor we never chose.
+-  if (objectRewriteState(cwd) !== rewritesBefore) {
++  const rewriteUnavailable = (error: unknown): number => {
++    err(`tamperward run: Git rewrite state cannot be inspected (${error instanceof Error ? error.message : String(error)}) — failing closed.`);
++    finishObserverAdvisory(observer, say);
++    emitRunJson('CANNOT_ADJUDICATE', 2, { reason: 'GIT_REWRITE_STATE_UNAVAILABLE' });
++    return 2;
++  };
++  let rewritesAfter: string;
++  try { rewritesAfter = objectRewriteState(cwd); } catch (error) { return rewriteUnavailable(error); }
++  if (rewritesAfter !== rewritesBefore) {
+     err('tamperward run: git object-replacement state changed during this run — a replace ref, graft');
+     err('or shallow boundary now redirects what the trusted base resolves to. Nothing below could be');
+     err('read against the anchor we started from. That is the finding.');
+@@ -1248,7 +1265,8 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
+   // And again after the checks: a survivor can install a replace ref while the
+   // suite is running, which would leave the verdict above describing a base
+   // that no longer resolves the same way.
+-  const rewrote = objectRewriteState(cwd) !== rewritesBefore;
++  try { rewritesAfter = objectRewriteState(cwd); } catch (error) { return rewriteUnavailable(error); }
++  const rewrote = rewritesAfter !== rewritesBefore;
+   if (rewrote) {
+     err('tamperward run: git object-replacement state changed WHILE the tree was being adjudicated —');
+     err('the checks above read the trusted base through an object layer that has since moved.');
+diff --git a/src/git/trusted.ts b/src/git/trusted.ts
+index 6535276..36f84fd 100644
+--- a/src/git/trusted.ts
++++ b/src/git/trusted.ts
+@@ -31,8 +31,8 @@
+ 
+ import { execFileSync } from 'node:child_process';
+ import { createHash } from 'node:crypto';
+-import { existsSync, readFileSync } from 'node:fs';
+-import { isAbsolute, join } from 'node:path';
++import { isAbsolute, resolve } from 'node:path';
++import { readStateFile } from '../disk';
+ 
+ /**
+  * Environment for a git command whose answer is trusted.
+@@ -45,58 +45,43 @@ export function trustedGitEnv(): NodeJS.ProcessEnv {
+   return { ...process.env, GIT_NO_REPLACE_OBJECTS: '1' };
+ }
+ 
+-function gitDirOf(cwd: string): string | null {
++/** Unknown rewrite state is not a stable fingerprint that can later compare equal. */
++export class GitRewriteStateError extends Error {}
++
++function rewriteGit(cwd: string, args: string[]): string {
+   try {
+-    const d = execFileSync('git', ['rev-parse', '--git-dir'], {
++    return execFileSync('git', args, {
+       cwd,
+       encoding: 'utf8',
+       stdio: ['ignore', 'pipe', 'pipe'],
+       env: trustedGitEnv(),
++      timeout: 5000,
++      killSignal: 'SIGKILL',
++      maxBuffer: 1024 * 1024,
+     }).trim();
+-    if (!d) return null;
+-    return isAbsolute(d) ? d : join(cwd, d);
+   } catch {
+-    return null;
++    throw new GitRewriteStateError('cannot inspect Git rewrite metadata within the execution/output bounds');
+   }
+ }
+ 
+-/**
+- * A fingerprint of everything that can make an object read answer differently
+- * without any ref or file changing: the replace refs, `info/grafts`, and
+- * `shallow`. Compared, never interpreted — the envelope only needs to know
+- * whether it moved.
+- *
+- * Unreadable inputs hash to a distinct marker rather than to "absent", so
+- * losing the ability to look is not silently the same as looking and finding
+- * nothing.
++/** Fingerprint the actual Git paths, including common-directory metadata in a
++ * linked worktree. Bound every subprocess; inspect metadata before other Git
++ * reads and never follow a final symlink or block on a FIFO (#798).
++ * Regular/absent metadata retains the established digest representation.
++ * Unknown metadata throws: two unreadable observations cannot establish equality.
+  */
+ export function objectRewriteState(cwd: string): string {
+-  const parts: string[] = [];
+-  try {
+-    parts.push(
+-      'replace:' +
+-        execFileSync('git', ['for-each-ref', '--format=%(refname) %(objectname)', 'refs/replace/'], {
+-          cwd,
+-          encoding: 'utf8',
+-          stdio: ['ignore', 'pipe', 'pipe'],
+-          env: trustedGitEnv(),
+-        }).trim(),
+-    );
+-  } catch {
+-    parts.push('replace:<unreadable>');
+-  }
+-  const dir = gitDirOf(cwd);
++  const metadata: string[] = [];
+   for (const rel of ['info/grafts', 'shallow']) {
+-    if (dir === null) {
+-      parts.push(`${rel}:<no-git-dir>`);
+-      continue;
+-    }
+-    const p = join(dir, rel);
++    const path = rewriteGit(cwd, ['rev-parse', '--git-path', rel]);
++    if (!path) throw new GitRewriteStateError('Git did not identify its rewrite metadata path');
+     try {
+-      parts.push(`${rel}:` + (existsSync(p) ? readFileSync(p, 'utf8').trim() : ''));
+-    } catch {
+-      parts.push(`${rel}:<unreadable>`);
++      const bytes = readStateFile(isAbsolute(path) ? path : resolve(cwd, path));
++      metadata.push(`${rel}:` + (bytes?.trim() ?? ''));
++    } catch (error) {
++      throw new GitRewriteStateError(`cannot inspect Git rewrite metadata: ${error instanceof Error ? error.message : String(error)}`);
+     }
+   }
+-  return createHash('sha256').update(parts.join('\n')).digest('hex');
++  const refs = rewriteGit(cwd, ['for-each-ref', '--format=%(refname) %(objectname)', 'refs/replace/']);
++  return createHash('sha256').update(['replace:' + refs, ...metadata].join('\n')).digest('hex');
+ }
+diff --git a/src/machine-output.ts b/src/machine-output.ts
+index 220fa02..aad09e0 100644
+--- a/src/machine-output.ts
++++ b/src/machine-output.ts
+@@ -113,6 +113,7 @@ export type StatusInterventionState = (typeof STATUS_INTERVENTION_STATES)[number
+ 
+ /** Why a `run` document carries `verdict: "CANNOT_ADJUDICATE"`. */
+ export const RUN_CANNOT_ADJUDICATE_REASONS = [
++  'GIT_REWRITE_STATE_UNAVAILABLE',
+   'AGENT_LIFECYCLE_NOT_OWNED',
+   'VERIFY_CANNOT_VERIFY',
+   'CHECK_DIFF_UNJUDGEABLE',
+diff --git a/test/git-rewrite-metadata.test.ts b/test/git-rewrite-metadata.test.ts
+new file mode 100644
+index 0000000..1d9f2da
+--- /dev/null
++++ b/test/git-rewrite-metadata.test.ts
+@@ -0,0 +1,93 @@
++import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
++import { buildSync } from 'esbuild';
++import { createHash } from 'node:crypto';
++import { execFileSync, spawnSync } from 'node:child_process';
++import { closeSync, ftruncateSync, mkdirSync, mkdtempSync, openSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
++import { tmpdir } from 'node:os';
++import { join, resolve } from 'node:path';
++import { objectRewriteState } from '../src/git/trusted';
++import { READ_CAP } from '../src/disk';
++import { runEnvelope } from '../src/cli/run';
++import { rootless } from './rootless';
++
++const roots: string[] = [];
++const workerDir = mkdtempSync(join(tmpdir(), 'tw-rewrite-worker-'));
++const worker = join(workerDir, 'worker.mjs');
++beforeAll(() => buildSync({
++  stdin: { contents: `import { objectRewriteState } from './src/git/trusted';\ntry { console.log(objectRewriteState(process.argv[2])); } catch (e) { console.error(String(e)); process.exitCode = 2; }`, resolveDir: resolve('.') },
++  outfile: worker, bundle: true, platform: 'node', format: 'esm', logLevel: 'silent',
++}));
++afterEach(() => { vi.restoreAllMocks(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
++afterAll(() => rmSync(workerDir, { recursive: true, force: true }));
++function fixture() {
++  const cwd = mkdtempSync(join(tmpdir(), 'tw-rewrite-')); roots.push(cwd);
++  const git = (...args: string[]) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
++  git('init', '-q'); git('config', 'user.name', 'h'); git('config', 'user.email', 'h@x');
++  writeFileSync(join(cwd, 'source.js'), 'module.exports = 1;\n'); git('add', '.'); git('commit', '-qm', 'seed');
++  return { cwd, git };
++}
++function refused(cwd: string) {
++  // The outer process owns the watchdog: a regression cannot hang Vitest itself.
++  const result = spawnSync(process.execPath, [worker, cwd], { encoding: 'utf8', timeout: 4000, killSignal: 'SIGKILL' });
++  expect(result.error, result.stderr).toBeUndefined();
++  expect(result.signal, result.stderr).toBeNull();
++  expect(result.status, result.stderr).toBe(2);
++  expect(result.stdout).toBe('');
++}
++
++describe('bounded Git rewrite metadata (#798)', () => {
++  it('refuses malformed entry-time metadata before any agent starts', () => {
++    const f = fixture(); mkdirSync(join(f.cwd, '.git/info/grafts'));
++    const agentResult = vi.fn(); const errors: string[] = [];
++    vi.spyOn(process.stderr, 'write').mockImplementation(chunk => { errors.push(String(chunk)); return true; });
++    expect(runEnvelope({ cwd: f.cwd, cmd: 'node -e "process.exit(0)"', argv: [process.execPath, '-e', ''], onAgentResult: agentResult })).toBe(2);
++    expect(agentResult).not.toHaveBeenCalled();
++    expect(errors.join('')).toContain('entry-time Git rewrite state');
++  });
++  it.skipIf(!rootless)('reports uninspectable post-agent state as unavailable, never a clean fingerprint', () => {
++    const f = fixture(); const output: string[] = [];
++    vi.spyOn(process.stdout, 'write').mockImplementation(chunk => { output.push(String(chunk)); return true; });
++    vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
++    const result = runEnvelope({ cwd: f.cwd, cmd: 'node -e "process.exit(0)"', argv: [process.execPath, '-e', ''], json: true,
++      onBeforeAdjudication: () => { mkdirSync(join(f.cwd, '.git/info/grafts')); },
++    });
++    expect(result).toBe(2);
++    expect(JSON.parse(output.join('').trim())).toMatchObject({ verdict: 'CANNOT_ADJUDICATE', reason: 'GIT_REWRITE_STATE_UNAVAILABLE', exit_code: 2, complete: false });
++  });
++  it('preserves the established digest for absent metadata and trimmed regular files', () => {
++    const f = fixture();
++    const digest = (grafts: string, shallow: string) => createHash('sha256').update(`replace:\ninfo/grafts:${grafts}\nshallow:${shallow}`).digest('hex');
++    expect(objectRewriteState(f.cwd)).toBe(digest('', ''));
++    const head = f.git('rev-parse', 'HEAD');
++    writeFileSync(join(f.cwd, '.git/info/grafts'), head + '\n');
++    writeFileSync(join(f.cwd, '.git/shallow'), head + '\n');
++    expect(objectRewriteState(f.cwd)).toBe(digest(head, head));
++  });
++  it.each(['info/grafts', 'shallow'])('refuses a directory at %s rather than hashing an unreadable marker', rel => {
++    const f = fixture(); mkdirSync(join(f.cwd, '.git', rel)); refused(f.cwd);
++  });
++  it.each(['info/grafts', 'shallow'])('refuses oversized %s without reading its contents', rel => {
++    const f = fixture(); const fd = openSync(join(f.cwd, '.git', rel), 'w');
++    try { ftruncateSync(fd, READ_CAP + 1); } finally { closeSync(fd); }
++    refused(f.cwd);
++  });
++  it.skipIf(process.platform === 'win32').each(['info/grafts', 'shallow'])('refuses a FIFO at %s without waiting for a writer', rel => {
++    const f = fixture(); execFileSync('mkfifo', [join(f.cwd, '.git', rel)]); refused(f.cwd);
++  });
++  it.skipIf(process.platform === 'win32').each(['regular', 'absent', 'fifo'])('refuses a metadata link to a %s target', kind => {
++    const f = fixture(); const target = join(f.cwd, '.git/target');
++    if (kind === 'regular') writeFileSync(target, '');
++    if (kind === 'fifo') execFileSync('mkfifo', [target]);
++    symlinkSync(target, join(f.cwd, '.git/info/grafts')); refused(f.cwd);
++  });
++  it('tracks the actual common-directory metadata from linked worktrees', () => {
++    const f = fixture(); const worktree = join(f.cwd, 'linked'); f.git('worktree', 'add', '--detach', worktree, 'HEAD');
++    const before = objectRewriteState(worktree);
++    writeFileSync(join(f.cwd, '.git/info/grafts'), f.git('rev-parse', 'HEAD') + '\n');
++    expect(objectRewriteState(worktree)).not.toBe(before);
++    expect(objectRewriteState(worktree)).toBe(objectRewriteState(f.cwd));
++  });
++  it('does not accept a directory outside a repository as an inspectable state', () => {
++    const dir = mkdtempSync(join(tmpdir(), 'tw-not-git-')); roots.push(dir); refused(dir);
++  });
++});

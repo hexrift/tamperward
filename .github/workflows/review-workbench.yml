@@ -9,7 +9,7 @@ concurrency:
   group: review-workbench
   cancel-in-progress: false
 jobs:
-  prepare-policy-fix:
+  prepare-git-metadata-fix:
     if: github.repository == 'hexrift/tamperward' && github.ref == 'refs/heads/fix/review-workbench'
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -22,7 +22,7 @@ jobs:
           persist-credentials: false
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: dc4e7598a37fbd63a2218e717b20182f6d691023
+          ref: 67bd857f72b5a0f10617b3dc3aa5c68cd4122b7c
           path: target
           fetch-depth: 0
           persist-credentials: false
@@ -33,33 +33,33 @@ jobs:
         working-directory: target
         run: |
           npm ci
-          git apply --include='test/policy-nested-keys.test.ts' ../workbench/.review/policy-keys.patch
+          git apply --include='test/git-rewrite-metadata.test.ts' ../workbench/.review/git-rewrite.patch
       - name: Require baseline assertion failures
         working-directory: target
         shell: bash
         run: |
           set +e
-          npx vitest run test/policy-nested-keys.test.ts --reporter=json --outputFile=../policy-baseline.json
+          npx vitest run test/git-rewrite-metadata.test.ts --reporter=json --outputFile=../git-baseline.json
           result=$?
           set -e
           test "$result" -ne 0
           python3 - <<'PY'
           import json
-          d = json.load(open('../policy-baseline.json'))
+          d = json.load(open('../git-baseline.json'))
           print({k: d.get(k) for k in ['numTotalTests', 'numPassedTests', 'numFailedTests', 'numRuntimeErrorTestSuites']})
-          assert d['numTotalTests'] == 23 and d['numFailedTests'] == 20 and d['numPassedTests'] == 3
+          assert d['numTotalTests'] == 14 and d['numFailedTests'] == 13 and d['numPassedTests'] == 1
           assert not d.get('numRuntimeErrorTestSuites', 0)
           PY
-      - name: Apply the exact locally tested patch
+      - name: Apply the exact locally tested implementation
         working-directory: target
         run: |
-          git apply --exclude='test/policy-nested-keys.test.ts' ../workbench/.review/policy-keys.patch
-          git add CHANGELOG.md package.json package-lock.json src/policy-load.ts test/policy-nested-keys.test.ts
-          test "$(git write-tree)" = d01db850170093da9ae95476ee157cb966e55915
+          git apply --exclude='test/git-rewrite-metadata.test.ts' ../workbench/.review/git-rewrite.patch
+          git add CHANGELOG.md package.json package-lock.json schemas/run-v1.schema.json src/cli/run.ts src/git/trusted.ts src/machine-output.ts test/git-rewrite-metadata.test.ts
+          test "$(git write-tree)" = 7ae8b2002660c06e7f34567797c2c0a93faeb2ec
           git diff --cached --check
-      - name: Focused policy regressions
+      - name: Focused metadata envelope and schema regressions
         working-directory: target
-        run: npx vitest run test/policy-nested-keys.test.ts test/policy.test.ts test/policy-strict.test.ts test/organisation-policy-floor.test.ts test/verifier-backend-policy.test.ts
+        run: npx vitest run test/git-rewrite-metadata.test.ts test/audit-1-6.test.ts test/json-schema.test.ts
       - name: Typecheck build and repository integrity gate
         working-directory: target
         run: npm run typecheck && npm run build && node dist/cli/index.js check --staged
@@ -73,17 +73,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          expected=dc4e7598a37fbd63a2218e717b20182f6d691023
+          expected=67bd857f72b5a0f10617b3dc3aa5c68cd4122b7c
           test "$(git rev-parse HEAD)" = "$expected"
           test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$expected"
-          test "$(git write-tree)" = d01db850170093da9ae95476ee157cb966e55915
-          if test -n "$(git ls-remote origin refs/heads/fix/nested-policy-keys)"; then
+          test "$(git write-tree)" = 7ae8b2002660c06e7f34567797c2c0a93faeb2ec
+          if test -n "$(git ls-remote origin refs/heads/fix/git-rewrite-metadata)"; then
             echo 'Refusing to replace an existing implementation branch'; exit 1
           fi
-          git switch -c fix/nested-policy-keys
+          git switch -c fix/git-rewrite-metadata
           git config user.name "$(git log -1 --format=%an)"
           git config user.email "$(git log -1 --format=%ae)"
-          git commit -m 'fix: reject unknown nested policy fields'
+          git commit -m 'fix: bound Git rewrite metadata and reject uninspectable state'
           auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
-          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" push origin HEAD:refs/heads/fix/nested-policy-keys
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" push origin HEAD:refs/heads/fix/git-rewrite-metadata
           git show --stat --oneline HEAD
