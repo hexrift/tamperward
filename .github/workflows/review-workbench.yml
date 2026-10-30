@@ -9,37 +9,81 @@ concurrency:
   group: review-workbench
   cancel-in-progress: false
 jobs:
-  export-test-workspace:
+  prepare-policy-fix:
     if: github.repository == 'hexrift/tamperward' && github.ref == 'refs/heads/fix/review-workbench'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 25
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 0fcd0b684b9bade8ff3ee290ed5493909dc526b3
+          path: workbench
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: dc4e7598a37fbd63a2218e717b20182f6d691023
           path: target
           fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: 22
-      - name: Install the pinned public dependencies
+      - name: Install pinned dependencies and add regression only
         working-directory: target
-        run: npm ci
-      - name: Export source, dependency tree and public history only
+        run: |
+          npm ci
+          git apply --include='test/policy-nested-keys.test.ts' ../workbench/.review/policy-keys.patch
+      - name: Require baseline assertion failures
+        working-directory: target
+        shell: bash
+        run: |
+          set +e
+          npx vitest run test/policy-nested-keys.test.ts --reporter=json --outputFile=../policy-baseline.json
+          result=$?
+          set -e
+          test "$result" -ne 0
+          python3 - <<'PY'
+          import json
+          d = json.load(open('../policy-baseline.json'))
+          print({k: d.get(k) for k in ['numTotalTests', 'numPassedTests', 'numFailedTests', 'numRuntimeErrorTestSuites']})
+          assert d['numTotalTests'] == 23 and d['numFailedTests'] == 20 and d['numPassedTests'] == 3
+          assert not d.get('numRuntimeErrorTestSuites', 0)
+          PY
+      - name: Apply the exact locally tested patch
+        working-directory: target
+        run: |
+          git apply --exclude='test/policy-nested-keys.test.ts' ../workbench/.review/policy-keys.patch
+          git add CHANGELOG.md package.json package-lock.json src/policy-load.ts test/policy-nested-keys.test.ts
+          test "$(git write-tree)" = d01db850170093da9ae95476ee157cb966e55915
+          git diff --cached --check
+      - name: Focused policy regressions
+        working-directory: target
+        run: npx vitest run test/policy-nested-keys.test.ts test/policy.test.ts test/policy-strict.test.ts test/organisation-policy-floor.test.ts test/verifier-backend-policy.test.ts
+      - name: Typecheck build and repository integrity gate
+        working-directory: target
+        run: npm run typecheck && npm run build && node dist/cli/index.js check --staged
+      - name: Full repository tests
+        working-directory: target
+        run: npm test
+      - name: Publish only the tested engineering branch
+        working-directory: target
+        env:
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          mkdir export
-          git -C target bundle create "$PWD/export/history.bundle" --all HEAD
-          tar -C target --exclude='./.git' -czf export/workspace.tar.gz .
-          cp "$(command -v node)" export/node
-          git -C target rev-parse HEAD > export/HEAD.txt
-          (cd export && sha256sum workspace.tar.gz history.bundle node > SHA256SUMS)
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-        with:
-          name: review-offline-workspace
-          path: export/
-          retention-days: 2
-          compression-level: 0
-          if-no-files-found: error
+          expected=dc4e7598a37fbd63a2218e717b20182f6d691023
+          test "$(git rev-parse HEAD)" = "$expected"
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$expected"
+          test "$(git write-tree)" = d01db850170093da9ae95476ee157cb966e55915
+          if test -n "$(git ls-remote origin refs/heads/fix/nested-policy-keys)"; then
+            echo 'Refusing to replace an existing implementation branch'; exit 1
+          fi
+          git switch -c fix/nested-policy-keys
+          git config user.name "$(git log -1 --format=%an)"
+          git config user.email "$(git log -1 --format=%ae)"
+          git commit -m 'fix: reject unknown nested policy fields'
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" push origin HEAD:refs/heads/fix/nested-policy-keys
+          git show --stat --oneline HEAD
