@@ -477,7 +477,11 @@ export function evaluateGitHubProtection(
   );
   if (!hasCodeOwnerReview) findings.push('require Code Owner review');
   if (!dismissesStaleReviews) findings.push('dismiss stale pull request approvals on new pushes');
-  if (Array.isArray(snapshot.bypassActors) && snapshot.bypassActors.length > 0) {
+  // GitHub omits bypass_actors when the requester cannot inspect it. Absence
+  // is unknown evidence, not an empty grant list (#795).
+  if (!Array.isArray(snapshot.bypassActors)) {
+    findings.push('ruleset bypass actors could not be verified');
+  } else if (snapshot.bypassActors.length > 0) {
     findings.push('remove unintended ruleset bypass actors');
   }
   return findings;
@@ -563,9 +567,11 @@ function githubApi(cwd: string, endpoint: string): unknown {
   }
 }
 
-function githubAuthority(
+/** @internal The transport seam exercises collection and fallback without live API access. */
+export function githubAuthority(
   opts: DoctorOpts,
   cwd: string,
+  readApi: typeof githubApi = githubApi,
 ): { repo: string; branch: string; findings: string[] } {
   const repo = opts.repo ?? inferGitHubRepo(cwd);
   if (!repo || !/^[^/\s]+\/[^/\s]+$/.test(repo)) {
@@ -576,7 +582,7 @@ function githubAuthority(
 
   let branch = opts.branch ?? process.env.GITHUB_BASE_REF ?? '';
   if (!branch) {
-    const meta = asMapping(githubApi(cwd, 'repos/' + repo));
+    const meta = asMapping(readApi(cwd, 'repos/' + repo));
     if (typeof meta?.default_branch === 'string') branch = meta.default_branch;
   }
   if (!branch) throw new Error('cannot determine protected branch; pass --branch BRANCH');
@@ -584,7 +590,8 @@ function githubAuthority(
   let rules: unknown;
   let rulesError: Error | null = null;
   try {
-    rules = githubApi(cwd, 'repos/' + repo + '/rules/branches/' + encodeURIComponent(branch));
+    rules = readApi(cwd, 'repos/' + repo + '/rules/branches/' + encodeURIComponent(branch));
+    if (!Array.isArray(rules)) throw new Error('branch rules response is not an array');
   } catch (e) {
     rulesError = e instanceof Error ? e : new Error(String(e));
   }
@@ -592,7 +599,7 @@ function githubAuthority(
   let bypassActors: unknown;
   let rulesetInspectionError: Error | null = null;
   try {
-    const rulesets = githubApi(cwd, 'repos/' + repo + '/rulesets');
+    const rulesets = readApi(cwd, 'repos/' + repo + '/rulesets');
     const active = Array.isArray(rulesets)
       ? rulesets.find((raw) => {
         const item = asMapping(raw);
@@ -603,27 +610,35 @@ function githubAuthority(
     if (typeof id !== 'number') {
       rulesetInspectionError = new Error('no active main branch ruleset was found');
     } else {
-      const detail = asMapping(githubApi(cwd, 'repos/' + repo + '/rulesets/' + id));
+      const detail = asMapping(readApi(cwd, 'repos/' + repo + '/rulesets/' + id));
       bypassActors = detail?.bypass_actors;
     }
   } catch (e) {
     rulesetInspectionError = e instanceof Error ? e : new Error(String(e));
   }
 
-  let findings = evaluateGitHubProtection(
-    { rules, bypassActors },
-    'tamperward',
-    REPOSITORY_REQUIRED_CHECKS,
-  );
+  // Fallback can supply a missing requirement, but cannot discard adverse or
+  // unknown observations or silently replace the requested check contract.
+  const inspectionFindings: string[] = [];
+  if (rulesError) inspectionFindings.push('branch rules could not be verified: ' + rulesError.message);
   if (rulesetInspectionError) {
-    findings.push('active main ruleset bypass actors could not be verified: ' + rulesetInspectionError.message);
+    inspectionFindings.push('active main ruleset bypass actors could not be verified: ' + rulesetInspectionError.message);
   }
+  const evaluate = (branchProtection?: unknown): string[] => [
+    ...evaluateGitHubProtection(
+      { rules, bypassActors, branchProtection },
+      'tamperward',
+      REPOSITORY_REQUIRED_CHECKS,
+    ),
+    ...inspectionFindings,
+  ];
+  let findings = evaluate();
   if (findings.length === 0) return { repo, branch, findings };
 
   let branchProtection: unknown;
   let classicError: Error | null = null;
   try {
-    branchProtection = githubApi(
+    branchProtection = readApi(
       cwd,
       'repos/' + repo + '/branches/' + encodeURIComponent(branch) + '/protection',
     );
@@ -631,7 +646,7 @@ function githubAuthority(
     classicError = e instanceof Error ? e : new Error(String(e));
   }
 
-  findings = evaluateGitHubProtection({ rules, branchProtection });
+  findings = evaluate(branchProtection);
   if (findings.length > 0 && rules === undefined && branchProtection === undefined) {
     throw new Error(
       'cannot inspect GitHub repository authority. Rules API: ' +

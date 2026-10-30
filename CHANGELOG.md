@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.47.1] — 2026-10-30
+
+### Fixed
+
+- Preserve adverse and unknown GitHub authority evidence across classic branch-
+  protection fallback in `doctor --github` (#795). Missing/malformed bypass lists
+  and unavailable branch-rule evidence cannot certify authority; fallback retains
+  the same required-check contract. Collector-level regressions exercise both
+  successful composition and refusal paths.
+
 ## [2.47.0] — 2026-10-22
 
 ### Added
