@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.48.1] — 2026-10-30
+
+### Fixed
+
+- Bound Git graft/shallow metadata reads and replace-ref inspection for the
+  `run` object-layer fingerprint (#798). Reject irregular, linked, unreadable
+  or oversized metadata before Git can consume it, and resolve effective paths
+  in linked worktrees. Unavailable evidence now fails closed as cannot
+  adjudicate rather than comparing stable unreadable markers; normal digest
+  ordering and the v1 machine reason vocabulary remain unchanged.
+
 ## [2.48.0] — 2026-10-30
 
 ### Added
