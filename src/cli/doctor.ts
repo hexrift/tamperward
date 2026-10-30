@@ -18,6 +18,7 @@ export { evaluateGitHubProtection, REPOSITORY_REQUIRED_CHECKS } from '../github-
 export type { GitHubProtectionSnapshot } from '../github-authority';
 import { readStateFile } from '../disk';
 import { paint, severityColour, BOLD, type Severity } from './render/status';
+import { capabilityReadiness, type CapabilityReadiness } from '../capability-readiness';
 
 export interface DoctorOpts {
   cwd?: string;
@@ -51,6 +52,7 @@ export interface DoctorReport {
   command: 'doctor';
   authoritative: boolean;
   checks: DoctorCheck[];
+  capabilities: CapabilityReadiness[];
 }
 
 /** @internal Pure platform rendering for tests; runtime calls trustedLinuxPython itself. */
@@ -107,6 +109,7 @@ export interface DoctorOutcome {
   code: 0 | 2;
   authoritative: boolean;
   checks: DoctorCheck[];
+  verifierBackend?: 'local' | 'container';
   /** Set when doctor stopped early: the failing check id and its message. */
   failure?: { id: string; message: string };
   /** Human summary lines runDoctor prints before the check report on success. */
@@ -389,9 +392,10 @@ function observerCheck(cwd: string): DoctorCheck {
   };
 }
 
-function emitReport(opts: DoctorOpts, checks: DoctorCheck[], authoritative: boolean): void {
+function emitReport(opts: DoctorOpts, checks: DoctorCheck[], authoritative: boolean, verifierBackend?: 'local' | 'container'): void {
+  const capabilities = capabilityReadiness({ checks, platform: process.platform, verifierBackend });
   if (opts.json) {
-    const report: DoctorReport = machineOutput({ command: 'doctor' as const, authoritative, checks });
+    const report: DoctorReport = machineOutput({ command: 'doctor' as const, authoritative, checks, capabilities });
     process.stdout.write(JSON.stringify(report) + '\n');
     return;
   }
@@ -404,6 +408,9 @@ function emitReport(opts: DoctorOpts, checks: DoctorCheck[], authoritative: bool
       const tag = paint(`[${check.state}]`, (sev === 'bad' ? BOLD : '') + severityColour(sev), colour);
       process.stdout.write(`tamperward doctor: ${tag} ${check.id} — ${check.detail}\n`);
     }
+  }
+  for (const capability of capabilities) {
+    process.stdout.write(`tamperward doctor: ${capability.id} ${capability.state} — ${capability.next}\n`);
   }
 }
 
@@ -814,6 +821,7 @@ export function diagnose(opts: DoctorOpts = {}): DoctorOutcome {
     code: 0,
     authoritative: !checks.some((x) => x.state === 'BROKEN'),
     checks,
+    verifierBackend: policy.verify?.backend ?? 'local',
     summary,
     ...(github ? { github: { repo: github.repo, branch: github.branch } } : {}),
   };
@@ -823,7 +831,7 @@ export function runDoctor(opts: DoctorOpts = {}): number {
   const outcome = diagnose(opts);
   if (outcome.failure) {
     if (opts.json) {
-      emitReport(opts, outcome.checks, false);
+      emitReport(opts, outcome.checks, false, outcome.verifierBackend);
     } else {
       process.stderr.write(`tamperward doctor: ${outcome.failure.message}\n`);
     }
@@ -832,6 +840,6 @@ export function runDoctor(opts: DoctorOpts = {}): number {
   if (!opts.json) {
     for (const line of outcome.summary) process.stdout.write(line + '\n');
   }
-  emitReport(opts, outcome.checks, outcome.authoritative);
+  emitReport(opts, outcome.checks, outcome.authoritative, outcome.verifierBackend);
   return outcome.code;
 }

@@ -737,6 +737,11 @@ describe('doctor installation posture (#318)', () => {
     expect(doc.checks.some((x: any) => x.id === 'ci-verifier' && x.state === 'OK')).toBe(true);
     expect(doc.checks.some((x: any) => x.id === 'claude-hooks')).toBe(true);
     expect(doc.checks.some((x: any) => x.id === 'observer')).toBe(true);
+    expect(doc.capabilities).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'container-verify', state: 'UNVERIFIED' }),
+    ]));
+    expect(doc.capabilities.find((x: any) => x.id === 'run-lifecycle')?.state)
+      .toBe(doc.checks.find((x: any) => x.id === 'platform')?.state === 'OK' ? 'AVAILABLE' : 'BLOCKED');
   });
 });
 
