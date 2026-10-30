@@ -31,6 +31,12 @@ describe('command-specific readiness from doctor evidence (#803)', () => {
     expect(checks.some(x => x.state === 'BROKEN')).toBe(true);
     expect(states(checks, 'linux')).toMatchObject({ 'run-lifecycle': 'BLOCKED', 'local-verify': 'AVAILABLE' });
   });
+  it('knows a non-Linux lifecycle is blocked even when doctor stopped before its platform check', () => {
+    const early = base().filter(x => x.id !== 'platform');
+    expect(states(early, 'darwin')['run-lifecycle']).toBe('BLOCKED');
+    expect(states(early, 'win32')['run-lifecycle']).toBe('BLOCKED');
+    expect(states(early, 'linux')['run-lifecycle']).toBe('UNVERIFIED');
+  });
   it('Docker configuration alone is unverified; a failed preflight blocks container verification', () => {
     const checks = base();
     expect(states(checks, 'linux', 'container')['container-verify']).toBe('UNVERIFIED');

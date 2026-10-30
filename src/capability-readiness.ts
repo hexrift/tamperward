@@ -38,10 +38,10 @@ export function capabilityReadiness(input: CapabilityInputs): CapabilityReadines
       ? { id: 'container-verify', state: 'AVAILABLE', next: 'Run `tamperward verify`; recheck Docker and the pinned image for each verification.' }
       : { id: 'container-verify', state: 'UNVERIFIED', next: 'Configure a digest-pinned image and run `tamperward verify` for the Docker authority preflight.' };
 
-  const lifecycle: CapabilityReadiness = input.platform === 'linux' && state('platform') === 'OK'
-    ? { id: 'run-lifecycle', state: 'AVAILABLE', next: 'Linux lifecycle supervision is available; `tamperward run` still checks repository and verifier authority.' }
-    : state('platform') === 'BROKEN'
-      ? { id: 'run-lifecycle', state: 'BLOCKED', next: 'Use a supported Linux host with trusted system Python for authoritative `tamperward run`.' }
+  const lifecycle: CapabilityReadiness = input.platform !== 'linux' || state('platform') === 'BROKEN'
+    ? { id: 'run-lifecycle', state: 'BLOCKED', next: 'Use a supported Linux host with trusted system Python for authoritative `tamperward run`.' }
+    : state('platform') === 'OK'
+      ? { id: 'run-lifecycle', state: 'AVAILABLE', next: 'Linux lifecycle supervision is available; `tamperward run` still checks repository and verifier authority.' }
       : { id: 'run-lifecycle', state: 'UNVERIFIED', next: 'Run `tamperward doctor` to check authoritative lifecycle prerequisites.' };
 
   const ciIds = ['ci-verifier', 'ci-wiring', 'codeowners', 'workflow-permissions', 'github-authority'];
