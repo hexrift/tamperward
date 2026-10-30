@@ -60,9 +60,19 @@ jobs:
       - name: Focused metadata envelope and schema regressions
         working-directory: target
         run: npx vitest run test/git-rewrite-metadata.test.ts test/audit-1-6.test.ts test/json-schema.test.ts
-      - name: Typecheck build and repository integrity gate
+      - name: Verify source identity and typecheck
         working-directory: target
-        run: npm run typecheck && npm run build && node dist/cli/index.js check --staged
+        run: |
+          git diff --exit-code
+          git write-tree
+          git hash-object src/git/trusted.ts src/disk.ts
+          nl -ba src/git/trusted.ts | sed -n '25,110p'
+          node --version
+          node node_modules/typescript/bin/tsc --version
+          npm run typecheck
+      - name: Build and repository integrity gate
+        working-directory: target
+        run: npm run build && node dist/cli/index.js check --staged
       - name: Full repository tests
         working-directory: target
         run: npm test
@@ -77,6 +87,7 @@ jobs:
           test "$(git rev-parse HEAD)" = "$expected"
           test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$expected"
           test "$(git write-tree)" = 7ae8b2002660c06e7f34567797c2c0a93faeb2ec
+          git diff --exit-code
           if test -n "$(git ls-remote origin refs/heads/fix/git-rewrite-metadata)"; then
             echo 'Refusing to replace an existing implementation branch'; exit 1
           fi
