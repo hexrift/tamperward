@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -20,10 +20,10 @@ function repo(): string {
   execFileSync('git', ['init', '-q'], { cwd });
   return cwd;
 }
-function state(cwd: string): string {
+function state(cwd: string, timeout = 3000): string {
   return execFileSync(process.execPath,
     ['--input-type=module', '-e', `import {objectRewriteState} from ${JSON.stringify('file://' + modulePath)}; try { process.stdout.write(objectRewriteState(process.argv[1])); } catch(e) { process.stderr.write(e.message); process.exit(2); }`, cwd],
-    { encoding: 'utf8', timeout: 3000, stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+    { encoding: 'utf8', timeout, stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 }
 
 describe('bounded Git rewrite metadata (#798)', () => {
@@ -62,4 +62,32 @@ describe('bounded Git rewrite metadata (#798)', () => {
     writeFileSync(join(cwd, '.git/info/grafts'), 'abc\n');
     expect(state(linked)).not.toBe(before);
   });
+
+  it('never follows a replacement symlink or waits indefinitely during path replacement', async () => {
+    const cwd = repo();
+    const path = join(cwd, '.git/shallow');
+    const racer = spawn(process.execPath, ['-e', `
+      const fs = require('node:fs'); const path = process.argv[1];
+      const regular = path + '.regular'; const link = path + '.link';
+      const until = Date.now() + 2500;
+      while (Date.now() < until) {
+        fs.writeFileSync(regular, ''); fs.renameSync(regular, path);
+        fs.symlinkSync('/dev/zero', link); fs.renameSync(link, path);
+      }
+    `, path], { stdio: 'ignore' });
+    try {
+      await new Promise(resolve => setTimeout(resolve, 30));
+      for (let i = 0; i < 4; i++) {
+        try {
+          expect(state(cwd, 6000)).toMatch(/^[a-f0-9]{64}$/);
+        } catch (e) {
+          expect(String(e)).toContain('cannot inspect Git rewrite metadata');
+          expect(String(e)).not.toMatch(/ETIMEDOUT|timed out/);
+        }
+      }
+    } finally {
+      racer.kill();
+      if (racer.exitCode === null) await new Promise(resolve => racer.once('exit', resolve));
+    }
+  }, 30_000);
 });
