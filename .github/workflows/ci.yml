@@ -2,13 +2,17 @@ name: ci
 
 # PULL REQUESTS ONLY. A push-to-main trigger would re-run the same suite on a commit
 # that is, in the ordinary case, identical in content to the one just verified: the
-# ruleset requires a branch to be up to date with main before it can merge, so every
-# PR head is tested against current main immediately before landing. Paying for that
-# answer twice bought a signal on main itself, and nothing here reads that signal —
+# ruleset requires a branch to be up to date with main before it can merge. On a
+# pull_request event, the default checkout tests GitHub's synthetic merge of the
+# PR head into its base, with checks reported against that PR head. Paying for a
+# second run bought a signal on main itself, and nothing here reads that signal —
 # no badge, no downstream workflow, no deployment gate keys off it.
 #
-# What this gives up, stated plainly: a squash merge creates a commit no run has tested
-# verbatim, so if main ever does break, CI will not be what tells you.
+# What this gives up, stated plainly: a squash merge creates a new commit that no
+# PR run has tested verbatim. The tested merge tree and squash tree normally agree
+# under the strict up-to-date rule, but this workflow does not test the final SHA
+# or independently compare its package bytes. If main ever does break, this CI
+# trigger will not be what tells you.
 on:
   # labeled/unlabeled: the tamperward gate reads its out-of-band sign-off from the PR's
   # labels via the EVENT PAYLOAD, and a re-run reuses the original payload — so a label
