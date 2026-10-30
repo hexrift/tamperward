@@ -6,7 +6,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import * as backend from '../src/verifier-backend';
-import { runExternalOracle } from '../src/cli/oracle';
+import { runExternalOracle, runOracle } from '../src/cli/oracle';
 import { evaluateOracleCases, oracleProgram, ORACLE_WORKER, parseOraclePlan, type OracleRequest } from '../src/external-oracle';
 import { emptySuiteDiagnostics, runCapturedProcessSync } from '../src/suite-diagnostics';
 import type { BackendRunResult } from '../src/verifier-backend';
@@ -116,6 +116,52 @@ describe('independent JSON RPC oracle controller (#782)', () => {
     })).toBe(2);
     expect(report()).toMatchObject({ verdict: 'CANNOT_VERIFY', planned: 1, completed: 1, passed: 1, reason: 'EXECUTION_FAILED' });
     expect(report()).not.toHaveProperty('binding');
+    expect(JSON.stringify(report())).not.toContain('private cleanup detail');
+  });
+  it('versions structured preflight and post-evaluation reasons without changing v1 (#802)', () => {
+    const { cwd, manifest, sha256, report } = commandFixture(1);
+    const schema = new Ajv2020({ strict: true }).compile(JSON.parse(readFileSync(join(__dirname, '../schemas/oracle-v2.schema.json'), 'utf8')));
+    const check = (reason: string, completed: number) => {
+      const value = report();
+      expect(value).toMatchObject({ schema_version: 2, verdict: 'CANNOT_VERIFY', planned: 1, completed, passed: completed, reason });
+      expect(value).not.toHaveProperty('binding');
+      expect(schema(value), JSON.stringify(schema.errors)).toBe(true);
+    };
+    expect(runOracle(['--cwd', cwd, '--manifest', manifest, '--sha256', 'b'.repeat(64), '--schema-version', '2'])).toBe(2);
+    expect(report()).toMatchObject({ schema_version: 2, reason: 'MANIFEST_INVALID', planned: 0, completed: 0, passed: 0 });
+    const preflight = vi.spyOn(backend, 'prepareVerifierBackend').mockReturnValue({ kind: 'container', trust: 'isolated-container', available: false });
+    expect(runExternalOracle({ cwd, manifest, sha256, schemaVersion: 2 })).toBe(2);
+    check('BACKEND_UNAVAILABLE', 0);
+    expect(runExternalOracle({ cwd, manifest, sha256 })).toBe(2);
+    expect(report()).toMatchObject({ schema_version: 1, reason: 'EXECUTION_FAILED' });
+
+    preflight.mockImplementation(() => { throw new Error('private engine path'); });
+    expect(runExternalOracle({ cwd, manifest, sha256, schemaVersion: 2 })).toBe(2);
+    check('INFRASTRUCTURE_FAILED', 0);
+    expect(JSON.stringify(report())).not.toContain('private engine path');
+
+    preflight.mockReturnValue({ kind: 'container', trust: 'isolated-container', available: true, image });
+    vi.spyOn(backend, 'runContainerStage').mockImplementation((_backend, _snapshot, program) => {
+      if (typeof program === 'string') throw new Error('unexpected shell command');
+      writeFileSync(join(cwd, 'answer.cjs'), 'exports.answer = () => 0;\n');
+      return response(JSON.parse(Buffer.from(program.args[2], 'base64').toString('utf8')), 42);
+    });
+    expect(runExternalOracle({ cwd, manifest, sha256, schemaVersion: 2 })).toBe(2);
+    check('SNAPSHOT_CHANGED', 1);
+  });
+  it('reports v2 cleanup failures and rejects unsupported schema requests (#802)', () => {
+    const { cwd, manifest, sha256, report } = commandFixture(1);
+    vi.spyOn(backend, 'prepareVerifierBackend').mockReturnValue({ kind: 'container', trust: 'isolated-container', available: true, image });
+    vi.spyOn(backend, 'runContainerStage').mockImplementation((_backend, _snapshot, program) => {
+      if (typeof program === 'string') throw new Error('unexpected shell command');
+      return response(JSON.parse(Buffer.from(program.args[2], 'base64').toString('utf8')), 42);
+    });
+    expect(() => runOracle(['--schema-version', '3'])).toThrow(/schema-version/);
+    expect(runExternalOracle({ cwd, manifest, sha256, schemaVersion: 2 }, path => {
+      dirs.push(String(path));
+      throw new Error('private cleanup detail');
+    })).toBe(2);
+    expect(report()).toMatchObject({ schema_version: 2, reason: 'CLEANUP_FAILED', completed: 1, passed: 1 });
     expect(JSON.stringify(report())).not.toContain('private cleanup detail');
   });
   it('the actual worker emits a JSON frame and a real newline, not escaped delimiter text', () => {

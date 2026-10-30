@@ -646,7 +646,7 @@ Formats:
                                              TAMPERWARD_AUDIT_LOG). A finding is an
                                              integrity signal, not proof of agent intent.
   tamperward measure-suite --cmd C [--budget S] time a bare suite in the live checkout
-  tamperward oracle --manifest F --sha256 H [--cwd D]
+  tamperward oracle --manifest F --sha256 H [--cwd D] [--schema-version 1|2]
                                             independent container-backed JSON function oracle
   tamperward attestation sign --payload F --key K --out F
                                             sign a trusted CI verdict with an external Ed25519 key

@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.49.0] — 2026-10-30
+
+### Added
+
+- Opt-in `oracle --schema-version 2` reports safe, structured manifest, backend,
+  snapshot, cleanup and infrastructure failure reasons (#802). The default
+  `oracle-v1` schema and reason vocabulary remain compatible. V2 preserves
+  host-completed counts and never includes private exception details or a binding
+  on a failed post-evaluation check.
+
 ## [2.48.4] — 2026-10-30
 
 ### Fixed
