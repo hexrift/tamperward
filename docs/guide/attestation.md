@@ -74,3 +74,7 @@ of the old trusted key, not a repository edit or a candidate-controlled key id.
 
 Signed transport does not qualify a second runtime or enforce an organisation policy
 floor; those are separate M5 requirements.
+
+For an admission decision, follow the [v1 admission consumer contract](./admission-consumer.md).
+The v1 signature does not include the receipt's tree fingerprint or an assurance
+level; consumers must not infer either from the signed verdict alone.
