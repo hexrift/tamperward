@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { githubAuthority } from '../src/cli/doctor';
+import { validateCliArgs } from '../src/cli/main';
 
 const prefix = 'repos/acme/project';
 const opts = { repo: 'acme/project', branch: 'release/next' };
@@ -89,5 +90,13 @@ describe('applicable ruleset collection (#797)', () => {
       [`${prefix}/rulesets/8`]: { bypass_actors: null },
     });
     expect(githubAuthority(opts, '.', read).findings).toContain('ruleset bypass actors could not be verified');
+  });
+
+  it('validates the named and exact-check CLI contracts', () => {
+    expect(validateCliArgs('doctor', ['--github', '--check-contract', 'tamperward-repo'])).toBeUndefined();
+    expect(validateCliArgs('doctor', ['--github', '--required-checks', 'tamperward,integration'])).toBeUndefined();
+    expect(validateCliArgs('doctor', ['--check-contract', 'unknown'])).toContain('tamperward-repo');
+    expect(validateCliArgs('doctor', ['--check-contract', 'tamperward-repo', '--required-checks', 'tamperward']))
+      .toContain('either');
   });
 });
