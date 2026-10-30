@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.47.2] — 2026-10-30
+
+### Fixed
+
+- Reject unknown fields inside verifier, sign-off and per-rule policy mappings
+  instead of silently discarding intended protection (#799). Errors identify the
+  complete key path; repository and pinned organisation policy share validation.
+  Supported sign-off aliases, rule identifiers and protected categories remain
+  compatible. Previously ignored misspellings must now be corrected.
+
 ## [2.47.1] — 2026-10-30
 
 ### Fixed
