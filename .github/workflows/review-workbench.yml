@@ -1,0 +1,94 @@
+name: review-workbench
+on:
+  push:
+    branches: [fix/review-workbench]
+    paths: ['.review/**', '.github/workflows/review-workbench.yml']
+permissions:
+  contents: read
+concurrency:
+  group: review-workbench
+  cancel-in-progress: false
+jobs:
+  prepare-authority-fix:
+    if: github.repository == 'hexrift/tamperward' && github.ref == 'refs/heads/fix/review-workbench'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          path: workbench
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 362d8a6fe414eeba7e0381898a40baca7d3d9938
+          path: target
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: 22
+      - name: Install pinned dependencies
+        working-directory: target
+        run: npm ci
+      - name: Add regression and transport seam only
+        run: python3 workbench/.review/prepare.py tests target
+      - name: Require assertion failures on the original authority semantics
+        working-directory: target
+        shell: bash
+        run: |
+          set +e
+          npx vitest run test/doctor-authority-evidence.test.ts --reporter=json --outputFile=../baseline-results.json
+          result=$?
+          set -e
+          test "$result" -ne 0
+          python3 - <<'PY'
+          import json
+          d = json.load(open('../baseline-results.json'))
+          print({k: d.get(k) for k in ['numTotalTests', 'numPassedTests', 'numFailedTests', 'numRuntimeErrorTestSuites']})
+          assert d['numFailedTests'] >= 12
+          assert d['numPassedTests'] >= 1
+          assert d.get('numRuntimeErrorTestSuites', 0) == 0
+          PY
+      - name: Apply narrow fix and release entry
+        run: |
+          python3 workbench/.review/prepare.py fix target
+          cd target
+          npm version 2.47.1 --no-git-tag-version --ignore-scripts
+      - name: Focused authority tests
+        working-directory: target
+        run: npx vitest run test/doctor-ci.test.ts test/doctor-authority-evidence.test.ts
+      - name: Typecheck and build
+        working-directory: target
+        run: npm run typecheck && npm run build
+      - name: Full repository regression suite
+        working-directory: target
+        run: npm test
+      - name: Stage exact implementation and run integrity gate
+        working-directory: target
+        run: |
+          git add src/cli/doctor.ts test/doctor-ci.test.ts test/doctor-authority-evidence.test.ts package.json package-lock.json CHANGELOG.md
+          git diff --cached --check
+          node dist/cli/index.js check --staged
+      - name: Publish only the tested engineering branch
+        working-directory: target
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=362d8a6fe414eeba7e0381898a40baca7d3d9938
+          test "$(git rev-parse HEAD)" = "$expected"
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$expected"
+          if test -n "$(git ls-remote origin refs/heads/fix/doctor-authority-evidence)"; then
+            echo 'Refusing to replace an existing implementation branch'
+            exit 1
+          fi
+          git switch -c fix/doctor-authority-evidence
+          git config user.name "$(git log -1 --format=%an)"
+          git config user.email "$(git log -1 --format=%ae)"
+          git commit -m 'fix: retain GitHub authority evidence through fallback'
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" push origin HEAD:refs/heads/fix/doctor-authority-evidence
+          git show --stat --oneline HEAD
