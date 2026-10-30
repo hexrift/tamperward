@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.48.3] — 2026-10-30
+
+### Changed
+
+- Extracted pure GitHub authority evidence evaluation from doctor orchestration
+  into a directly importable module (#800). The doctor export and evaluation
+  behaviour remain compatible; a boundary regression keeps transport, I/O and
+  CLI rendering out of the evaluator.
+
 ## [2.48.2] — 2026-10-30
 
 ### Fixed
