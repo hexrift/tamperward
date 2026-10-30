@@ -12,7 +12,7 @@ import { evaluateOracleCases, oracleProgram, parseOraclePlan, type OracleEvaluat
 import { materialize, probeFilesystemCaseSensitivity } from './verify';
 
 export interface ExternalOracleOpts { cwd: string; manifest: string; sha256: string }
-export function runExternalOracle(opts: ExternalOracleOpts): number {
+export function runExternalOracle(opts: ExternalOracleOpts, removeSnapshot: typeof rmSync = rmSync): number {
   const cwd = repoRoot(opts.cwd);
   let temp: string | undefined;
   const emit = (result: OracleEvaluation, binding?: { head: string; tree: string; manifest: string; image: string }): number => {
@@ -23,6 +23,8 @@ export function runExternalOracle(opts: ExternalOracleOpts): number {
     return result.verdict === 'VERIFIED' ? 0 : result.verdict === 'ORACLE_RED' ? 1 : 2;
   };
   let planned = 0;
+  let evaluation: OracleEvaluation | undefined;
+  let binding: { head: string; tree: string; manifest: string; image: string } | undefined;
   try {
     if (!isAbsolute(opts.manifest) || !/^[a-f0-9]{64}$/.test(opts.sha256)) throw new Error('oracle requires an absolute external manifest and its SHA-256 pin');
     const rel = relative(realpathSync(cwd), realpathSync(opts.manifest));
@@ -50,14 +52,28 @@ export function runExternalOracle(opts: ExternalOracleOpts): number {
       if (source.kind !== copy.kind || source.mode !== copy.mode || !source.content || !copy.content || !source.content.equals(copy.content)) throw new Error('oracle snapshot changed');
     }
     if (treeFingerprint(cwd) !== tree || git(['rev-parse', 'HEAD']).trim() !== head) throw new Error('oracle candidate changed during snapshot');
-    const result = evaluateOracleCases(plan, (request, budget) => runContainerStage(backend, snapshot, oracleProgram(request), budget));
+    evaluation = evaluateOracleCases(plan, (request, budget) => runContainerStage(backend, snapshot, oracleProgram(request), budget));
     if (treeFingerprint(cwd) !== tree || git(['rev-parse', 'HEAD']).trim() !== head) throw new Error('oracle candidate changed during evaluation');
-    return emit(result, { head, tree, manifest: opts.sha256, image: plan.image });
+    binding = { head, tree, manifest: opts.sha256, image: plan.image };
   } catch {
-    return emit({ verdict: 'CANNOT_VERIFY', planned, completed: 0, passed: 0, reason: 'EXECUTION_FAILED' });
+    // Only the host-completed cases from an actual evaluation may survive a
+    // later snapshot/infrastructure failure. Preflight has no completed cases.
+    evaluation = { verdict: 'CANNOT_VERIFY', planned, completed: evaluation?.completed ?? 0,
+      passed: evaluation?.passed ?? 0, reason: 'EXECUTION_FAILED' };
+    binding = undefined;
   } finally {
-    if (temp) rmSync(temp, { recursive: true, force: true });
+    if (temp) {
+      try { removeSnapshot(temp, { recursive: true, force: true }); }
+      catch {
+        // Cleanup is part of a successful evaluation. Never print VERIFIED
+        // before it completes, or let a failed cleanup leave a green report.
+        evaluation = { verdict: 'CANNOT_VERIFY', planned, completed: evaluation?.completed ?? 0,
+          passed: evaluation?.passed ?? 0, reason: 'EXECUTION_FAILED' };
+        binding = undefined;
+      }
+    }
   }
+  return emit(evaluation ?? { verdict: 'CANNOT_VERIFY', planned, completed: 0, passed: 0, reason: 'EXECUTION_FAILED' }, binding);
 }
 export function runOracle(args: string[]): number {
   let cwd = process.cwd(), manifest = '', sha256 = '';
