@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.48.2] — 2026-10-30
+
+### Fixed
+
+- Bound local workflow and version-pin reads in `doctor` using regular-file,
+  no-follow inspection (#800). A FIFO, device, symbolic link or oversized
+  authority file cannot hold the diagnostic indefinitely; unreadable version
+  pins are reported as BROKEN instead of being treated as absent.
+
 ## [2.48.1] — 2026-10-30
 
 ### Fixed
